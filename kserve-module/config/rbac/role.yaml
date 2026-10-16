@@ -349,6 +349,7 @@ rules:
   - odh-model-controller-role
   - openshift-ai-inferenceservice-image-volume-scc
   - openshift-ai-llminferenceservice-scc
+  - openshift-ai-llmisvc-confidential-bare-metal
   - proxy-role
   - workload-variant-autoscaler-epp-metrics-reader-role
   - workload-variant-autoscaler-manager-role

@@ -69,6 +69,7 @@ func (r *LLMISVCReconciler) preparePlatformWorkload(ctx context.Context, svc *v1
 		if err != nil || cfg.StorageSize.Sign() <= 0 {
 			return fmt.Errorf("%s must be a positive storage quantity", confidentialStorageSizeAnnotation)
 		}
+		cfg.MinimumSize = cfg.StorageSize.DeepCopy()
 	}
 	if err := r.reconcileConfidentialHelpers(ctx, svc.Namespace); err != nil {
 		return err

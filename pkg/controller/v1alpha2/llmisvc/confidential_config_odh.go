@@ -39,6 +39,7 @@ const (
 	confidentialHelpersName           = "kserve-confidential-bare-metal-resources"
 	confidentialInitDataAnnotation    = "io.katacontainers.config.hypervisor.cc_init_data"
 	confidentialStorageSizeAnnotation = "serving.kserve.io/confidential-storage-size"
+	confidentialPVAnnotation          = "serving.kserve.io/confidential-pv"
 )
 
 func init() {
@@ -79,10 +80,22 @@ func usesConfidentialBareMetal(svc *v1alpha2.LLMInferenceService) bool {
 
 // Installation values only; the preset describes the pod and the SCC its permissions.
 type confidentialDefaults struct {
-	StorageClassName string            `json:"storageClassName"`
-	StorageSize      resource.Quantity `json:"storageSize"`
-	LUKSResourceID   string            `json:"luksResourceId"`
-	InitData         string            `json:"initData,omitempty"`
+	StorageClassName string                    `json:"storageClassName"`
+	StorageSize      resource.Quantity         `json:"storageSize"`
+	LUKSResourceID   string                    `json:"luksResourceId"`
+	InitData         string                    `json:"initData,omitempty"`
+	LocalVolumes     []confidentialLocalVolume `json:"localVolumes,omitempty"`
+	MinimumSize      resource.Quantity         `json:"-"`
+}
+
+// Only administrators of inferenceservice-config can authorize host devices.
+type confidentialLocalVolume struct {
+	Name           string            `json:"name"`
+	Namespace      string            `json:"namespace"`
+	NodeName       string            `json:"nodeName"`
+	DevicePath     string            `json:"devicePath"`
+	Capacity       resource.Quantity `json:"capacity"`
+	LUKSResourceID string            `json:"luksResourceId,omitempty"`
 }
 
 func (r *LLMISVCReconciler) loadConfidentialDefaults(ctx context.Context) (*confidentialDefaults, error) {
@@ -91,11 +104,13 @@ func (r *LLMISVCReconciler) loadConfidentialDefaults(ctx context.Context) (*conf
 		return nil, err
 	}
 	cfg := &confidentialDefaults{}
-	if err := json.Unmarshal([]byte(cm.Data[confidentialDefaultsKey]), cfg); err != nil {
-		return nil, fmt.Errorf("inferenceservice-config.data.%s: %w", confidentialDefaultsKey, err)
+	if raw := cm.Data[confidentialDefaultsKey]; raw != "" {
+		if err := json.Unmarshal([]byte(raw), cfg); err != nil {
+			return nil, fmt.Errorf("inferenceservice-config.data.%s: %w", confidentialDefaultsKey, err)
+		}
 	}
-	if cfg.StorageClassName == "" || cfg.StorageSize.Sign() <= 0 || cfg.LUKSResourceID == "" {
-		return nil, fmt.Errorf("inferenceservice-config.data.%s requires storageClassName, positive storageSize, and luksResourceId", confidentialDefaultsKey)
+	if err := validateConfidentialStorageDefaults(cfg); err != nil {
+		return nil, fmt.Errorf("inferenceservice-config.data.%s: %w", confidentialDefaultsKey, err)
 	}
 	return cfg, nil
 }

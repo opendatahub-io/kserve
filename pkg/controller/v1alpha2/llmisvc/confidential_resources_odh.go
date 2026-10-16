@@ -23,20 +23,14 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	storagev1 "k8s.io/api/storage/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/utils/ptr"
-	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/yaml"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 )
 
@@ -98,63 +92,5 @@ func (r *LLMISVCReconciler) reconcileConfidentialHelpers(ctx context.Context, na
 			return fmt.Errorf("reconcile confidential helper %s/%s: %w", namespace, expected.GetName(), err)
 		}
 	}
-	return nil
-}
-
-func (r *LLMISVCReconciler) reconcileConfidentialPVC(ctx context.Context, svc *v1alpha2.LLMInferenceService, cfg *confidentialDefaults) error {
-	volume := confidentialBlockVolume(svc.Spec.Template)
-	if volume == nil {
-		return errors.New("the confidential bare-metal preset requires the luks-block PVC volume")
-	}
-	generatedName := kmeta.ChildName(svc.Name, "-confidential-storage")
-	automatic := volume.ClaimName == generatedName || volume.ClaimName == ""
-	if automatic {
-		volume.ClaimName = generatedName
-	}
-	claim := &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Namespace: svc.Namespace, Name: volume.ClaimName}}
-	err := r.Get(ctx, client.ObjectKeyFromObject(claim), claim)
-	if apierrors.IsNotFound(err) && automatic {
-		sc := &storagev1.StorageClass{}
-		if err := r.Get(ctx, client.ObjectKey{Name: cfg.StorageClassName}, sc); err != nil {
-			return fmt.Errorf("get confidential StorageClass: %w", err)
-		}
-		if strings.HasPrefix(sc.Provisioner, "kubernetes.io/") {
-			return fmt.Errorf("confidential storage requires a CSI StorageClass supporting raw block and ReadWriteOncePod; %s uses %s", sc.Name, sc.Provisioner)
-		}
-		claim.Labels = map[string]string{confidentialManagedLabel: "true", constants.KubernetesPartOfLabelKey: constants.LLMInferenceServicePartOfValue}
-		claim.Annotations = map[string]string{confidentialServiceUIDAnnotation: string(svc.UID)}
-		claim.Spec = corev1.PersistentVolumeClaimSpec{
-			StorageClassName: ptr.To(cfg.StorageClassName), VolumeMode: ptr.To(corev1.PersistentVolumeBlock),
-			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOncePod},
-			Resources:   corev1.VolumeResourceRequirements{Requests: corev1.ResourceList{corev1.ResourceStorage: cfg.StorageSize}},
-		}
-		// Deliberately no owner reference: retain encrypted data after service deletion.
-		if err = r.Create(ctx, claim); apierrors.IsAlreadyExists(err) {
-			err = r.Get(ctx, client.ObjectKeyFromObject(claim), claim)
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("get or create encrypted PVC %s/%s: %w", svc.Namespace, volume.ClaimName, err)
-	}
-	if automatic && claim.Annotations[confidentialServiceUIDAnnotation] != string(svc.UID) {
-		original := &v1alpha2.LLMInferenceService{}
-		if err := r.Get(ctx, client.ObjectKeyFromObject(svc), original); err != nil {
-			return err
-		}
-		var explicit *corev1.PersistentVolumeClaimVolumeSource
-		if original.Spec.Template != nil {
-			explicit = confidentialBlockVolume(original.Spec.Template)
-		}
-		if explicit == nil || explicit.ClaimName != claim.Name {
-			return fmt.Errorf("retained PVC %s belongs to another service instance; explicitly reference it in the luks-block volume to reuse its data", claim.Name)
-		}
-	}
-	size := claim.Spec.Resources.Requests[corev1.ResourceStorage]
-	if claim.DeletionTimestamp != nil || ptr.Deref(claim.Spec.VolumeMode, corev1.PersistentVolumeFilesystem) != corev1.PersistentVolumeBlock ||
-		len(claim.Spec.AccessModes) != 1 || claim.Spec.AccessModes[0] != corev1.ReadWriteOncePod || size.Cmp(cfg.StorageSize) < 0 ||
-		(automatic && ptr.Deref(claim.Spec.StorageClassName, "") != cfg.StorageClassName) {
-		return fmt.Errorf("PVC %s is incompatible: requires a non-terminating raw block ReadWriteOncePod claim with at least %s capacity and, for an automatically created claim, StorageClass %s; its data was left intact", claim.Name, cfg.StorageSize.String(), cfg.StorageClassName)
-	}
-	// Pending is allowed: WaitForFirstConsumer provisioning needs the Deployment first.
 	return nil
 }

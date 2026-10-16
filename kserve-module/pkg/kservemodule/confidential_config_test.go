@@ -15,7 +15,11 @@ import (
 )
 
 func TestPreserveConfidentialDefaults(t *testing.T) {
-	for _, raw := range []string{`{"storageClassName":"customer-csi","storageSize":"500Gi","luksResourceId":"kbs:///customer/disk/key"}`, "invalid-json", ""} {
+	for _, raw := range []string{
+		`{"storageClassName":"customer-csi","storageSize":"500Gi","luksResourceId":"kbs:///customer/disk/key"}`,
+		`{"localVolumes":[{"name":"local-disk","namespace":"models","nodeName":"worker","devicePath":"/dev/disk/by-id/local-disk","capacity":"893Gi","luksResourceId":"kbs:///customer/disk/key"}]}`,
+		"invalid-json", "",
+	} {
 		t.Run(raw, func(t *testing.T) {
 			g := NewWithT(t)
 			scheme := runtime.NewScheme()

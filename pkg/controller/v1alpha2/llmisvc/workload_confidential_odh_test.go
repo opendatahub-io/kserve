@@ -214,8 +214,8 @@ func TestConfidentialExistingPVC(t *testing.T) {
 	}{
 		{"filesystem", func(c *corev1.PersistentVolumeClaim) { c.Spec.VolumeMode = ptr.To(corev1.PersistentVolumeFilesystem) }, "incompatible"},
 		{"shared access", func(c *corev1.PersistentVolumeClaim) {
-			c.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
-		}, "incompatible"},
+			c.Spec.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteMany}
+		}, "requires ReadWriteOncePod"},
 		{"too small", func(c *corev1.PersistentVolumeClaim) {
 			c.Spec.Resources.Requests[corev1.ResourceStorage] = resource.MustParse("1Gi")
 		}, "incompatible"},

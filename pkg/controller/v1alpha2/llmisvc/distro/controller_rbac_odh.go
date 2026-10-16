@@ -26,6 +26,8 @@ package distro
 //+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=monitoring.coreos.com,resources=podmonitors;servicemonitors,verbs=get;list;watch;create;update;patch;delete
 
-//+kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create
+//+kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;patch
+//+kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get;list;watch;create
+//+kubebuilder:rbac:groups=apps,resources=replicasets,verbs=get;list;watch
 //+kubebuilder:rbac:groups=storage.k8s.io,resources=storageclasses,verbs=get;list;watch
 //+kubebuilder:rbac:groups=security.openshift.io,resources=securitycontextconstraints,resourceNames=openshift-ai-llmisvc-confidential-bare-metal,verbs=use

@@ -24,6 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,7 +40,18 @@ import (
 func (r *LLMISVCReconciler) watchConfidentialDependencies(b *builder.Builder, logger logr.Logger) {
 	mapper := handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, object client.Object) []reconcile.Request {
 		global := object.GetNamespace() == constants.KServeNamespace && (object.GetName() == confidentialHelpersName || object.GetName() == constants.InferenceServiceConfigMapName)
-		if !global && object.GetLabels()[confidentialManagedLabel] != "true" {
+		storageDependency := false
+		switch obj := object.(type) {
+		case *corev1.PersistentVolume, *storagev1.StorageClass:
+			global = true
+		case *corev1.PersistentVolumeClaim:
+			storageDependency = true
+		case *corev1.Pod:
+			for _, volume := range obj.Spec.Volumes {
+				storageDependency = storageDependency || volume.PersistentVolumeClaim != nil
+			}
+		}
+		if !global && !storageDependency && object.GetLabels()[confidentialManagedLabel] != "true" {
 			return nil
 		}
 		opts := []client.ListOption{}
@@ -78,4 +90,7 @@ func (r *LLMISVCReconciler) watchConfidentialDependencies(b *builder.Builder, lo
 	b.Watches(&corev1.ServiceAccount{}, mapper, builder.WithPredicates(changes))
 	b.Watches(&rbacv1.RoleBinding{}, mapper, builder.WithPredicates(changes))
 	b.Watches(&corev1.PersistentVolumeClaim{}, mapper, builder.WithPredicates(changes))
+	b.Watches(&corev1.PersistentVolume{}, mapper, builder.WithPredicates(changes))
+	b.Watches(&storagev1.StorageClass{}, mapper, builder.WithPredicates(changes))
+	b.Watches(&corev1.Pod{}, mapper, builder.WithPredicates(changes))
 }
