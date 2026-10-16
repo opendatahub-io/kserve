@@ -247,8 +247,9 @@ func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
 
 // isWVAEnabled always returns false: WVA is removed from the product in
 // RHOAI 3.6 (RHAISTRAT-2756). The WVA componentConfig entry is kept so
-// defaultCleanup still tears down leftover WVA resources on clusters
-// upgrading from 3.5 where WVA was Managed.
+// extraCleanup (cleanupWVAComponent) tears down leftovers on clusters
+// upgrading from 3.5. defaultCleanup cannot do this after the WVA overlay
+// is no longer cloned.
 func isWVAEnabled(_ *platformv1alpha1.Kserve) bool {
 	return false
 }

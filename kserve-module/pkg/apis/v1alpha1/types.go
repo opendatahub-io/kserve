@@ -88,8 +88,9 @@ type KserveSpec struct {
 	// do not share a vendor domain, so that all presets are always created.
 	EnableHardwareAwarePresets *bool `json:"enableHardwareAwarePresets,omitempty"`
 
-	// AuditLoggingProfile selects the inference request audit logging profile.
-	// Removed disables audit events; Metadata records request and response metadata without bodies.
+	// AuditLoggingProfile selects the audit logging profile for InferenceService and
+	// LLMInferenceService traffic. Removed disables audit events; Metadata records
+	// request and response metadata without bodies.
 	// +kubebuilder:validation:Enum=Removed;Metadata
 	// +kubebuilder:default=Removed
 	AuditLoggingProfile AuditProfile `json:"auditLoggingProfile,omitempty"`
