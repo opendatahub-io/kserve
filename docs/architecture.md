@@ -28,6 +28,8 @@ Hook pattern: upstream calls e.g. `extendControllerSetup()` → `controller_setu
 
 `Makefile.overrides.mk` sets `GOTAGS=distro`. Tag must propagate Makefile → Docker `GOTAGS` build-arg → `go build -tags` (missing tag silently drops ODH code). CI: `.github/workflows/distro-build-check.yml`.
 
+The reasoning, the upstream-first workflow and the full placement table are in [`docs/odh/midstream-conventions.md`](odh/midstream-conventions.md).
+
 ## InferenceService (ISVC)
 
 `pkg/controller/v1beta1/inferenceservice/` · `InferenceServiceReconciler.Reconcile()`
