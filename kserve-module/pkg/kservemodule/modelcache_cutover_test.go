@@ -8,13 +8,17 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 )
@@ -141,6 +145,50 @@ func TestModelCacheCutoverDoesNotMutateRenderedNamespaces(t *testing.T) {
 	}
 	if got := rendered[0].GetNamespace(); got != modelCacheNamespace {
 		t.Fatalf("cutover changed rendered resource namespace to %q", got)
+	}
+}
+
+func TestModelCacheCutoverIgnoresUnavailableCertificateAPI(t *testing.T) {
+	ctx := context.Background()
+	certificateGVK := schema.GroupVersionKind{Group: "cert-manager.io", Version: "v1", Kind: "Certificate"}
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := appsv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	if err := batchv1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+
+	cli := fake.NewClientBuilder().
+		WithScheme(scheme).
+		WithObjects(&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "test-ns"}}).
+		WithInterceptorFuncs(interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if obj.GetObjectKind().GroupVersionKind() == certificateGVK {
+					return &apimeta.NoKindMatchError{
+						GroupKind:        certificateGVK.GroupKind(),
+						SearchedVersions: []string{certificateGVK.Version},
+					}
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}).
+		Build()
+	r := &KserveModuleReconciler{
+		Client:                cli,
+		Scheme:                scheme,
+		applicationsNamespace: "test-ns",
+	}
+	certificate := unstructured.Unstructured{}
+	certificate.SetGroupVersionKind(certificateGVK)
+	certificate.SetName("kernelcache-root-ca")
+	certificate.SetNamespace(modelCacheNamespace)
+
+	if err := r.prepareModelCacheCutover(ctx, []unstructured.Unstructured{certificate}); err != nil {
+		t.Fatalf("unavailable cert-manager API should be treated as absent during cleanup: %v", err)
 	}
 }
 

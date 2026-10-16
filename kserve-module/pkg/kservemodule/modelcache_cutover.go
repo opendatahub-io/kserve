@@ -91,6 +91,9 @@ func (r *KserveModuleReconciler) deleteOldModelCacheObject(ctx context.Context, 
 	live := obj.DeepCopyObject().(client.Object)
 	key := client.ObjectKeyFromObject(obj)
 	if err := r.Get(ctx, key, live); err != nil {
+		if meta.IsNoMatchError(err) {
+			return false, nil
+		}
 		return false, client.IgnoreNotFound(err)
 	}
 	if live.GetLabels()[odhLabels.PlatformPartOf] != KserveComponentName {
