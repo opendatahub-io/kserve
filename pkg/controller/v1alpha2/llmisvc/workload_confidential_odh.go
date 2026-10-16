@@ -71,6 +71,9 @@ func (r *LLMISVCReconciler) prepareConfidentialWorkload(ctx context.Context, svc
 	if err != nil {
 		return err
 	}
+	if err := configureConfidentialDiskKey(formatter, cfg.LUKSResourceID); err != nil {
+		return err
+	}
 	if err := r.reconcileConfidentialHelpers(ctx, svc.Namespace); err != nil {
 		return err
 	}
@@ -82,7 +85,6 @@ func (r *LLMISVCReconciler) prepareConfidentialWorkload(ctx context.Context, svc
 		{Name: constants.ConfidentialEnabledEnvVar, Value: "true"},
 		{Name: constants.ConfidentialResourceIdEnvVar, Value: *model.Confidential.ResourceId},
 	})
-	utils.AddEnvVars(formatter, []corev1.EnvVar{{Name: "LUKS_RESOURCE_ID", Value: cfg.LUKSResourceID}})
 	if svc.Spec.Annotations == nil {
 		svc.Spec.Annotations = map[string]string{}
 	}

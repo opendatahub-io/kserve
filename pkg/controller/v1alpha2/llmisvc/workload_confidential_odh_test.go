@@ -19,6 +19,7 @@ limitations under the License.
 package llmisvc_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -384,8 +385,8 @@ func TestConfidentialCustomerStorageSettings(t *testing.T) {
 	for _, tc := range []struct{ name, raw, want string }{
 		{"key only", `{"luksResourceId":"kbs:///default/disk/key"}`, ""},
 		{"legacy allocation settings ignored", `{"storageClassName":"absent","storageSize":"-1Gi","localVolumes":[{}],"luksResourceId":"kbs:///default/disk/key"}`, ""},
-		{"no defaults", "", "configure luksResourceId"},
-		{"missing key", `{}`, "configure luksResourceId"},
+		{"no defaults", "", "configure spec.confidentialContainers.luksResourceId"},
+		{"missing key", `{}`, "configure spec.confidentialContainers.luksResourceId"},
 		{"malformed JSON", "invalid-json", "invalid character"},
 		{"invalid disk key", `{"luksResourceId":"not-a-kbs-reference"}`, "luksResourceId must identify"},
 	} {
@@ -404,6 +405,74 @@ func TestConfidentialCustomerStorageSettings(t *testing.T) {
 			} else {
 				require.ErrorContains(t, err, tc.want)
 			}
+		})
+	}
+}
+
+func TestConfidentialServiceDiskKeyOverride(t *testing.T) {
+	modelKey := corev1.EnvVar{Name: "LUKS_RESOURCE_ID", Value: "kbs:///customer/model-disk/key"}
+	for _, tc := range []struct {
+		name     string
+		fallback string
+		override corev1.EnvVar
+		wantErr  string
+	}{
+		{name: "service key takes precedence", fallback: "kbs:///default/disk/key", override: modelKey},
+		{name: "service key without a default", override: modelKey},
+		{name: "unused invalid default", fallback: "invalid-default", override: modelKey},
+		{
+			name: "preserves valueFrom",
+			override: corev1.EnvVar{Name: "LUKS_RESOURCE_ID", ValueFrom: &corev1.EnvVarSource{
+				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "model-disk"}, Key: "resourceId"},
+			}},
+		},
+		{
+			name: "invalid service key does not fall back", fallback: "kbs:///default/disk/key",
+			override: corev1.EnvVar{Name: "LUKS_RESOURCE_ID", Value: "invalid-service-key"}, wantErr: "luksResourceId must identify",
+		},
+		{
+			name: "empty service key does not fall back", fallback: "kbs:///default/disk/key",
+			override: corev1.EnvVar{Name: "LUKS_RESOURCE_ID"}, wantErr: "set LUKS_RESOURCE_ID",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, cfg := confidentialTestReconciler(t)
+			svc := confidentialService(t, "model", "project")
+			svc.Spec.Template.InitContainers = []corev1.Container{{Name: "format-disk", Env: []corev1.EnvVar{tc.override}}}
+			require.NoError(t, r.Create(t.Context(), confidentialClaim(svc)))
+			cm := &corev1.ConfigMap{}
+			require.NoError(t, r.Get(t.Context(), client.ObjectKey{Namespace: constants.KServeNamespace, Name: constants.InferenceServiceConfigMapName}, cm))
+			raw, err := json.Marshal(map[string]string{"luksResourceId": tc.fallback, "initData": "installation-initdata"})
+			require.NoError(t, err)
+			cm.Data["confidentialBareMetal"] = string(raw)
+			require.NoError(t, r.Update(t.Context(), cm))
+			require.NoError(t, r.CombineConfidentialForTest(t.Context(), svc, cfg))
+			err = r.PreparePlatformWorkloadForTest(t.Context(), svc, cfg)
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				require.ErrorContains(t, err, "spec.template.initContainers[name=format-disk].env[name=LUKS_RESOURCE_ID]")
+				binding := &rbacv1.RoleBinding{}
+				assert.True(t, apierrors.IsNotFound(r.Get(t.Context(), client.ObjectKey{Namespace: svc.Namespace, Name: "coco-cc-storage"}, binding)))
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, r.PreparePlatformWorkloadForTest(t.Context(), svc, cfg))
+			deployment, err := r.ConfidentialDeploymentForTest(t.Context(), svc, cfg)
+			require.NoError(t, err)
+			pod := &deployment.Spec.Template.Spec
+			formatter := utils.GetInitContainerWithName(pod, "format-disk")
+			require.NotNil(t, formatter)
+			var diskKeys []corev1.EnvVar
+			for _, env := range formatter.Env {
+				if env.Name == "LUKS_RESOURCE_ID" {
+					diskKeys = append(diskKeys, env)
+				}
+			}
+			assert.Equal(t, []corev1.EnvVar{tc.override}, diskKeys)
+			assert.Equal(t, "installation-initdata", deployment.Spec.Template.Annotations["io.katacontainers.config.hypervisor.cc_init_data"])
+			initializer := utils.GetInitContainerWithName(pod, "storage-initializer")
+			require.NotNil(t, initializer)
+			assert.Contains(t, initializer.Env, corev1.EnvVar{Name: constants.ConfidentialResourceIdEnvVar, Value: "kbs:///default/model/key"})
 		})
 	}
 }

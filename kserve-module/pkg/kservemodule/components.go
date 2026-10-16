@@ -113,12 +113,6 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 	}
 
 	var err error
-	if kserve != nil {
-		resources, err = r.preserveConfidentialDefaults(ctx, resources)
-		if err != nil {
-			return nil, err
-		}
-	}
 	resources, err = customizeKserveConfigMap(resources, kserve)
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)

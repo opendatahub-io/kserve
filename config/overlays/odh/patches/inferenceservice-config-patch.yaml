@@ -6,7 +6,7 @@ metadata:
 data:
   confidentialBareMetal: |-
     {
-      "luksResourceId": "kbs:///default/luks-password/key",
+      "luksResourceId": "kbs:///default/kserve-luks-password/key",
       "initData": ""
     }
   explainers: "{}"

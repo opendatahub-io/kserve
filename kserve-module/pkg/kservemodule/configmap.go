@@ -92,6 +92,17 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		return err
 	}
 
+	if confidential := kserve.Spec.ConfidentialContainers; confidential != nil {
+		if err := updateCMJSONKey(cm, "confidentialBareMetal", func(data map[string]any) {
+			if confidential.LUKSResourceID != "" {
+				data["luksResourceId"] = confidential.LUKSResourceID
+			}
+			data["initData"] = confidential.InitData
+		}); err != nil {
+			return err
+		}
+	}
+
 	oauthProxy := kserve.Spec.OAuthProxy
 	if oauthProxy != nil && oauthProxy.Resources != nil {
 		if err := updateCMJSONKey(cm, oauthProxyConfigKeyName, func(data map[string]any) {

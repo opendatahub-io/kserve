@@ -39,6 +39,7 @@ const (
 	confidentialDefaultsKey        = "confidentialBareMetal"
 	confidentialHelpersName        = "kserve-confidential-bare-metal-resources"
 	confidentialInitDataAnnotation = "io.katacontainers.config.hypervisor.cc_init_data"
+	confidentialDiskKeyEnv         = "LUKS_RESOURCE_ID"
 )
 
 func init() {
@@ -94,15 +95,35 @@ func (r *LLMISVCReconciler) loadConfidentialDefaults(ctx context.Context) (*conf
 			return nil, fmt.Errorf("inferenceservice-config.data.%s: %w", confidentialDefaultsKey, err)
 		}
 	}
-	if err := validateConfidentialDiskKey(cfg.LUKSResourceID); err != nil {
-		return nil, fmt.Errorf("inferenceservice-config.data.%s: %w", confidentialDefaultsKey, err)
-	}
 	return cfg, nil
+}
+
+// The merged service template takes precedence over the installation default.
+func configureConfidentialDiskKey(formatter *corev1.Container, fallback string) error {
+	for _, env := range formatter.Env {
+		if env.Name != confidentialDiskKeyEnv {
+			continue
+		}
+		// Kubernetes resolves valueFrom when the container starts; the guest script
+		// checks the resolved reference before accessing the disk.
+		if env.ValueFrom != nil {
+			return nil
+		}
+		if err := validateConfidentialDiskKey(env.Value); err != nil {
+			return fmt.Errorf("spec.template.initContainers[name=format-disk].env[name=%s]: %w", confidentialDiskKeyEnv, err)
+		}
+		return nil
+	}
+	if err := validateConfidentialDiskKey(fallback); err != nil {
+		return fmt.Errorf("inferenceservice-config.data.%s: %w", confidentialDefaultsKey, err)
+	}
+	formatter.Env = append(formatter.Env, corev1.EnvVar{Name: confidentialDiskKeyEnv, Value: fallback})
+	return nil
 }
 
 func validateConfidentialDiskKey(key string) error {
 	if key == "" {
-		return errors.New("configure luksResourceId in inferenceservice-config.data.confidentialBareMetal with the key reference for the selected disk")
+		return errors.New("set LUKS_RESOURCE_ID on the format-disk init container or configure spec.confidentialContainers.luksResourceId on Kserve default-kserve with the key reference for the selected disk")
 	}
 	path, ok := strings.CutPrefix(key, "kbs:///")
 	parts := strings.Split(path, "/")

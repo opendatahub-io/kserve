@@ -26,24 +26,43 @@ several pods on the same node to write the disk; CSI RWOP restricts access to on
 pod. Do not move the disk while an old guest might still be writing.
 
 The ODH overlay installs the preset, dedicated SCC, SCC-use ClusterRole, and
-helper definitions. Edit [admin-profile.json](admin-profile.json) with the actual
-disk-key reference, then update the existing ConfigMap (replace `opendatahub`
-with your RHOAI applications namespace):
+helper definitions. Configure the fallback disk-key reference on the
+cluster-wide `Kserve` resource, using [kserve.yaml](kserve.yaml) as an example:
 
-```sh
-oc patch configmap inferenceservice-config -n opendatahub --type=merge -p "$(jq -n --rawfile profile admin-profile.json '{data:{confidentialBareMetal:$profile}}')"
+```yaml
+spec:
+  confidentialContainers:
+    luksResourceId: kbs:///default/kserve-luks-password/key
+    initData: ""
 ```
 
-The module operator preserves this ConfigMap key during reconciliation and
-upgrades. `luksResourceId` identifies the disk key; it is never the plaintext
-passphrase and must match the selected disk. The model's
-`model.confidential.resourceId` separately identifies the encrypted artifact's
-key. No StorageClass, creation size, or device inventory is configured in this
-entry. Previously configured allocation settings are ignored.
+Merge these settings into your existing `Kserve/default-kserve` configuration.
+For example, to set the disk-key reference:
 
-Optionally set `initData` to gzip/base64-encoded `initdata.toml`. A service's
+```sh
+oc patch kserve default-kserve --type=merge -p '{"spec":{"confidentialContainers":{"luksResourceId":"kbs:///default/kserve-luks-password/key"}}}'
+```
+
+The module operator writes these settings into `inferenceservice-config` and
+keeps them in sync with the `Kserve` resource. Configure this API instead of
+editing the ConfigMap directly; manual ConfigMap edits are overwritten. If you
+previously edited the ConfigMap, copy those values into the `Kserve` resource
+before upgrading.
+
+`luksResourceId` identifies the disk key; it is never the plaintext passphrase
+and must match the selected disk. It is used when a service does not supply its
+own `LUKS_RESOURCE_ID`. The installation setting defaults to
+`kbs:///default/kserve-luks-password/key` when omitted. The model's
+`model.confidential.resourceId` separately identifies the encrypted artifact's
+key. Storage capacity and the PVC selection remain the customer's responsibility.
+
+Optionally set `spec.confidentialContainers.initData` to gzip/base64-encoded
+`initdata.toml`. A service's
 explicit `spec.annotations` initdata value overrides this default. If both are
 empty, configure OSC's global initdata before deployment.
+
+Removing `spec.confidentialContainers` restores the shipped defaults: the
+default disk-key reference and no installation-specific init data.
 
 ## Deploy a model using its existing PVC
 
@@ -63,6 +82,29 @@ spec:
 The volume name `luks-block` connects the supplied claim to the preset's disk
 helper. The model selects a PVC; that PVC's binding identifies its PV. The
 installed preset does not generate or select a claim name.
+
+To use a different disk key for this service, set `LUKS_RESOURCE_ID` on its
+`format-disk` init container:
+
+```yaml
+spec:
+  template:
+    initContainers:
+    - name: format-disk
+      env:
+      - name: LUKS_RESOURCE_ID
+        value: kbs:///customer/model-disk/key
+```
+
+This service setting takes precedence over
+`Kserve.spec.confidentialContainers.luksResourceId`. If you omit the environment
+variable, the installation setting is used, falling back to
+`kbs:///default/kserve-luks-password/key`. An explicitly empty or invalid value
+produces an error. Each model can use a separate disk and key; an existing LUKS
+disk still requires the key it was encrypted with. Changing this reference does
+not change the disk's encryption key. The separate
+`spec.model.confidential.resourceId` continues to select the model artifact's
+decryption key.
 
 Supply model access through the existing RHOAI connection mechanism, for example:
 

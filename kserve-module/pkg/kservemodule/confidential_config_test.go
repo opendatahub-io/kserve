@@ -7,60 +7,53 @@ import (
 
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/yaml"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
-func TestPreserveConfidentialDefaults(t *testing.T) {
-	for _, raw := range []string{
-		`{"storageClassName":"customer-csi","storageSize":"500Gi","luksResourceId":"kbs:///customer/disk/key"}`,
-		`{"luksResourceId":"kbs:///customer/disk/key","initData":"customer-initdata"}`,
-		"invalid-json", "",
+func TestConfidentialContainersConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		config *platformv1alpha1.ConfidentialContainersConfig
+		key    string
+		init   string
+	}{
+		{name: "omitted", key: "kbs:///default/kserve-luks-password/key"},
+		{name: "empty", config: &platformv1alpha1.ConfidentialContainersConfig{}, key: "kbs:///default/kserve-luks-password/key"},
+		{
+			name:   "disk key only",
+			config: &platformv1alpha1.ConfidentialContainersConfig{LUKSResourceID: "kbs:///customer/disk/key"},
+			key:    "kbs:///customer/disk/key",
+		},
+		{
+			name:   "init data only",
+			config: &platformv1alpha1.ConfidentialContainersConfig{InitData: "customer-initdata"},
+			key:    "kbs:///default/kserve-luks-password/key", init: "customer-initdata",
+		},
+		{
+			name: "both settings",
+			config: &platformv1alpha1.ConfidentialContainersConfig{
+				LUKSResourceID: "kbs:///customer/disk/key", InitData: "customer-initdata",
+			},
+			key: "kbs:///customer/disk/key", init: "customer-initdata",
+		},
 	} {
-		t.Run(raw, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			g := NewWithT(t)
-			scheme := runtime.NewScheme()
-			g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
-			live := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: kserveConfigMapName, Namespace: "applications"}, Data: map[string]string{"confidentialBareMetal": raw}}
-			r := &KserveModuleReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(live).Build()}
-			resources := []unstructured.Unstructured{{Object: map[string]any{
-				"apiVersion": "v1", "kind": "ConfigMap", "metadata": map[string]any{"name": kserveConfigMapName, "namespace": "applications"},
-				"data": map[string]any{"confidentialBareMetal": "installation-template", "ingress": "new-product-value"},
-			}}}
-			result, err := r.preserveConfidentialDefaults(t.Context(), resources)
+			manifest, err := os.ReadFile("../../../config/overlays/odh/patches/inferenceservice-config-patch.yaml")
 			g.Expect(err).NotTo(HaveOccurred())
-			data, _, err := unstructured.NestedStringMap(result[0].Object, "data")
+			obj := unstructured.Unstructured{}
+			g.Expect(yaml.Unmarshal(manifest, &obj.Object)).To(Succeed())
+			kserve := &platformv1alpha1.Kserve{Spec: platformv1alpha1.KserveSpec{ConfidentialContainers: tc.config}}
+			resources, err := customizeKserveConfigMap([]unstructured.Unstructured{obj}, kserve)
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(data["confidentialBareMetal"]).To(Equal(raw))
-			g.Expect(data["ingress"]).To(Equal("new-product-value"))
-			// A subsequent render/upgrade still uses the live administrator value.
-			result, err = r.preserveConfidentialDefaults(t.Context(), result)
+			_, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
 			g.Expect(err).NotTo(HaveOccurred())
-			g.Expect(result[0].Object["data"]).To(Equal(resources[0].Object["data"]))
+			defaults := map[string]string{}
+			g.Expect(json.Unmarshal([]byte(cm.Data["confidentialBareMetal"]), &defaults)).To(Succeed())
+			g.Expect(defaults).To(Equal(map[string]string{"luksResourceId": tc.key, "initData": tc.init}))
 		})
 	}
-}
-
-func TestConfidentialDefaultsTemplateOnInstall(t *testing.T) {
-	g := NewWithT(t)
-	scheme := runtime.NewScheme()
-	g.Expect(corev1.AddToScheme(scheme)).To(Succeed())
-	r := &KserveModuleReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).Build()}
-	manifest, err := os.ReadFile("../../../config/overlays/odh/patches/inferenceservice-config-patch.yaml")
-	g.Expect(err).NotTo(HaveOccurred())
-	obj := unstructured.Unstructured{}
-	g.Expect(yaml.Unmarshal(manifest, &obj.Object)).To(Succeed())
-	resources, err := r.preserveConfidentialDefaults(t.Context(), []unstructured.Unstructured{obj})
-	g.Expect(err).NotTo(HaveOccurred())
-	value, _, err := unstructured.NestedString(resources[0].Object, "data", "confidentialBareMetal")
-	g.Expect(err).NotTo(HaveOccurred())
-	defaults := map[string]any{}
-	g.Expect(json.Unmarshal([]byte(value), &defaults)).To(Succeed())
-	g.Expect(defaults).NotTo(HaveKey("storageClassName"))
-	g.Expect(defaults).NotTo(HaveKey("storageSize"))
-	g.Expect(defaults).NotTo(HaveKey("localVolumes"))
-	g.Expect(defaults).To(HaveKeyWithValue("luksResourceId", "kbs:///default/luks-password/key"))
 }
