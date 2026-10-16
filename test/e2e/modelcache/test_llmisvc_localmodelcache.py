@@ -17,6 +17,7 @@ import time
 
 import pytest
 from kubernetes import client
+from kubernetes.client.exceptions import ApiException
 from kubernetes.client import (
     V1ResourceRequirements,
     V1PersistentVolumeSpec,
@@ -37,6 +38,42 @@ from kserve.models.v1alpha1_local_model_cache_spec import V1alpha1LocalModelCach
 
 KSERVE_V1ALPHA2_VERSION = "v1alpha2"
 LLMISVC_PLURAL = "llminferenceservices"
+
+
+def _delete_and_wait_for_absence(
+    api: client.CustomObjectsApi,
+    version: str,
+    plural: str,
+    name: str,
+    *,
+    namespace: str | None = None,
+    timeout: int = 120,
+) -> None:
+    if namespace is None:
+        args = (constants.KSERVE_GROUP, version, plural, name)
+        delete_fn = api.delete_cluster_custom_object
+        get_fn = api.get_cluster_custom_object
+    else:
+        args = (constants.KSERVE_GROUP, version, namespace, plural, name)
+        delete_fn = api.delete_namespaced_custom_object
+        get_fn = api.get_namespaced_custom_object
+
+    try:
+        delete_fn(*args)
+    except ApiException as exc:
+        if exc.status != 404:
+            raise
+
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            get_fn(*args)
+        except ApiException as exc:
+            if exc.status == 404:
+                return
+            raise
+        time.sleep(2)
+    pytest.fail(f"{plural}/{name} was not deleted within {timeout}s")
 
 
 @pytest.mark.modelcache
@@ -178,13 +215,24 @@ async def test_llmisvc_localmodelcache_labels(test_namespace):
             )
 
     finally:
-        # Cleanup cluster-scoped resources (namespace-scoped ones are cleaned by namespace deletion)
         time.sleep(30)
-        try:
-            kserve_client.delete_local_model_cache("llmisvc-test-cache")
-        except Exception:
-            pass
-        try:
-            kserve_client.delete_local_model_node_group("llmisvc-test-nodegroup")
-        except Exception:
-            pass
+        # Delete the consumer first so the cache deletion webhook permits cleanup.
+        _delete_and_wait_for_absence(
+            k8s_client,
+            KSERVE_V1ALPHA2_VERSION,
+            LLMISVC_PLURAL,
+            "llmisvc-cache-test",
+            namespace=test_namespace,
+        )
+        _delete_and_wait_for_absence(
+            k8s_client,
+            constants.KSERVE_V1ALPHA1_VERSION,
+            constants.KSERVE_PLURAL_LOCALMODELCACHE,
+            "llmisvc-test-cache",
+        )
+        _delete_and_wait_for_absence(
+            k8s_client,
+            constants.KSERVE_V1ALPHA1_VERSION,
+            constants.KSERVE_PLURAL_LOCALMODELNODEGROUP,
+            "llmisvc-test-nodegroup",
+        )
