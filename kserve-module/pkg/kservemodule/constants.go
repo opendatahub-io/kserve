@@ -11,8 +11,40 @@ var (
 
 	llmISVCConfigListGVK = llmISVCConfigGVK.GroupVersion().WithKind(llmISVCConfigKind + "List")
 
+	llmISVCGVK = schema.GroupVersionKind{
+		Group:   llmISVCConfigGroup,
+		Version: llmISVCConfigVersion,
+		Kind:    "LLMInferenceService",
+	}
+
+	llmISVCListGVK = llmISVCGVK.GroupVersion().WithKind(llmISVCGVK.Kind + "List")
+
 	unownedGroupKinds = map[schema.GroupKind]struct{}{
 		llmISVCConfigGVK.GroupKind(): {},
+	}
+
+	// llmISVCDrainResourceNames is the explicit inventory of resources needed
+	// to keep the LLMInferenceService controller operational while Kserve is
+	// terminating. Keep this list aligned with both ODH manifest overlays.
+	llmISVCDrainResourceNames = map[string]struct{}{
+		"kserve-llmisvc-distro-role":                   {},
+		"kserve-llmisvc-distro-rolebinding":            {},
+		"kserve-llmisvc-manager-role":                  {},
+		"kserve-llmisvcconfig-read-access":             {},
+		"llminferenceservice.serving.kserve.io":        {},
+		"llminferenceserviceconfig.serving.kserve.io":  {},
+		"llminferenceserviceconfigs.serving.kserve.io": {},
+		"llminferenceservices.serving.kserve.io":       {},
+		"llmisvc-controller-manager":                   {},
+		"llmisvc-controller-manager-service":           {},
+		"llmisvc-leader-election-role":                 {},
+		"llmisvc-leader-election-rolebinding":          {},
+		"llmisvc-manager-rolebinding":                  {},
+		"llmisvc-metrics":                              {},
+		"llmisvc-serving-cert":                         {},
+		"llmisvc-webhook-server":                       {},
+		"llmisvc-webhook-server-service":               {},
+		"openshift-ai-llminferenceservice-scc":         {},
 	}
 )
 

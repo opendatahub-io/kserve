@@ -250,10 +250,11 @@ func TestSplitByOwnership(t *testing.T) {
 		}},
 	}
 
-	owned, unowned := splitByOwnership(resources)
+	owned, unowned, drainResources := splitByOwnership(resources)
 
 	g.Expect(owned).To(HaveLen(2))
 	g.Expect(unowned).To(HaveLen(2))
+	g.Expect(drainResources).To(BeEmpty())
 
 	for _, r := range owned {
 		g.Expect(r.GetKind()).NotTo(Equal("LLMInferenceServiceConfig"))
@@ -274,16 +275,62 @@ func TestSplitByOwnership_AllOwned(t *testing.T) {
 		}},
 	}
 
-	owned, unowned := splitByOwnership(resources)
+	owned, unowned, drainResources := splitByOwnership(resources)
 	g.Expect(owned).To(HaveLen(1))
 	g.Expect(unowned).To(BeEmpty())
+	g.Expect(drainResources).To(BeEmpty())
 }
 
 func TestSplitByOwnership_Empty(t *testing.T) {
 	g := NewWithT(t)
-	owned, unowned := splitByOwnership(nil)
+	owned, unowned, drainResources := splitByOwnership(nil)
 	g.Expect(owned).To(BeNil())
 	g.Expect(unowned).To(BeNil())
+	g.Expect(drainResources).To(BeNil())
+}
+
+func TestSplitByOwnership_LLMInferenceServiceDrainResources(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := []unstructured.Unstructured{
+		{Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata":   map[string]any{"name": llmISVCControllerDeployment},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "admissionregistration.k8s.io/v1",
+			"kind":       "ValidatingWebhookConfiguration",
+			"metadata":   map[string]any{"name": llmISVCConfigWebhookName},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha2",
+			"kind":       "LLMInferenceServiceConfig",
+			"metadata":   map[string]any{"name": "llmisvc-config"},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "apps/v1",
+			"kind":       "Deployment",
+			"metadata":   map[string]any{"name": "kserve-controller-manager"},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata":   map[string]any{"name": "customer-llmisvc-settings"},
+		}},
+	}
+
+	owned, unowned, drainResources := splitByOwnership(resources)
+	g.Expect(owned).To(HaveLen(2))
+	g.Expect([]string{owned[0].GetName(), owned[1].GetName()}).To(ConsistOf(
+		"kserve-controller-manager",
+		"customer-llmisvc-settings",
+	))
+	g.Expect(unowned).To(HaveLen(3))
+	g.Expect(drainResources).To(HaveLen(2))
+	g.Expect(drainResources[0].GetName()).To(Equal(llmISVCControllerDeployment))
+	g.Expect(drainResources[1].GetName()).To(Equal(llmISVCConfigWebhookName))
+	g.Expect(unowned[2].GetName()).To(Equal("llmisvc-config"), "configs remain independently unowned even when their names match the drain-resource prefix")
 }
 
 func TestApplyManagedByLabel(t *testing.T) {

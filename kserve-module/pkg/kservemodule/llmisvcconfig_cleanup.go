@@ -160,6 +160,28 @@ func (r *KserveModuleReconciler) listWellKnownLLMISVCConfigs(ctx context.Context
 	return wellKnown, nil
 }
 
+// llmISVCDeletionBlockers lists every LLMInferenceService, including services
+// that use user-managed configurations. A release-preset-only check would let
+// the cleanup controller disappear while one of those services still needs its
+// finalizer to remove child resources and clear configuration references.
+func (r *KserveModuleReconciler) llmISVCDeletionBlockers(ctx context.Context) ([]string, error) {
+	list := &unstructured.UnstructuredList{}
+	list.SetGroupVersionKind(llmISVCListGVK)
+	if err := r.List(ctx, list); err != nil {
+		if meta.IsNoMatchError(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("listing LLMInferenceServices: %w", err)
+	}
+
+	blockers := make([]string, 0, len(list.Items))
+	for i := range list.Items {
+		blockers = append(blockers, fmt.Sprintf("LLMInferenceService %s/%s", list.Items[i].GetNamespace(), list.Items[i].GetName()))
+	}
+	sort.Strings(blockers)
+	return blockers, nil
+}
+
 func referencedConfigBlockers(configs []unstructured.Unstructured) []string {
 	var blockers []string
 	for i := range configs {

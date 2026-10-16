@@ -14,6 +14,7 @@ import (
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -83,6 +84,7 @@ import (
 
 // --- KServe cluster-scoped operand resources ---
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=clusterservingruntimes;llminferenceserviceconfigs;clusterstoragecontainers,verbs=create;delete;get;list;patch;update;watch
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch
 
 // --- OpenShift-specific cluster-scoped resources ---
 // SCCs: required for InferenceService and LLMInferenceService workload pods
@@ -204,6 +206,23 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			}
 			log.Info("Kserve CR deletion blocked", "blockers", outcome.blockers)
 			return ctrl.Result{RequeueAfter: deletionRequeueInterval}, nil
+		}
+		if blockers, err := r.llmISVCDeletionBlockers(ctx); err != nil {
+			return ctrl.Result{}, fmt.Errorf("listing LLMInferenceServices during deletion: %w", err)
+		} else if len(blockers) > 0 {
+			if err := r.setDeletionBlocked(ctx, kserve, blockers); err != nil {
+				return ctrl.Result{}, err
+			}
+			log.Info("Kserve CR deletion blocked", "blockers", blockers)
+			return ctrl.Result{RequeueAfter: deletionRequeueInterval}, nil
+		}
+
+		if cleanupErr := r.cleanupLLMISVCDrainResourcesOnDelete(ctx); cleanupErr != nil {
+			log.Error(cleanupErr, "LLMInferenceService cleanup resources could not be removed during CR deletion")
+			if statusErr := r.setDeletionBlocked(ctx, kserve, []string{"LLMInferenceService cleanup failed: " + cleanupErr.Error()}); statusErr != nil {
+				log.Error(statusErr, "failed to record LLMInferenceService cleanup failure on status")
+			}
+			return ctrl.Result{}, cleanupErr
 		}
 
 		if cleanupErr := r.cleanupOnDelete(ctx); cleanupErr != nil {
@@ -353,7 +372,7 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		return componentErrors
 	}
 
-	owned, unowned := splitByOwnership(allResources)
+	owned, unowned, llmISVCDrainResources := splitByOwnership(allResources)
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
 		Client:    r.Client,
 		Owner:     kserve,
@@ -369,8 +388,17 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 			return map[string]error{"deploy": fmt.Errorf("applying unowned resources: %w", err)}
 		}
 	}
+	// The LLMInferenceService controller must outlive the Kserve CR while its
+	// services and their referenced presets finish finalizing during uninstall.
+	// New resources are applied without a Kserve owner reference above. Remove
+	// the reference from resources created by earlier releases as well, before
+	// an uninstall can start foreground garbage collection.
+	if err := r.detachLLMISVCDrainResources(ctx, kserve, llmISVCDrainResources); err != nil {
+		return map[string]error{"deploy": fmt.Errorf("detaching LLMInferenceService cleanup resources: %w", err)}
+	}
 
-	log.Info("deployed all resources", "owned", len(owned), "unowned", len(unowned))
+	log.Info("deployed all resources", "owned", len(owned), "unowned", len(unowned),
+		"llmISVCDrainResources", len(llmISVCDrainResources))
 
 	return nil
 }
@@ -382,8 +410,19 @@ func componentRemovalBlockers(ctx context.Context, r *KserveModuleReconciler, co
 	return comp.removalBlockers(ctx, r)
 }
 
-func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned []unstructured.Unstructured) {
+// splitByOwnership keeps the LLMInferenceService controller's runtime
+// resources independent from the Kserve CR. Kserve foreground deletion starts
+// garbage-collecting owned resources as soon as deletion begins, before this
+// reconciler can observe config references and report the uninstall blocker.
+// These resources are instead explicitly deleted by the Kserve finalizer only
+// after the config cleanup drain completes; see cleanupLLMISVCDrainResourcesOnDelete.
+func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned, llmISVCDrainResources []unstructured.Unstructured) {
 	for i := range resources {
+		if isLLMISVCDrainResource(&resources[i]) {
+			unowned = append(unowned, resources[i])
+			llmISVCDrainResources = append(llmISVCDrainResources, resources[i])
+			continue
+		}
 		gk := resources[i].GroupVersionKind().GroupKind()
 		if _, excluded := unownedGroupKinds[gk]; excluded {
 			unowned = append(unowned, resources[i])
@@ -394,6 +433,51 @@ func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned []u
 	return
 }
 
+// isLLMISVCDrainResource identifies the explicit manifest inventory that makes
+// up the isolated LLMInferenceService controller and its webhook/RBAC support.
+// Exact matching avoids detaching unrelated future operands merely because
+// their names happen to contain "llmisvc".
+func isLLMISVCDrainResource(resource *unstructured.Unstructured) bool {
+	if _, excluded := unownedGroupKinds[resource.GroupVersionKind().GroupKind()]; excluded {
+		return false
+	}
+	_, retained := llmISVCDrainResourceNames[resource.GetName()]
+	return retained
+}
+
+// detachLLMISVCDrainResources migrates resources created by earlier releases
+// away from Kserve ownership. The deployer preserves existing owner references
+// for unowned resources, so this migration is needed before an uninstall can
+// trigger foreground garbage collection. The Kserve finalizer owns their
+// explicit cleanup, without relying on a Platform or DSC parent to outlive it.
+func (r *KserveModuleReconciler) detachLLMISVCDrainResources(
+	ctx context.Context,
+	kserve *platformv1alpha1.Kserve,
+	resources []unstructured.Unstructured,
+) error {
+	for i := range resources {
+		current := &unstructured.Unstructured{}
+		current.SetGroupVersionKind(resources[i].GroupVersionKind())
+		if err := r.Get(ctx, client.ObjectKeyFromObject(&resources[i]), current); err != nil {
+			if client.IgnoreNotFound(err) == nil {
+				continue
+			}
+			return fmt.Errorf("getting %s %s: %w", resources[i].GetKind(), client.ObjectKeyFromObject(&resources[i]), err)
+		}
+		if !metav1.IsControlledBy(current, kserve) {
+			continue
+		}
+
+		if err := controllerutil.RemoveControllerReference(kserve, current, r.Scheme); err != nil {
+			return fmt.Errorf("removing Kserve owner reference from %s %s: %w", current.GetKind(), client.ObjectKeyFromObject(current), err)
+		}
+		if err := r.Update(ctx, current); err != nil {
+			return fmt.Errorf("updating %s %s after removing Kserve owner reference: %w", current.GetKind(), client.ObjectKeyFromObject(current), err)
+		}
+	}
+	return nil
+}
+
 func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context) error {
 	var errs []error
 	for _, comp := range components {
@@ -402,6 +486,53 @@ func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context) error {
 		}
 		if err := comp.extraCleanup(ctx, r); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", comp.name, err))
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// cleanupLLMISVCDrainResourcesOnDelete removes the LLMInferenceService
+// controller only after cleanupLLMISVCConfigsOnDelete confirms that every
+// release config has finalized. Keeping this separate from defaultCleanup is
+// what lets user-deleted services clear referencedBy and config finalizers
+// during Kserve foreground deletion.
+func (r *KserveModuleReconciler) cleanupLLMISVCDrainResourcesOnDelete(ctx context.Context) error {
+	manifestDir, err := r.ensureWorkDir()
+	if err != nil {
+		return fmt.Errorf("preparing writable manifests for LLMInferenceService cleanup: %w", err)
+	}
+
+	var kserveComponent *componentConfig
+	for i := range components {
+		if components[i].name == KserveComponentName {
+			kserveComponent = &components[i]
+			break
+		}
+	}
+	if kserveComponent == nil {
+		return errors.New("Kserve component definition is missing")
+	}
+
+	resources, err := r.reconcileComponent(ctx, nil, manifestDir, *kserveComponent)
+	if err != nil {
+		return fmt.Errorf("rendering LLMInferenceService cleanup resources: %w", err)
+	}
+	return r.deleteLLMISVCDrainResources(ctx, resources)
+}
+
+func (r *KserveModuleReconciler) deleteLLMISVCDrainResources(ctx context.Context, resources []unstructured.Unstructured) error {
+	var errs []error
+	// Remove the Deployment first so its pod stops before its service account,
+	// RBAC, serving-cert service, and webhooks are removed.
+	for priority := range 2 {
+		for i := range resources {
+			resource := &resources[i]
+			if !isLLMISVCDrainResource(resource) || (priority == 0 && resource.GetKind() != "Deployment") || (priority == 1 && resource.GetKind() == "Deployment") {
+				continue
+			}
+			if err := deleteResourceIfPresent(ctx, r.Client, resource); err != nil {
+				errs = append(errs, fmt.Errorf("%s %s: %w", resource.GetKind(), client.ObjectKeyFromObject(resource), err))
+			}
 		}
 	}
 	return errors.Join(errs...)
