@@ -126,6 +126,24 @@ func TestModelCacheCutoverReleasesOldBoundStaticPV(t *testing.T) {
 	}
 }
 
+func TestModelCacheCutoverDoesNotMutateRenderedNamespaces(t *testing.T) {
+	rendered := []unstructured.Unstructured{{Object: map[string]any{
+		"apiVersion": "v1",
+		"kind":       "ConfigMap",
+		"metadata": map[string]any{
+			"name":      "kserve-modelcache-parameters",
+			"namespace": modelCacheNamespace,
+		},
+	}}}
+
+	if err := newReconcilerWithFakeClient().prepareModelCacheCutover(context.Background(), rendered); err != nil {
+		t.Fatalf("ModelCache cutover failed: %v", err)
+	}
+	if got := rendered[0].GetNamespace(); got != modelCacheNamespace {
+		t.Fatalf("cutover changed rendered resource namespace to %q", got)
+	}
+}
+
 func TestModelCacheCutoverPreservesAmbiguousStaticPV(t *testing.T) {
 	pv := &corev1.PersistentVolume{ObjectMeta: metav1.ObjectMeta{Name: modelCachePVName,
 		Labels: map[string]string{odhLabels.PlatformPartOf: KserveComponentName}},
@@ -750,26 +768,47 @@ func TestModelCacheCutoverRequiresStaticTargetPVC(t *testing.T) {
 
 func TestPersistentVolumeSpecsMatchAccountsForDefaultsAndSemanticFields(t *testing.T) {
 	capacity := resource.MustParse("2Gi")
-	affinity := &corev1.VolumeNodeAffinity{Required: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "kserve/localmodel", Operator: corev1.NodeSelectorOpIn, Values: []string{"worker"}}}}}}}
+	affinity := &corev1.VolumeNodeAffinity{Required: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+		{
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{Key: "kserve/localmodel", Operator: corev1.NodeSelectorOpIn, Values: []string{"worker", "cache"}},
+				{Key: "topology.kubernetes.io/zone", Operator: corev1.NodeSelectorOpIn, Values: []string{"east", "west"}},
+			},
+			MatchFields: []corev1.NodeSelectorRequirement{{Key: "metadata.name", Operator: corev1.NodeSelectorOpNotIn, Values: []string{"node-2", "node-1"}}},
+		},
+		{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "node-role.kubernetes.io/worker", Operator: corev1.NodeSelectorOpExists, Values: []string{}}}, MatchFields: []corev1.NodeSelectorRequirement{}},
+	}}}
 	expected := corev1.PersistentVolumeSpec{
-		Capacity:                      corev1.ResourceList{corev1.ResourceStorage: capacity},
-		AccessModes:                   []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
-		VolumeMode:                    ptr.To(corev1.PersistentVolumeFilesystem),
-		PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimDelete,
-		StorageClassName:              modelCacheStorageClass,
-		PersistentVolumeSource:        corev1.PersistentVolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: modelCacheHostDir}},
-		NodeAffinity:                  affinity,
-		MountOptions:                  []string{"nosuid", "nodev"},
+		Capacity:               corev1.ResourceList{corev1.ResourceStorage: capacity},
+		AccessModes:            []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+		VolumeMode:             ptr.To(corev1.PersistentVolumeFilesystem),
+		StorageClassName:       modelCacheStorageClass,
+		PersistentVolumeSource: corev1.PersistentVolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: modelCacheHostDir}},
+		NodeAffinity:           affinity,
+		MountOptions:           []string{"nosuid", "nodev"},
 	}
 	actual := expected
 	actual.Capacity = corev1.ResourceList{corev1.ResourceStorage: resource.MustParse("2048Mi")}
 	actual.VolumeMode = nil
-	actual.PersistentVolumeReclaimPolicy = ""
+	actual.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimRetain
 	actual.MountOptions = []string{"nodev", "nosuid"}
+	actual.NodeAffinity = &corev1.VolumeNodeAffinity{Required: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+		{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "node-role.kubernetes.io/worker", Operator: corev1.NodeSelectorOpExists}}},
+		{MatchFields: []corev1.NodeSelectorRequirement{{Key: "metadata.name", Operator: corev1.NodeSelectorOpNotIn, Values: []string{"node-1", "node-2"}}},
+			MatchExpressions: []corev1.NodeSelectorRequirement{
+				{Key: "topology.kubernetes.io/zone", Operator: corev1.NodeSelectorOpIn, Values: []string{"west", "east"}},
+				{Key: "kserve/localmodel", Operator: corev1.NodeSelectorOpIn, Values: []string{"cache", "worker"}},
+			}},
+	}}}
 	if !persistentVolumeSpecsMatch(expected, actual) {
 		t.Fatal("equivalent defaulted PV specs did not match")
 	}
 
+	actual.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimDelete
+	if persistentVolumeSpecsMatch(expected, actual) {
+		t.Fatal("PV specs with a different reclaim policy matched")
+	}
+	actual.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimRetain
 	actual.NodeAffinity = &corev1.VolumeNodeAffinity{Required: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "other", Operator: corev1.NodeSelectorOpIn, Values: []string{"worker"}}}}}}}
 	if persistentVolumeSpecsMatch(expected, actual) {
 		t.Fatal("PV specs with different node affinity matched")

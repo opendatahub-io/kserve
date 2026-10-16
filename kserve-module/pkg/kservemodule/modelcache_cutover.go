@@ -52,12 +52,12 @@ func (r *KserveModuleReconciler) prepareModelCacheCutover(ctx context.Context, r
 		return err
 	}
 	for i := range rendered {
-		res := rendered[i]
-		if !isOldNamespacedModelCacheManifest(&res) {
+		res := rendered[i].DeepCopy()
+		if !isOldNamespacedModelCacheManifest(res) {
 			continue
 		}
 		res.SetNamespace(oldNamespace)
-		pending, err := r.deleteOldModelCacheObject(ctx, &res, false)
+		pending, err := r.deleteOldModelCacheObject(ctx, res, false)
 		if err != nil {
 			return fmt.Errorf("cleaning old ModelCache manifest %s/%s: %w", oldNamespace, res.GetName(), err)
 		}
@@ -483,6 +483,9 @@ func (r *KserveModuleReconciler) validateOldDownloadStorage(ctx context.Context,
 }
 
 func persistentVolumeSpecsMatch(expected, actual corev1.PersistentVolumeSpec) bool {
+	expected = *expected.DeepCopy()
+	actual = *actual.DeepCopy()
+
 	if !resourceListsEqual(expected.Capacity, actual.Capacity) {
 		return false
 	}
@@ -502,12 +505,106 @@ func persistentVolumeSpecsMatch(expected, actual corev1.PersistentVolumeSpec) bo
 		actual.VolumeMode = ptr.To(corev1.PersistentVolumeFilesystem)
 	}
 	if expected.PersistentVolumeReclaimPolicy == "" {
-		expected.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimDelete
+		expected.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimRetain
 	}
 	if actual.PersistentVolumeReclaimPolicy == "" {
-		actual.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimDelete
+		actual.PersistentVolumeReclaimPolicy = corev1.PersistentVolumeReclaimRetain
 	}
+	expected.NodeAffinity = normalizedVolumeNodeAffinity(expected.NodeAffinity)
+	actual.NodeAffinity = normalizedVolumeNodeAffinity(actual.NodeAffinity)
 	return reflect.DeepEqual(expected, actual)
+}
+
+func normalizedVolumeNodeAffinity(affinity *corev1.VolumeNodeAffinity) *corev1.VolumeNodeAffinity {
+	if affinity == nil || affinity.Required == nil {
+		return affinity
+	}
+
+	normalized := affinity.DeepCopy()
+	terms := normalized.Required.NodeSelectorTerms
+	for i := range terms {
+		terms[i].MatchExpressions = normalizeNodeSelectorRequirements(terms[i].MatchExpressions)
+		terms[i].MatchFields = normalizeNodeSelectorRequirements(terms[i].MatchFields)
+	}
+	sort.Slice(terms, func(i, j int) bool {
+		return compareNodeSelectorTerms(terms[i], terms[j]) < 0
+	})
+	return normalized
+}
+
+func normalizeNodeSelectorRequirements(requirements []corev1.NodeSelectorRequirement) []corev1.NodeSelectorRequirement {
+	if len(requirements) == 0 {
+		return nil
+	}
+	for i := range requirements {
+		if len(requirements[i].Values) == 0 {
+			requirements[i].Values = nil
+			continue
+		}
+		sort.Strings(requirements[i].Values)
+	}
+	sort.Slice(requirements, func(i, j int) bool {
+		return compareNodeSelectorRequirements(requirements[i], requirements[j]) < 0
+	})
+	return requirements
+}
+
+func compareNodeSelectorTerms(a, b corev1.NodeSelectorTerm) int {
+	if comparison := compareNodeSelectorRequirementSlices(a.MatchExpressions, b.MatchExpressions); comparison != 0 {
+		return comparison
+	}
+	return compareNodeSelectorRequirementSlices(a.MatchFields, b.MatchFields)
+}
+
+func compareNodeSelectorRequirementSlices(a, b []corev1.NodeSelectorRequirement) int {
+	for i := 0; i < len(a) && i < len(b); i++ {
+		if comparison := compareNodeSelectorRequirements(a[i], b[i]); comparison != 0 {
+			return comparison
+		}
+	}
+	switch {
+	case len(a) < len(b):
+		return -1
+	case len(a) > len(b):
+		return 1
+	default:
+		return 0
+	}
+}
+
+func compareNodeSelectorRequirements(a, b corev1.NodeSelectorRequirement) int {
+	if a.Key < b.Key {
+		return -1
+	}
+	if a.Key > b.Key {
+		return 1
+	}
+	if a.Operator < b.Operator {
+		return -1
+	}
+	if a.Operator > b.Operator {
+		return 1
+	}
+	return compareStrings(a.Values, b.Values)
+}
+
+func compareStrings(a, b []string) int {
+	for i := 0; i < len(a) && i < len(b); i++ {
+		if a[i] < b[i] {
+			return -1
+		}
+		if a[i] > b[i] {
+			return 1
+		}
+	}
+	switch {
+	case len(a) < len(b):
+		return -1
+	case len(a) > len(b):
+		return 1
+	default:
+		return 0
+	}
 }
 
 func resourceListsEqual(expected, actual corev1.ResourceList) bool {
