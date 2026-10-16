@@ -101,6 +101,31 @@ To fully tear down the test setup:
 make undeploy-ocp
 ```
 
+## LLMInferenceService audit logging e2e (RHCL)
+
+`test/e2e/llmisvc/test_llm_audit_logging.py` (marker `audit_logging`, part of `llmisvc_core`) covers
+[RHAISTRAT-1799](https://redhat.atlassian.net/browse/RHAISTRAT-1799) audit logging. It expects the
+Gateway-scoped `TelemetryPolicy` `openshift-ingress/openshift-ai-inference-audit-logging` that the CI
+setup creates on RHCL builds with TelemetryPolicy logging support (fields `client_identity`,
+`client_anonymous`, `request_method` and `request_path`, emitted by Authorino under the `custom.` prefix)
+and skips itself when the APIs or the policy are absent. It tags requests with `?audit=<id>` and asserts
+on the Authorino decision records for them: identity/method/path on allowed requests, no identity on
+unauthenticated or invalid-token requests, identity kept on authorization denials, `client_anonymous=true`
+with `enable-auth=false`, unresolvable `auth.*` expressions omitted, oversized values truncated at
+`loggingFieldsMaxValueBytes`, and a stable EnvoyFilter generation. Probe fields are added to the gateway
+TelemetryPolicy for the duration of a test and removed afterwards; `request.*` expressions are evaluated
+by the wasm shim, so probes on headers are guarded with `has()` (CONNLINK-1887), and removed fields are
+verified gone from the rendered config, re-creating the policy when they survive or when no route is left
+to verify against (CONNLINK-1888); baseline records are checked for leaked probe fields. Redaction of
+a credential-header field is covered by a dual-mode test: fixed RHCL builds reject such a policy
+(`Accepted=False`, CONNLINK-1884) and the test passes on that; older builds accept it and the test
+reports an expected failure when the value is logged in clear. Run it
+alone with:
+
+```bash
+PYTEST_ARGS="llmisvc/test_llm_audit_logging.py" ./test/scripts/openshift-ci/run-e2e-tests.sh audit_logging 1 llm-d
+```
+
 ## LLMInferenceService audit logging (RHCL)
 
 `infra/deploy.kuadrant.sh` configures the CI cluster for
