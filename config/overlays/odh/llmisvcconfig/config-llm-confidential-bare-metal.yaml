@@ -62,7 +62,7 @@ spec:
         sizeLimit: 1Gi
     initContainers:
     - name: format-disk
-      image: registry.redhat.io/openshift-sandboxed-containers/osc-storage-helper:1.13.1
+      image: REPLACE_IMAGE
       restartPolicy: Always
       command: [/bin/bash, /opt/cc-storage/format-disk.sh]
       securityContext:
@@ -80,7 +80,7 @@ spec:
       - name: luks-block
         devicePath: /dev/block-device
     - name: check-ready
-      image: registry.redhat.io/openshift-sandboxed-containers/osc-storage-helper:1.13.1
+      image: REPLACE_IMAGE
       command: [/usr/local/bin/luks-helper, wait-ready]
       securityContext:
         privileged: true

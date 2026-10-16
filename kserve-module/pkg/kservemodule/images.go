@@ -6,6 +6,7 @@ var kserveImageParamMap = map[string]string{
 	"kserve-agent":                                     "RELATED_IMAGE_ODH_KSERVE_AGENT_IMAGE",
 	"kserve-router":                                    "RELATED_IMAGE_ODH_KSERVE_ROUTER_IMAGE",
 	"kserve-storage-initializer":                       "RELATED_IMAGE_ODH_KSERVE_STORAGE_INITIALIZER_IMAGE",
+	"kserve-osc-storage-helper":                        "RELATED_IMAGE_OSC_STORAGE_HELPER_IMAGE",
 	"kserve-llm-d":                                     "RELATED_IMAGE_RHAII_VLLM_CUDA_IMAGE",
 	"kserve-llm-d-nvidia-cuda":                         "RELATED_IMAGE_RHAII_VLLM_CUDA_IMAGE",
 	"kserve-llm-d-nvidia-cuda-fast-1":                  "RELATED_IMAGE_RHAII_VLLM_CUDA_FAST_1_IMAGE",
