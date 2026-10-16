@@ -629,6 +629,12 @@ func copyAuthProxyFromExisting(existing, desired *appsv1.Deployment, containerNa
 	if authProxyContainer == nil {
 		return
 	}
+	if existing.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] == "true" {
+		if desired.Spec.Template.Annotations == nil {
+			desired.Spec.Template.Annotations = make(map[string]string)
+		}
+		desired.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
+	}
 
 	desiredSpec.Containers = append(desiredSpec.Containers, *authProxyContainer)
 	desiredSpec.AutomountServiceAccountToken = existingSpec.AutomountServiceAccountToken

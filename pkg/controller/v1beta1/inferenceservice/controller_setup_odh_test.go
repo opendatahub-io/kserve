@@ -21,7 +21,9 @@ package inferenceservice
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -30,6 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 )
@@ -112,7 +115,7 @@ func TestInferenceServiceRequestsForTLSProfileRetriesTransientListFailures(t *te
 	}
 }
 
-func TestInferenceServiceRequestsForTLSProfileKeepsRetryingUntilListSucceeds(t *testing.T) {
+func TestInferenceServiceRequestsForTLSProfileReturnsTransientErrorAfterBoundedRetries(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1beta1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
@@ -127,15 +130,15 @@ func TestInferenceServiceRequestsForTLSProfileKeepsRetryingUntilListSucceeds(t *
 	requests, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, &configv1.APIServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 	})
-	if err != nil {
-		t.Fatal(err)
+	if !isTransientTLSProfileListError(err) || len(requests) != 0 {
+		t.Fatalf("got requests=%v, err=%v; want transient error for asynchronous retry", requests, err)
 	}
-	if reader.listCalls != 4 || len(requests) != 1 || requests[0].NamespacedName != (client.ObjectKey{Namespace: "team-a", Name: "one"}) {
-		t.Fatalf("got calls=%d requests=%v, want all retries and the InferenceService request", reader.listCalls, requests)
+	if reader.listCalls != 3 {
+		t.Fatalf("list called %d times, want 3 bounded attempts", reader.listCalls)
 	}
 }
 
-func TestInferenceServiceRequestsForTLSProfileRetriesListErrorsUntilSuccess(t *testing.T) {
+func TestInferenceServiceRequestsForTLSProfileDoesNotRetryPermanentErrors(t *testing.T) {
 	scheme := runtime.NewScheme()
 	if err := v1beta1.AddToScheme(scheme); err != nil {
 		t.Fatal(err)
@@ -150,12 +153,47 @@ func TestInferenceServiceRequestsForTLSProfileRetriesListErrorsUntilSuccess(t *t
 			requests, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, &configv1.APIServer{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 			})
-			if err != nil || len(requests) != 0 {
-				t.Fatalf("got requests=%v, err=%v; want successful empty mapping after retry", requests, err)
+			if err == nil || isTransientTLSProfileListError(err) || len(requests) != 0 {
+				t.Fatalf("got requests=%v, err=%v; want permanent fail-closed error", requests, err)
 			}
-			if reader.listCalls != 2 {
-				t.Fatalf("list called %d times, want retry for %s", reader.listCalls, name)
+			if reader.listCalls != 1 {
+				t.Fatalf("list called %d times, want one attempt for permanent %s error", reader.listCalls, name)
 			}
 		})
+	}
+}
+
+func TestScheduleTLSProfileRetryQueuesClusterEventAndCoalesces(t *testing.T) {
+	retryEvents := make(chan event.GenericEvent, 1)
+	var scheduled atomic.Bool
+	scheme := runtime.NewScheme()
+	if err := v1beta1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	reader := &listRetryReader{
+		Reader: fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(
+			&v1beta1.InferenceService{ObjectMeta: metav1.ObjectMeta{Name: "one", Namespace: "team-a"}},
+		).Build(),
+		remainingFailures: 3,
+		err:               apierrors.NewServiceUnavailable("temporary list failure"),
+	}
+	apiServer := &configv1.APIServer{ObjectMeta: metav1.ObjectMeta{Name: "cluster"}}
+	if _, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, apiServer); !isTransientTLSProfileListError(err) {
+		t.Fatalf("initial profile mapping error = %v, want transient failure", err)
+	}
+	scheduleTLSProfileRetry(retryEvents, &scheduled, time.Millisecond)
+	scheduleTLSProfileRetry(retryEvents, &scheduled, time.Millisecond)
+
+	select {
+	case retry := <-retryEvents:
+		if retry.Object.GetName() != "cluster" {
+			t.Fatalf("retry event object name = %q, want cluster", retry.Object.GetName())
+		}
+		requests, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, retry.Object)
+		if err != nil || len(requests) != 1 || requests[0].NamespacedName != (client.ObjectKey{Namespace: "team-a", Name: "one"}) {
+			t.Fatalf("retry mapping got requests=%v, err=%v; want recovered InferenceService request", requests, err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for the retry APIServer event")
 	}
 }

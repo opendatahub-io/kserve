@@ -755,6 +755,9 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	existingDeployment := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					constants.ODHKserveAuthProxyTLSManagedAnnotation: "true",
+				}},
 				Spec: corev1.PodSpec{
 					AutomountServiceAccountToken: &trueVal,
 					Containers: []corev1.Container{
@@ -800,6 +803,8 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	}
 
 	copyAuthProxyFromExisting(existingDeployment, desiredDeployment, constants.KubeRbacContainerName)
+	require.Equal(t, "true", desiredDeployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation],
+		"reconciled template must retain ownership of generated TLS arguments")
 
 	var foundContainer *corev1.Container
 	for i, c := range desiredDeployment.Spec.Template.Spec.Containers {
@@ -839,6 +844,17 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	}
 	assert.Contains(t, mountNames, "user-data", "user volume mount should be preserved")
 	assert.Contains(t, mountNames, "proxy-tls", "proxy-tls mount should be added")
+
+	// The next reconcile starts with a fresh desired template and copies from
+	// the deployment produced above. The marker must survive that cycle too.
+	secondDesiredDeployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}},
+		}},
+	}
+	copyAuthProxyFromExisting(desiredDeployment, secondDesiredDeployment, constants.KubeRbacContainerName)
+	require.Equal(t, "true", secondDesiredDeployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation],
+		"ownership marker must survive repeated reconciles")
 }
 
 func TestOauthProxyPreservation(t *testing.T) {

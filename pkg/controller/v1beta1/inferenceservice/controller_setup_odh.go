@@ -21,9 +21,12 @@ package inferenceservice
 import (
 	"context"
 	"reflect"
+	"sync/atomic"
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/event"
@@ -31,6 +34,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 )
@@ -39,6 +43,19 @@ import (
 // generated InferenceService proxy sidecars are reconciled when profile policy
 // changes.
 func (r *InferenceServiceReconciler) extendControllerSetup(mgr manager.Manager, ctrlBuilder *builder.Builder) error {
+	retryEvents := make(chan event.GenericEvent, 1)
+	var retryScheduled atomic.Bool
+	mapProfileEvent := func(ctx context.Context, obj client.Object) []reconcile.Request {
+		requests, err := inferenceServiceRequestsForTLSProfile(ctx, mgr.GetClient(), obj)
+		if err == nil {
+			return requests
+		}
+		if isTransientTLSProfileListError(err) {
+			scheduleTLSProfileRetry(retryEvents, &retryScheduled, 5*time.Second)
+		}
+		r.Log.Error(err, "failed to enqueue InferenceServices after APIServer TLS profile change")
+		return nil
+	}
 	profileChanged := predicate.Funcs{
 		CreateFunc: func(e event.CreateEvent) bool {
 			return e.Object.GetName() == "cluster"
@@ -55,15 +72,24 @@ func (r *InferenceServiceReconciler) extendControllerSetup(mgr manager.Manager, 
 			return e.Object.GetName() == "cluster"
 		},
 	}
-	ctrlBuilder.Watches(&configv1.APIServer{}, handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, obj client.Object) []reconcile.Request {
-		requests, err := inferenceServiceRequestsForTLSProfile(ctx, mgr.GetClient(), obj)
-		if err != nil {
-			r.Log.Error(err, "failed to enqueue InferenceServices after APIServer TLS profile change")
-			return nil
-		}
-		return requests
-	}), builder.WithPredicates(profileChanged))
+	profileHandler := handler.EnqueueRequestsFromMapFunc(mapProfileEvent)
+	ctrlBuilder.Watches(&configv1.APIServer{}, profileHandler, builder.WithPredicates(profileChanged))
+	ctrlBuilder.WatchesRawSource(source.Channel(retryEvents, profileHandler))
 	return nil
+}
+
+func scheduleTLSProfileRetry(events chan<- event.GenericEvent, scheduled *atomic.Bool, delay time.Duration) {
+	if !scheduled.CompareAndSwap(false, true) {
+		return
+	}
+	time.AfterFunc(delay, func() {
+		scheduled.Store(false)
+		retry := event.GenericEvent{Object: &configv1.APIServer{ObjectMeta: metav1.ObjectMeta{Name: "cluster"}}}
+		select {
+		case events <- retry:
+		default: // A retry is already queued; the cluster-wide events are coalesced.
+		}
+	})
 }
 
 func inferenceServiceRequestsForTLSProfile(ctx context.Context, reader client.Reader, obj client.Object) ([]reconcile.Request, error) {
@@ -72,16 +98,15 @@ func inferenceServiceRequestsForTLSProfile(ctx context.Context, reader client.Re
 	}
 	var isvcs v1beta1.InferenceServiceList
 	delay := 100 * time.Millisecond
-	for {
+	for attempt := range 3 {
 		isvcs = v1beta1.InferenceServiceList{}
 		err := reader.List(ctx, &isvcs)
 		if err == nil {
 			break
 		}
-		// Keep retrying list failures until the manager is stopping.
-		// Returning an empty mapping after a fixed number of attempts would lose
-		// this cluster-wide profile-change event and leave workloads stale.
-		// The capped delay also avoids hot-looping on persistent API failures.
+		if !isTransientTLSProfileListError(err) || attempt == 2 {
+			return nil, err
+		}
 		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
@@ -89,15 +114,16 @@ func inferenceServiceRequestsForTLSProfile(ctx context.Context, reader client.Re
 			return nil, ctx.Err()
 		case <-timer.C:
 		}
-		if delay < 2500*time.Millisecond {
-			delay *= 2
-		} else {
-			delay = 5 * time.Second
-		}
+		delay *= 2
 	}
 	requests := make([]reconcile.Request, 0, len(isvcs.Items))
 	for i := range isvcs.Items {
 		requests = append(requests, reconcile.Request{NamespacedName: client.ObjectKeyFromObject(&isvcs.Items[i])})
 	}
 	return requests, nil
+}
+
+func isTransientTLSProfileListError(err error) bool {
+	return apierrors.IsTimeout(err) || apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) || apierrors.IsServiceUnavailable(err)
 }
