@@ -1343,6 +1343,17 @@
         "nodeGroups"
       ],
       "properties": {
+        "imagePullSecrets": {
+          "description": "ImagePullSecrets is a single kubernetes.io/dockerconfigjson secret in the download job namespace used to authenticate OCI (oci://) imports. The list shape matches PodSpec.imagePullSecrets; MaxItems=1 because credential merging is not supported. Combine credentials for multiple registries into one secret. Credentials from serviceAccountName and storage are not used for oci:// sources.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/v1.LocalObjectReference"
+          },
+          "x-kubernetes-list-map-keys": [
+            "name"
+          ],
+          "x-kubernetes-list-type": "map"
+        },
         "modelSize": {
           "description": "Model size to make sure it does not exceed the disk space reserved for local models. The limit is defined on the NodeGroup.",
           "$ref": "#/definitions/resource.Quantity"
@@ -1355,7 +1366,7 @@
           }
         },
         "serviceAccountName": {
-          "description": "ServiceAccountName specifies the service account to use for credential lookup.",
+          "description": "ServiceAccountName specifies the service account to use for credential lookup. The service account must exist in the download job namespace (localModel.jobNamespace).",
           "type": "string"
         },
         "sourceModelUri": {
@@ -1429,6 +1440,17 @@
         "modelSize"
       ],
       "properties": {
+        "imagePullSecrets": {
+          "description": "ImagePullSecrets is a single kubernetes.io/dockerconfigjson secret used to authenticate OCI (oci://) imports. The list shape matches PodSpec.imagePullSecrets; MaxItems=1 because credential merging is not supported. Combine credentials for multiple registries into one secret. For nodeGroups caches the named Secret must exist in the download job namespace (localModel.jobNamespace); for pvcRef caches it must exist in this cache's namespace, where the import Job runs. Credentials from serviceAccountName and storage are not used for oci:// sources.\n\nTrust boundary: a namespaced nodeGroups cache can name any dockerconfigjson Secret already present in the shared job namespace by that Secret's metadata.name. There is no extra ownership check; knowing the name is enough. Secrets are not copied from the cache namespace. Prefer pvcRef (import Job in the cache namespace) when tenants must not share the cluster job-namespace credential store.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/v1.LocalObjectReference"
+          },
+          "x-kubernetes-list-map-keys": [
+            "name"
+          ],
+          "x-kubernetes-list-type": "map"
+        },
         "modelSize": {
           "description": "Model size to make sure it does not exceed the disk space reserved for local models. The limit is defined on the NodeGroup.",
           "$ref": "#/definitions/resource.Quantity"
@@ -1445,7 +1467,7 @@
           "type": "string"
         },
         "serviceAccountName": {
-          "description": "ServiceAccountName specifies the service account to use for credential lookup.",
+          "description": "ServiceAccountName specifies the service account to use for credential lookup. For nodeGroups caches it must exist in the download job namespace (localModel.jobNamespace); for pvcRef caches it must exist in this cache's namespace, where the import Job runs.",
           "type": "string"
         },
         "sourceModelUri": {
@@ -4700,18 +4722,95 @@
           "format": "int64"
         },
         "registry": {
-          "description": "Registry contains the endpoint used to build generated capture image references. Registry credentials are added by the registry authentication integration.",
+          "description": "Registry configures the OCI registry used by capture and prefetch operations.",
           "default": {},
           "$ref": "#/definitions/v1beta1.KernelCacheRegistryConfig"
         }
       }
     },
-    "v1beta1.KernelCacheRegistryConfig": {
-      "description": "KernelCacheRegistryConfig contains the endpoint used by generated capture images. Registry authentication configuration is intentionally added separately.",
+    "v1beta1.KernelCacheConfigMapKeyRef": {
+      "description": "KernelCacheConfigMapKeyRef identifies a value in a ConfigMap.",
+      "type": "object",
+      "required": [
+        "name",
+        "key"
+      ],
+      "properties": {
+        "key": {
+          "description": "Key is the data key containing the referenced value.",
+          "type": "string",
+          "default": ""
+        },
+        "name": {
+          "description": "Name is the name of the referenced ConfigMap.",
+          "type": "string",
+          "default": ""
+        }
+      }
+    },
+    "v1beta1.KernelCacheRegistryAuth": {
+      "description": "KernelCacheRegistryAuth defines how KernelCache obtains registry credentials.",
       "type": "object",
       "properties": {
-        "endpoint": {
+        "pullRoleRef": {
+          "description": "PullRoleRef identifies the Role or ClusterRole bound to the prefetch ServiceAccount used to pull cache images.",
+          "$ref": "#/definitions/v1beta1.KernelCacheRegistryRoleRef"
+        },
+        "pushRoleRef": {
+          "description": "PushRoleRef identifies the Role or ClusterRole bound to the per-capture ServiceAccount used to publish captured images.",
+          "$ref": "#/definitions/v1beta1.KernelCacheRegistryRoleRef"
+        },
+        "tokenTTLSeconds": {
+          "description": "TokenTTLSeconds is the lifetime of a token issued through TokenRequest. The default is 600 seconds when serviceAccountToken is selected.",
+          "type": "integer",
+          "format": "int64"
+        },
+        "type": {
+          "description": "Type selects none or serviceAccountToken authentication. The zero value is treated as none.",
           "type": "string"
+        }
+      }
+    },
+    "v1beta1.KernelCacheRegistryConfig": {
+      "description": "KernelCacheRegistryConfig defines the registry endpoint, trust bundle, and authentication used by KernelCache capture and prefetch operations.",
+      "type": "object",
+      "properties": {
+        "auth": {
+          "description": "Auth configures how registry credentials are provisioned.",
+          "default": {},
+          "$ref": "#/definitions/v1beta1.KernelCacheRegistryAuth"
+        },
+        "caConfigMapRef": {
+          "description": "CAConfigMapRef optionally references a ConfigMap key containing the registry CA bundle.",
+          "$ref": "#/definitions/v1beta1.KernelCacheConfigMapKeyRef"
+        },
+        "endpoint": {
+          "description": "Endpoint is the OCI registry host and optional port.",
+          "type": "string"
+        },
+        "insecure": {
+          "description": "Insecure allows MCV to use plain HTTP for registry operations. The default is false.",
+          "type": "boolean"
+        }
+      }
+    },
+    "v1beta1.KernelCacheRegistryRoleRef": {
+      "description": "KernelCacheRegistryRoleRef identifies the Kubernetes Role or ClusterRole used to authorize registry access.",
+      "type": "object",
+      "required": [
+        "kind",
+        "name"
+      ],
+      "properties": {
+        "kind": {
+          "description": "Kind is Role or ClusterRole.",
+          "type": "string",
+          "default": ""
+        },
+        "name": {
+          "description": "Name is the name of the referenced Role or ClusterRole.",
+          "type": "string",
+          "default": ""
         }
       }
     },
@@ -4930,6 +5029,11 @@
           "format": "int32"
         },
         "reconcilationFrequencyInSecs": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "sharedPVCImportFSGroup": {
+          "description": "SharedPVCImportFSGroup is applied to shared-PVC import Jobs, which run in the cache's own namespace. It is independent of FSGroup, which applies only to per-node download Jobs in JobNamespace. Leave it unset to let namespace admission assign the group.",
           "type": "integer",
           "format": "int64"
         }

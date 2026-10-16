@@ -32,6 +32,7 @@ import (
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -43,9 +44,12 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/credentials/s3"
 )
 
 const MountPath = "/var/lib/kserve"
+
+const odhCustomCABundleConfigMapName = "odh-kserve-custom-ca-bundle"
 
 // sharedMCSLevel is the category-less SELinux MCS level applied to the cached model tree.
 // The cache is a shared, read-only, cross-namespace hostPath artifact: a directory can carry
@@ -113,7 +117,111 @@ func (c *LocalModelNodeReconciler) enhanceDownloadJob(ctx context.Context, job *
 	}
 	job.Spec.Template.Spec.SecurityContext = podSecurityContext
 	job.Spec.Template.Spec.ServiceAccountName = "kserve-localmodelnode-agent"
+	if err := c.mountODHCustomCABundle(ctx, job); err != nil {
+		return fmt.Errorf("failed to configure ODH custom CA bundle: %w", err)
+	}
 	return nil
+}
+
+// mountODHCustomCABundle adds the namespace-local bundle produced by the model controller.
+// Missing or empty bundles leave the download job on its default trust store.
+func (c *LocalModelNodeReconciler) mountODHCustomCABundle(ctx context.Context, job *batchv1.Job) error {
+	if job == nil || len(job.Spec.Template.Spec.Containers) == 0 {
+		return nil
+	}
+
+	container := &job.Spec.Template.Spec.Containers[0]
+	// Keep explicit trust settings from storage credentials and custom containers.
+	for _, env := range container.Env {
+		switch env.Name {
+		case constants.CaBundleConfigMapNameEnvVarKey, s3.AWSCABundleConfigMap, s3.AWSCABundle,
+			"REQUESTS_CA_BUNDLE", "SSL_CERT_FILE":
+			if env.Value != "" || env.ValueFrom != nil {
+				return nil
+			}
+		}
+	}
+
+	reader := c.APIReader
+	if reader == nil {
+		reader = c.Client
+	}
+	if reader == nil {
+		return errors.New("no Kubernetes reader configured for CA bundle lookup")
+	}
+
+	caBundleConfigMap := &corev1.ConfigMap{}
+	err := reader.Get(ctx, types.NamespacedName{
+		Name:      odhCustomCABundleConfigMapName,
+		Namespace: job.Namespace,
+	}, caBundleConfigMap)
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(caBundleConfigMap.Data[constants.DefaultCaBundleFileName]) == "" {
+		return nil
+	}
+
+	mountPath := constants.DefaultCaBundleVolumeMountPath
+	if storageInitializerConfig != nil && storageInitializerConfig.CaBundleVolumeMountPath != "" {
+		mountPath = storageInitializerConfig.CaBundleVolumeMountPath
+	}
+	for _, env := range container.Env {
+		if env.Name != constants.CaBundleVolumeMountPathEnvVarKey {
+			continue
+		}
+		if env.ValueFrom != nil {
+			// The path is supplied dynamically; leave its volume wiring to the caller.
+			return nil
+		}
+		if env.Value != "" {
+			mountPath = env.Value
+		}
+	}
+	// A pre-existing volume name or mount path must not be replaced with a different source.
+	for _, volume := range job.Spec.Template.Spec.Volumes {
+		if volume.Name == CaBundleVolumeName {
+			return nil
+		}
+	}
+	for _, volumeMount := range container.VolumeMounts {
+		if volumeMount.Name == CaBundleVolumeName || volumeMount.MountPath == mountPath {
+			return nil
+		}
+	}
+	optional := true
+	job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, corev1.Volume{
+		Name: CaBundleVolumeName,
+		VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: odhCustomCABundleConfigMapName},
+			Optional:             &optional,
+		}},
+	})
+	container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+		Name: CaBundleVolumeName, MountPath: mountPath, ReadOnly: true,
+	})
+	setCABundleEnvIfEmpty(container, constants.CaBundleConfigMapNameEnvVarKey, odhCustomCABundleConfigMapName)
+	setCABundleEnvIfEmpty(container, constants.CaBundleVolumeMountPathEnvVarKey, mountPath)
+
+	c.Log.Info("Mounted ODH custom CA bundle ConfigMap", "configMap", odhCustomCABundleConfigMapName,
+		"namespace", job.Namespace, "mountPath", mountPath)
+	return nil
+}
+
+func setCABundleEnvIfEmpty(container *corev1.Container, name, value string) {
+	for i := range container.Env {
+		if container.Env[i].Name != name {
+			continue
+		}
+		if container.Env[i].Value == "" && container.Env[i].ValueFrom == nil {
+			container.Env[i].Value = value
+		}
+		return
+	}
+	container.Env = append(container.Env, corev1.EnvVar{Name: name, Value: value})
 }
 
 func (c *LocalModelNodeReconciler) ensureModelRootFolderExistsAndIsWritable(ctx context.Context,

@@ -98,10 +98,6 @@ var modelControllerImageParamMap = map[string]string{
 	"autogluon-image":                               "RELATED_IMAGE_ODH_KSERVE_AUTOGLUON_SERVER_IMAGE",
 }
 
-var wvaImageParamMap = map[string]string{
-	"wva-controller-image": "RELATED_IMAGE_ODH_WORKLOAD_VARIANT_AUTOSCALER_CONTROLLER_IMAGE",
-}
-
 var modelExpressImageParamMap = map[string]string{
 	"MODELEXPRESS_OPERATOR_IMAGE": "RELATED_IMAGE_ODH_MODELEXPRESS_OPERATOR_IMAGE",
 	"MODELEXPRESS_SERVER_IMAGE":   "RELATED_IMAGE_ODH_MODELEXPRESS_IMAGE",
