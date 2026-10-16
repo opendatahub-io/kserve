@@ -24,11 +24,13 @@ import (
 	"slices"
 	"testing"
 
+	securityv1 "github.com/openshift/api/security/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -191,11 +193,11 @@ func TestConfidentialRepairAndCredentials(t *testing.T) {
 	require.NoError(t, r.Create(t.Context(), confidentialClaim(svc)))
 	svc.Annotations = map[string]string{"serving.kserve.io/storageSecretName": "connection"}
 	svc.Spec.Annotations = map[string]string{"io.katacontainers.config.hypervisor.cc_init_data": "service-initdata"}
-	svc.Spec.Template = &corev1.PodSpec{Volumes: svc.Spec.Template.Volumes, RuntimeClassName: ptr.To("another-confidential-runtime"), InitContainers: []corev1.Container{{Name: "additional-init", Image: "example.test/init:1"}}}
+	svc.Spec.Template = &corev1.PodSpec{Volumes: svc.Spec.Template.Volumes, RuntimeClassName: ptr.To("kata-cc-nvidia-gpu"), InitContainers: []corev1.Container{{Name: "additional-init", Image: "example.test/init:1"}}}
 	require.NoError(t, r.Create(t.Context(), svc))
 	require.NoError(t, r.CombineConfidentialForTest(t.Context(), svc, cfg))
 	require.NoError(t, r.PreparePlatformWorkloadForTest(t.Context(), svc, cfg))
-	assert.Equal(t, "another-confidential-runtime", *svc.Spec.Template.RuntimeClassName)
+	assert.Equal(t, "kata-cc-nvidia-gpu", *svc.Spec.Template.RuntimeClassName)
 	assert.Equal(t, "service-initdata", svc.Spec.Annotations["io.katacontainers.config.hypervisor.cc_init_data"])
 	cm := &corev1.ConfigMap{}
 	key := client.ObjectKey{Namespace: svc.Namespace, Name: "cc-storage-link"}
@@ -229,6 +231,7 @@ func TestConfidentialSupportedStorageLayouts(t *testing.T) {
 		{"adapters", func(s *v1alpha2.LLMInferenceService) { s.Spec.Model.LoRA = &v1alpha2.LoRASpec{} }, "adapter loading"},
 		{"cache", func(s *v1alpha2.LLMInferenceService) { s.Spec.KVCacheOffloading = &v1alpha2.KVCacheOffloadingSpec{} }, "cache offloading"},
 		{"missing key", func(s *v1alpha2.LLMInferenceService) { s.Spec.Model.Confidential.ResourceId = nil }, "model.confidential.resourceId"},
+		{"missing runtime class", func(s *v1alpha2.LLMInferenceService) { s.Spec.Template.RuntimeClassName = nil }, "template.runtimeClassName: kata-cc-nvidia-gpu"},
 		{"removed formatter", func(s *v1alpha2.LLMInferenceService) {
 			s.Spec.Template.InitContainers = slices.DeleteFunc(s.Spec.Template.InitContainers, func(c corev1.Container) bool { return c.Name == "format-disk" })
 		}, "format-disk"},
@@ -241,6 +244,30 @@ func TestConfidentialSupportedStorageLayouts(t *testing.T) {
 			require.ErrorContains(t, r.PreparePlatformWorkloadForTest(t.Context(), svc, cfg), tc.want)
 		})
 	}
+}
+
+func TestConfidentialRejectsUnapprovedRuntimeBeforeGrantingPermissions(t *testing.T) {
+	for _, runtimeClass := range []string{"", "runc", "kata", "another-confidential-runtime", "kata-cc-nvidia-gpu-unapproved"} {
+		t.Run(runtimeClass, func(t *testing.T) {
+			r, cfg := confidentialTestReconciler(t)
+			svc := confidentialService(t, "model", "project")
+			svc.Spec.Template.RuntimeClassName = ptr.To(runtimeClass)
+			require.NoError(t, r.Create(t.Context(), confidentialClaim(svc)))
+			require.NoError(t, r.CombineConfidentialForTest(t.Context(), svc, cfg))
+			require.ErrorContains(t, r.PreparePlatformWorkloadForTest(t.Context(), svc, cfg), "template.runtimeClassName: kata-cc-nvidia-gpu")
+			err := r.Get(t.Context(), client.ObjectKey{Namespace: svc.Namespace, Name: "coco-cc-storage"}, &rbacv1.RoleBinding{})
+			require.True(t, apierrors.IsNotFound(err), "rejected services must not receive SCC access: %v", err)
+		})
+	}
+}
+
+func TestConfidentialSecurityConstraints(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join(pkgtest.ProjectRoot(), "config/overlays/odh/confidential/scc.yaml"))
+	require.NoError(t, err)
+	scc := &securityv1.SecurityContextConstraints{}
+	require.NoError(t, yaml.Unmarshal(data, scc))
+	assert.Empty(t, scc.AllowedCapabilities)
+	assert.Equal(t, []string{"runtime/default"}, scc.SeccompProfiles)
 }
 
 func TestConfidentialOrdinaryServiceDoesNotProvision(t *testing.T) {
@@ -270,12 +297,11 @@ func TestConfidentialPresetUsesInstalledVersion(t *testing.T) {
 	assert.Equal(t, "kata-cc-nvidia-gpu", *svc.Spec.Template.RuntimeClassName)
 	pinned := readConfidentialPreset(t)
 	pinned.Name = "v3-4-0-" + bareMetalPreset
-	pinned.Spec.Template.RuntimeClassName = ptr.To("pinned-confidential-runtime")
 	require.NoError(t, r.Create(t.Context(), pinned))
 	svc = confidentialService(t, "pinned", "project")
 	svc.Status.Annotations = map[string]string{"serving.kserve.io/config-llm-confidential-bare-metal": pinned.Name}
 	require.NoError(t, r.CombineConfidentialForTest(t.Context(), svc, cfg))
-	assert.Equal(t, "pinned-confidential-runtime", *svc.Spec.Template.RuntimeClassName)
+	assert.Equal(t, "kata-cc-nvidia-gpu", *svc.Spec.Template.RuntimeClassName)
 	assert.True(t, svc.IsUsingLLMInferenceServiceConfigInNamespace(pinned.Name, constants.KServeNamespace))
 	require.NoError(t, r.Create(t.Context(), confidentialClaim(svc)))
 	require.NoError(t, r.PreparePlatformWorkloadForTest(t.Context(), svc, cfg))

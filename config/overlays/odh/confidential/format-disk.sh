@@ -1,6 +1,6 @@
 #!/bin/bash
 # All key handling and disk operations run inside the attested guest.
-set -eu
+set -euo pipefail
 DEVICE=/dev/block-device
 case "${LUKS_RESOURCE_ID:-}" in
   kbs:///*/*/*) resource_path=${LUKS_RESOURCE_ID#kbs:///} ;;

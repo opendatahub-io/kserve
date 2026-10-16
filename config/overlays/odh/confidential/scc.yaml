@@ -11,7 +11,8 @@ allowHostIPC: false
 allowHostNetwork: false
 allowHostPID: false
 allowHostPorts: false
-allowedCapabilities: ["*"]
+# The preset does not request additional named capabilities.
+allowedCapabilities: []
 runAsUser:
   type: RunAsAny
 seLinuxContext:
@@ -20,7 +21,7 @@ fsGroup:
   type: RunAsAny
 supplementalGroups:
   type: RunAsAny
-seccompProfiles: ["*"]
+seccompProfiles: [runtime/default]
 volumes:
 - configMap
 - secret

@@ -101,8 +101,8 @@ starts the OSC LUKS helper; `link.sh` exposes the unlocked filesystem to the
 initializer and inference container. Model data stays on LUKS storage; scratch
 paths use protected guest memory.
 
-The preset defaults `runtimeClassName` to `kata-cc-nvidia-gpu`. Qualify any
-alternative runtime against these helpers and confidentiality requirements.
+The preset requires `runtimeClassName: kata-cc-nvidia-gpu`. KServe rejects other
+runtime classes before creating the namespace's confidential helper permissions.
 Download protocols are handled by the existing storage initializer.
 
 ## Replacement, deletion, and limits

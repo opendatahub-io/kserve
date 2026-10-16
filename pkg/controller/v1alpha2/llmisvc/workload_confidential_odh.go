@@ -35,7 +35,7 @@ import (
 	"github.com/kserve/kserve/pkg/utils"
 )
 
-func (r *LLMISVCReconciler) preparePlatformWorkload(ctx context.Context, svc *v1alpha2.LLMInferenceService, _ *Config) error {
+func (r *LLMISVCReconciler) prepareConfidentialWorkload(ctx context.Context, svc *v1alpha2.LLMInferenceService) error {
 	if !usesConfidentialBareMetal(svc) || utils.GetForceStopRuntime(svc) {
 		return nil
 	}
@@ -54,6 +54,10 @@ func (r *LLMISVCReconciler) preparePlatformWorkload(ctx context.Context, svc *v1
 	pod := svc.Spec.Template
 	if pod == nil {
 		return errors.New("the confidential bare-metal preset requires template")
+	}
+	// Validate the merged template before granting access to the privileged SCC.
+	if pod.RuntimeClassName == nil || *pod.RuntimeClassName != "kata-cc-nvidia-gpu" {
+		return errors.New("the confidential bare-metal preset requires template.runtimeClassName: kata-cc-nvidia-gpu")
 	}
 	formatter := utils.GetInitContainerWithName(pod, "format-disk")
 	initializer := utils.GetInitContainerWithName(pod, constants.StorageInitializerContainerName)
