@@ -27,10 +27,15 @@ pod. Do not move the disk while an old guest might still be writing.
 
 The ODH overlay installs the preset, dedicated SCC, SCC-use ClusterRole, and
 helper definitions. Configure the fallback disk-key reference on the
-cluster-wide `Kserve` resource, using [kserve.yaml](kserve.yaml) as an example:
+cluster-wide `Kserve` resource:
 
 ```yaml
+apiVersion: components.platform.opendatahub.io/v1alpha1
+kind: Kserve
+metadata:
+  name: default-kserve
 spec:
+  managementState: Managed
   confidentialContainers:
     luksResourceId: kbs:///default/kserve-luks-password/key
     initData: ""

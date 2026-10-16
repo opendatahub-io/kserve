@@ -1,9 +1,0 @@
-apiVersion: components.platform.opendatahub.io/v1alpha1
-kind: Kserve
-metadata:
-  name: default-kserve
-spec:
-  managementState: Managed
-  confidentialContainers:
-    luksResourceId: kbs:///default/kserve-luks-password/key
-    initData: ""
