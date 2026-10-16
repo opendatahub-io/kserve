@@ -121,6 +121,15 @@ patches:
 - target:
     kind: ClusterRole
     name: kserve-localmodelnode-agent-role
+  patch: |-
+    - op: test
+      path: /rules/0/resources/0
+      value: configmaps
+    - op: remove
+      path: /rules/0
+- target:
+    kind: ClusterRole
+    name: kserve-localmodelnode-agent-role
   patch: |
     - op: add
       path: /rules/-

@@ -63,6 +63,10 @@ func TestModelCacheRenderedNamespaceReferences(t *testing.T) {
 		{"Service", "localmodel-webhook-server-service", modelCacheNamespace},
 		{"Role", "kserve-localmodel-ca-bundle", modelCacheNamespace},
 		{"RoleBinding", "kserve-localmodel-ca-bundle", modelCacheNamespace},
+		{"Role", "kserve-localmodelnode-ca-bundle-reader", modelCacheNamespace},
+		{"RoleBinding", "kserve-localmodelnode-ca-bundle-reader", modelCacheNamespace},
+		{"Role", "kserve-modelcache-configmap-source-reader", "test-ns"},
+		{"RoleBinding", "kserve-modelcache-configmap-source-reader", "test-ns"},
 		{"Certificate", "kernelcache-root-ca", modelCacheNamespace},
 		{"Certificate", "kernelcache-signer", modelCacheNamespace},
 		{"Issuer", "kernelcache-ca", modelCacheNamespace},
@@ -70,6 +74,33 @@ func TestModelCacheRenderedNamespaceReferences(t *testing.T) {
 		res := findRenderedModelCacheResource(resources, tt.kind, tt.name)
 		if res == nil || res.GetNamespace() != tt.namespace {
 			t.Fatalf("%s %s expected namespace %s, got %#v", tt.kind, tt.name, tt.namespace, res)
+		}
+	}
+	sourceReader := findRenderedModelCacheResource(resources, "RoleBinding", "kserve-modelcache-configmap-source-reader")
+	subjects, ok := sourceReader.Object["subjects"].([]any)
+	if !ok || len(subjects) != 2 {
+		t.Fatalf("source ConfigMap RoleBinding has unexpected subjects: %#v", sourceReader.Object["subjects"])
+	}
+	for _, subject := range subjects {
+		if subject.(map[string]any)["namespace"] != modelCacheNamespace {
+			t.Fatalf("source ConfigMap RoleBinding points to wrong service account namespace: %#v", subject)
+		}
+	}
+	for _, name := range []string{
+		"kserve-localmodel-distro-role",
+		"kserve-localmodelnode-distro-role",
+		"kserve-localmodelnode-agent-role",
+	} {
+		role := findRenderedModelCacheResource(resources, "ClusterRole", name)
+		if role == nil {
+			t.Fatalf("ClusterRole %s missing", name)
+		}
+		for _, rule := range role.Object["rules"].([]any) {
+			for _, resource := range rule.(map[string]any)["resources"].([]any) {
+				if resource == "configmaps" {
+					t.Fatalf("ClusterRole %s still grants cluster-wide ConfigMap access", name)
+				}
+			}
 		}
 	}
 	for _, name := range []string{

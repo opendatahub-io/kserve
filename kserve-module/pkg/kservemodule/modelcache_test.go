@@ -604,7 +604,9 @@ func TestPatchLocalModelNodeAgentMCSLevel(t *testing.T) {
 func TestModelCacheComponentPostRender_PatchesMCS(t *testing.T) {
 	g := NewWithT(t)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
-	r := newOpenShiftReconciler(node, namespaceWithMCS(modelCacheNamespace, "s0:c28,c27"))
+	namespace := namespaceWithMCS(modelCacheNamespace, "s0:c28,c27")
+	namespace.Annotations[psaElevatedByAnnotation] = psaElevatedByValue
+	r := newOpenShiftReconciler(node, namespace)
 	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
 	resources := []unstructured.Unstructured{
 		toUnstructuredDaemonSet(testDaemonSet("")),

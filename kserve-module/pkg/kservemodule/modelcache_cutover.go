@@ -74,6 +74,9 @@ func (r *KserveModuleReconciler) prepareModelCacheCutover(ctx context.Context, r
 // isOldNamespacedModelCacheManifest selects old module-owned namespaced render
 // entries while excluding cluster-scoped and shared resources.
 func isOldNamespacedModelCacheManifest(res *unstructured.Unstructured) bool {
+	if res.GetName() == "kserve-modelcache-configmap-source-reader" {
+		return false // This reader is intentionally installed in the applications namespace.
+	}
 	switch res.GetKind() {
 	case "ServiceAccount", "Service", "Role", "RoleBinding", "Certificate", "Issuer":
 		return true

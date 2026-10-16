@@ -6,6 +6,9 @@ metadata:
 rules:
 - apiGroups: [""]
   resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
   resourceNames: ["odh-kserve-custom-ca-bundle"]
   verbs: ["get", "update", "patch", "delete"]
 - apiGroups: [""]

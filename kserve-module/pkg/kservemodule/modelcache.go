@@ -20,6 +20,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
@@ -180,18 +181,30 @@ func (r *KserveModuleReconciler) ensureModelCacheNamespace(ctx context.Context) 
 	ns := &corev1.Namespace{}
 	err := r.Get(ctx, client.ObjectKey{Name: modelCacheNamespace}, ns)
 	if err == nil {
-		return nil
+		return validateModelCacheNamespace(ns)
 	}
 	if !k8serr.IsNotFound(err) {
 		return fmt.Errorf("getting ModelCache namespace: %w", err)
 	}
 	ns = &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{
 		Name:        modelCacheNamespace,
-		Labels:      map[string]string{securityEnforceLabel: "privileged"},
+		Labels:      map[string]string{securityEnforceLabel: "privileged", odhLabels.PlatformPartOf: KserveComponentName},
 		Annotations: map[string]string{psaElevatedByAnnotation: psaElevatedByValue},
 	}}
-	if err := r.Create(ctx, ns); err != nil && !k8serr.IsAlreadyExists(err) {
+	if err := r.Create(ctx, ns); k8serr.IsAlreadyExists(err) {
+		if err := r.Get(ctx, client.ObjectKey{Name: modelCacheNamespace}, ns); err != nil {
+			return fmt.Errorf("getting concurrently created ModelCache namespace: %w", err)
+		}
+		return validateModelCacheNamespace(ns)
+	} else if err != nil {
 		return fmt.Errorf("creating ModelCache namespace: %w", err)
+	}
+	return nil
+}
+
+func validateModelCacheNamespace(ns *corev1.Namespace) error {
+	if ns.Annotations[psaElevatedByAnnotation] != psaElevatedByValue {
+		return fmt.Errorf("namespace %s exists but is not managed by the KServe module", modelCacheNamespace)
 	}
 	return nil
 }
@@ -387,6 +400,12 @@ func modelCacheComponentPostRender(
 }
 
 func patchModelCacheConfigNamespace(resources []unstructured.Unstructured, namespace string) ([]unstructured.Unstructured, error) {
+	for i := range resources {
+		if (resources[i].GetKind() == "Role" || resources[i].GetKind() == "RoleBinding") &&
+			resources[i].GetName() == "kserve-modelcache-configmap-source-reader" {
+			resources[i].SetNamespace(namespace)
+		}
+	}
 	for _, workload := range []struct {
 		gvk  schema.GroupVersionKind
 		name string

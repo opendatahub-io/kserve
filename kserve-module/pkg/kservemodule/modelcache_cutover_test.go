@@ -49,6 +49,33 @@ func TestEnsureModelCacheNamespace(t *testing.T) {
 	}
 }
 
+func TestEnsureModelCacheNamespaceRejectsUnmanagedNamespace(t *testing.T) {
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: modelCacheNamespace}}
+	r := newReconcilerWithFakeClient(ns)
+	if err := r.ensureModelCacheNamespace(context.Background()); err == nil {
+		t.Fatal("unmanaged namespace was accepted")
+	}
+	ns.Labels = map[string]string{securityEnforceLabel: "privileged"}
+	if err := r.Update(context.Background(), ns); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Get(context.Background(), client.ObjectKey{Name: modelCacheNamespace}, ns); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ensureModelCacheNamespace(context.Background()); err == nil {
+		t.Fatal("privileged PSA without ownership marker was accepted")
+	}
+}
+
+func TestEnsureModelCacheNamespaceRejectsModuleLabelWithoutMarker(t *testing.T) {
+	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: modelCacheNamespace,
+		Labels: map[string]string{odhLabels.PlatformPartOf: KserveComponentName}}}
+	r := newReconcilerWithFakeClient(ns)
+	if err := r.ensureModelCacheNamespace(context.Background()); err == nil {
+		t.Fatal("generic module label was accepted without ModelCache ownership marker")
+	}
+}
+
 func TestModelCacheCutoverStopsOldWorkloadsBeforeVolumes(t *testing.T) {
 	labels := map[string]string{odhLabels.PlatformPartOf: KserveComponentName}
 	deployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: localmodelControllerDeployment, Namespace: "test-ns", Labels: labels}}
