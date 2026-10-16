@@ -43,10 +43,13 @@ import (
 // useful for environments where SecurityContextConstraints are not needed.
 var sccDisabled, _ = env.GetBool("ISVC_SCC_DISABLED", false)
 
-// postReconcilePlatform reconciles the platform-specific permissions of the
-// InferenceService workloads once the serving runtime is recorded in status.
+// postReconcilePlatform reconciles the OpenShift permissions of InferenceService workloads: the
+// image volume SCC and the auth-delegator binding of the predictor service account.
 func (r *InferenceServiceReconciler) postReconcilePlatform(ctx context.Context, isvc *v1beta1.InferenceService, isvcConfigMap *corev1.ConfigMap) error {
 	if err := r.reconcileWorkloadPlatformPermissions(ctx, isvc, isvcConfigMap); err != nil {
+		return fmt.Errorf("fails to reconcile workload platform permissions: %w", err)
+	}
+	if err := r.reconcileAuthDelegatorBinding(ctx, isvc); err != nil {
 		return fmt.Errorf("fails to reconcile workload platform permissions: %w", err)
 	}
 	return nil

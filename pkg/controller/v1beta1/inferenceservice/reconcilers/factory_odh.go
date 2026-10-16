@@ -18,8 +18,43 @@ limitations under the License.
 
 package reconcilers
 
-// resolvePlatformIngressReconciler defers to the upstream ingress reconcilers in
-// ODH builds.
-func resolvePlatformIngressReconciler(_ IngressReconcilerParams) (IngressReconciler, error) {
-	return nil, nil
+import (
+	"fmt"
+
+	routev1 "github.com/openshift/api/route/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/ingress"
+)
+
+// resolvePlatformIngressReconciler exposes Standard InferenceServices through OpenShift Routes
+// unless the Gateway API is enabled or the cluster does not serve Routes.
+func resolvePlatformIngressReconciler(params IngressReconcilerParams) (IngressReconciler, error) {
+	if params.IngressConfig.EnableGatewayAPI {
+		return nil, nil
+	}
+	available, err := routeAPIAvailable(params.Client)
+	if err != nil {
+		return nil, fmt.Errorf("failed to discover the OpenShift Route API: %w", err)
+	}
+	if !available {
+		return nil, nil
+	}
+	routeReconciler, err := ingress.NewRawRouteReconciler(params.Client, params.Scheme, params.IngressConfig, params.IsvcConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create route reconciler: %w", err)
+	}
+	return routeReconciler, nil
+}
+
+// routeAPIAvailable reports whether the cluster serves route.openshift.io/v1 Routes. The client
+// RESTMapper caches the mapping once found; while the API is missing every call runs discovery.
+func routeAPIAvailable(c client.Client) (bool, error) {
+	_, err := c.RESTMapper().RESTMapping(schema.GroupKind{Group: routev1.GroupName, Kind: "Route"}, routev1.GroupVersion.Version)
+	if meta.IsNoMatchError(err) {
+		return false, nil
+	}
+	return err == nil, err
 }

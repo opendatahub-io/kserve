@@ -80,9 +80,10 @@ func (r *InferenceServiceReconciler) preReconcilePlatform(
 	return isvcutils.WithAuditLogging(ctx, auditLoggingProfile, manageAuditLogging), nil
 }
 
-// finalizePlatform has no platform state to clean up in ODH builds.
-func (r *InferenceServiceReconciler) finalizePlatform(_ context.Context, _ *v1beta1.InferenceService) error {
-	return nil
+// finalizePlatform releases the cluster-scoped auth-delegator binding, which owner references
+// cannot collect.
+func (r *InferenceServiceReconciler) finalizePlatform(ctx context.Context, isvc *v1beta1.InferenceService) error {
+	return r.releaseAuthDelegatorBinding(ctx, isvc)
 }
 
 // resolvePlatformAuditLogging resolves the effective audit logging profile and
