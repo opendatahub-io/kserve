@@ -9,7 +9,7 @@ resources:
 # This will be created by the operator
 # - localmodelnode-pv-pvc.yaml
 
-namespace: opendatahub
+namespace: model-serving-cache
 
 components:
 - ../../components/localmodel
@@ -72,6 +72,13 @@ patches:
     kind: ClusterRole
     metadata:
       name: kserve-kernelcachenode-agent-role
+- target:
+    kind: ClusterRoleBinding
+    name: kserve-kernelcache-nodegroup-manager
+  patch: |-
+    - op: replace
+      path: /subjects/0/namespace
+      value: model-serving-cache
 - target:
     kind: ClusterRoleBinding
     name: kserve-kernelcachenode-agent-rolebinding

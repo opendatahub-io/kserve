@@ -53,7 +53,7 @@ func (r *KernelCacheReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 func isInferenceServiceConfigMap(obj client.Object) bool {
-	return obj != nil && obj.GetNamespace() == constants.KServeNamespace && obj.GetName() == constants.InferenceServiceConfigMapName
+	return obj != nil && obj.GetNamespace() == inferenceServiceConfigNamespace() && obj.GetName() == constants.InferenceServiceConfigMapName
 }
 
 // prefetchAuthResourcePredicate accepts only the shared prefetch identity resources.

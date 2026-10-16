@@ -233,6 +233,10 @@ func main() {
 		setupLog.Error(err, "unable to create controller", "v1alpha1Controllers", "KernelCache")
 		os.Exit(1)
 	}
+	if err := setupDistroControllers(mgr); err != nil {
+		setupLog.Error(err, "unable to create distro controllers")
+		os.Exit(1)
+	}
 
 	// Setup webhook
 	setupLog.Info("setting up webhook server")

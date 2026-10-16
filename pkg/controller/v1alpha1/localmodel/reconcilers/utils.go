@@ -275,7 +275,7 @@ func DeleteModelFromNodes(
 
 			// Delete download PVC from jobNamespace (where download jobs run)
 			downloadPVCName := downloadPVName
-			isvcConfigMap, cfgErr := v1beta1.GetInferenceServiceConfigMap(ctx, clientset)
+			isvcConfigMap, cfgErr := getInferenceServiceConfigMap(ctx, clientset)
 			if cfgErr == nil {
 				localModelConfig, cfgErr := v1beta1.NewLocalModelConfig(isvcConfigMap)
 				if cfgErr == nil {

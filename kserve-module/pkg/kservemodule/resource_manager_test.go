@@ -2,6 +2,8 @@ package kservemodule
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -13,6 +15,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
+	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
 	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 )
 
@@ -217,6 +220,68 @@ func TestCheckPresetsPresent_NothingExpected(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(testScheme()).Build()
 
 	g.Expect(checkPresetsPresent(context.Background(), cli, "opendatahub", nil)).Should(Succeed())
+}
+
+func TestDefaultCleanupRemovesOldModelCacheNamespaceOnDisable(t *testing.T) {
+	labels := map[string]string{odhLabels.PlatformPartOf: KserveComponentName}
+	oldDeployment := &appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{
+		Name:      localmodelControllerDeployment,
+		Namespace: "test-ns",
+		Labels:    labels,
+	}}
+	r := newReconcilerWithFakeClient(oldDeployment)
+	r.SetClusterType(cluster.ClusterTypeOpenShift)
+
+	workDir := t.TempDir()
+	manifestDir := filepath.Join(workDir, KserveComponentName, ModelCacheManifestSourcePath)
+	if err := os.MkdirAll(manifestDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manifestDir, "kustomization.yaml"), []byte(`apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+- deployment.yaml
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manifestDir, "deployment.yaml"), []byte(`apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kserve-localmodel-controller-manager
+spec:
+  selector:
+    matchLabels:
+      control-plane: kserve-localmodel-controller-manager
+  template:
+    metadata:
+      labels:
+        control-plane: kserve-localmodel-controller-manager
+    spec:
+      containers:
+      - name: manager
+        image: example.invalid/modelcache:test
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r.SetWorkDir(workDir)
+
+	comp := componentConfig{
+		name:         ModelCacheComponentName,
+		manifestName: KserveComponentName,
+		sourcePath:   ModelCacheManifestSourcePath,
+	}
+	if err := r.defaultCleanup(context.Background(), comp); err == nil {
+		t.Fatal("expected first disabled cleanup to wait for old Deployment deletion")
+	}
+	if err := r.Get(context.Background(), client.ObjectKeyFromObject(oldDeployment), &appsv1.Deployment{}); err == nil {
+		t.Fatal("old ModelCache Deployment was not deleted before retry")
+	}
+	if err := r.defaultCleanup(context.Background(), comp); err != nil {
+		t.Fatalf("disabled ModelCache cleanup did not converge: %v", err)
+	}
+	if err := r.Get(context.Background(), client.ObjectKeyFromObject(oldDeployment), &appsv1.Deployment{}); err == nil {
+		t.Fatal("old ModelCache Deployment still exists after disabled cleanup")
+	}
 }
 
 func buildPreset(name string) *unstructured.Unstructured {

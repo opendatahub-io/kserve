@@ -46,6 +46,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	controllerutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/credentials/s3"
 	pkgtypes "github.com/kserve/kserve/pkg/types"
 )
@@ -55,7 +56,9 @@ func TestMountODHCustomCABundle(t *testing.T) {
 	t.Cleanup(func() { storageInitializerConfig = oldConfig })
 
 	const namespace = "ca-test-namespace"
+	const sourceNamespace = "applications-ca-test"
 	const configuredPath = "/configured/custom-certs"
+	t.Setenv(controllerutils.KServeConfigNamespaceEnv, sourceNamespace)
 	tests := []struct {
 		name          string
 		bundleData    map[string]string
@@ -73,6 +76,7 @@ func TestMountODHCustomCABundle(t *testing.T) {
 		{name: "explicit SSL certificate file", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: "SSL_CERT_FILE", Value: "/explicit/ca.pem"}}},
 		{name: "CA from ValueFrom", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: "SSL_CERT_FILE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}}}},
 		{name: "empty SSL certificate file", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: "SSL_CERT_FILE"}}, wantMounted: true, wantMountPath: configuredPath},
+		{name: "CA mount path from ValueFrom", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleVolumeMountPathEnvVarKey, ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}}}},
 		{name: "empty CA ConfigMap name", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleConfigMapNameEnvVarKey}}, wantMounted: true, wantMountPath: configuredPath},
 		{name: "existing mount path", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: "/existing/custom-certs"}}, wantMounted: true, wantMountPath: "/existing/custom-certs"},
 		{name: "empty mount path", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleVolumeMountPathEnvVarKey}}, wantMounted: true, wantMountPath: configuredPath},
@@ -89,9 +93,15 @@ func TestMountODHCustomCABundle(t *testing.T) {
 			var objects []client.Object
 			if tt.bundleData != nil {
 				objects = append(objects, &corev1.ConfigMap{
-					ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: namespace},
+					ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: sourceNamespace},
 					Data:       tt.bundleData,
 				})
+				if strings.TrimSpace(tt.bundleData[constants.DefaultCaBundleFileName]) != "" {
+					objects = append(objects, &corev1.ConfigMap{
+						ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: namespace},
+						Data:       tt.bundleData,
+					})
+				}
 			}
 			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
 			reconciler := &LocalModelNodeReconciler{APIReader: reader, Log: ctrl.Log.WithName("ca-test")}
@@ -148,6 +158,313 @@ func TestMountODHCustomCABundle(t *testing.T) {
 				t.Fatalf("repeated CA injection changed job or failed: %v", err)
 			}
 		})
+	}
+}
+
+func TestMountODHCustomCABundleWaitsForNamespaceCopy(t *testing.T) {
+	const sourceNamespace = "applications-ca-test"
+	const jobNamespace = "model-serving-cache"
+	t.Setenv(controllerutils.KServeConfigNamespaceEnv, sourceNamespace)
+	for _, tt := range []struct {
+		name       string
+		sourceData *string
+		targetData *string
+		explicit   bool
+		managed    bool
+		wantErr    bool
+		wantMount  bool
+	}{
+		{name: "matching copy", sourceData: ptr.To("certificate"), targetData: ptr.To("certificate"), wantMount: true},
+		{name: "copy missing", sourceData: ptr.To("certificate"), wantErr: true},
+		{name: "copy stale", sourceData: ptr.To("new certificate"), targetData: ptr.To("old certificate"), wantErr: true},
+		{name: "leftover copy", targetData: ptr.To("old certificate"), wantErr: true},
+		{name: "source empty with copy", sourceData: ptr.To("  "), targetData: ptr.To("old certificate"), wantErr: true},
+		{name: "system trust", wantMount: false},
+		{name: "explicit CA does not wait", sourceData: ptr.To("certificate"), explicit: true},
+		{name: "managed OCI CA waits", sourceData: ptr.To("certificate"), managed: true, wantErr: true},
+		{name: "managed OCI CA mounts matching copy", sourceData: ptr.To("certificate"), targetData: ptr.To("certificate"), managed: true, wantMount: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := corev1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			var objects []client.Object
+			if tt.sourceData != nil {
+				objects = append(objects, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: sourceNamespace}, Data: map[string]string{constants.DefaultCaBundleFileName: *tt.sourceData}})
+			}
+			if tt.targetData != nil {
+				objects = append(objects, &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: jobNamespace}, Data: map[string]string{constants.DefaultCaBundleFileName: *tt.targetData}})
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+			job := &batchv1.Job{ObjectMeta: metav1.ObjectMeta{Namespace: jobNamespace}, Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "download"}}}}}}
+			if tt.explicit {
+				job.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{{Name: "SSL_CERT_FILE", Value: "/explicit/ca.pem"}}
+			}
+			if tt.managed {
+				job.Spec.Template.Spec.Containers[0].Env = []corev1.EnvVar{
+					{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: odhCustomCABundleConfigMapName},
+					{Name: s3.AWSCABundle, Value: "/etc/ssl/custom-certs/cabundle.crt"},
+				}
+			}
+			before := job.DeepCopy()
+			err := (&LocalModelNodeReconciler{APIReader: reader, Log: ctrl.Log.WithName("ca-test")}).mountODHCustomCABundle(context.Background(), job)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("expected error=%t, got %v", tt.wantErr, err)
+			}
+			if !tt.wantMount && !reflect.DeepEqual(job, before) {
+				t.Fatalf("Job changed without a synchronized implicit bundle: %#v", job.Spec.Template.Spec)
+			}
+			if tt.wantMount && len(job.Spec.Template.Spec.Volumes) != 1 {
+				t.Fatalf("expected the namespace-local CA volume, got %#v", job.Spec.Template.Spec.Volumes)
+			}
+		})
+	}
+}
+
+func TestMountODHCustomCABundleRemovesImplicitS3DefaultsWithoutSource(t *testing.T) {
+	const sourceNamespace = "applications-ca-test"
+	const jobNamespace = "model-serving-cache"
+	t.Setenv(controllerutils.KServeConfigNamespaceEnv, sourceNamespace)
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Namespace: jobNamespace},
+		Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "download", Env: []corev1.EnvVar{
+				{Name: s3.AWSCABundleConfigMap, Value: odhCustomCABundleConfigMapName},
+				{Name: s3.AWSCABundle, Value: implicitODHS3CABundlePath},
+				{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: odhCustomCABundleConfigMapName},
+				{Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: constants.DefaultCaBundleVolumeMountPath},
+			}, VolumeMounts: []corev1.VolumeMount{{Name: CaBundleVolumeName, MountPath: constants.DefaultCaBundleVolumeMountPath, ReadOnly: true}}}},
+			Volumes: []corev1.Volume{{Name: CaBundleVolumeName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: odhCustomCABundleConfigMapName},
+			}}}},
+		}}},
+	}
+	if err := (&LocalModelNodeReconciler{APIReader: reader, Log: ctrl.Log.WithName("ca-test")}).mountODHCustomCABundle(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	container := job.Spec.Template.Spec.Containers[0]
+	if len(job.Spec.Template.Spec.Volumes) != 0 || len(container.VolumeMounts) != 0 {
+		t.Fatalf("implicit CA volume was not removed: volumes=%#v mounts=%#v", job.Spec.Template.Spec.Volumes, container.VolumeMounts)
+	}
+	for _, env := range container.Env {
+		if env.Name == s3.AWSCABundleConfigMap || env.Name == s3.AWSCABundle ||
+			env.Name == constants.CaBundleConfigMapNameEnvVarKey || env.Name == constants.CaBundleVolumeMountPathEnvVarKey {
+			t.Fatalf("implicit CA environment was not removed: %#v", container.Env)
+		}
+	}
+}
+
+func TestMountODHCustomCABundleRemovesManagedWiringWithCallerSettings(t *testing.T) {
+	const sourceNamespace = "applications-ca-test"
+	const jobNamespace = "model-serving-cache"
+	t.Setenv(controllerutils.KServeConfigNamespaceEnv, sourceNamespace)
+
+	for _, tt := range []struct {
+		name              string
+		env               []corev1.EnvVar
+		wantConfigMapName string
+		wantMountPathFrom bool
+	}{
+		{
+			name: "preserve mount path ValueFrom",
+			env: []corev1.EnvVar{
+				{Name: s3.AWSCABundleConfigMap, Value: odhCustomCABundleConfigMapName},
+				{Name: s3.AWSCABundle, Value: implicitODHS3CABundlePath},
+				{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: odhCustomCABundleConfigMapName},
+				{Name: constants.CaBundleVolumeMountPathEnvVarKey, ValueFrom: &corev1.EnvVarSource{
+					FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"},
+				}},
+			},
+			wantMountPathFrom: true,
+		},
+		{
+			name: "preserve alternate config map",
+			env: []corev1.EnvVar{
+				{Name: s3.AWSCABundleConfigMap, Value: odhCustomCABundleConfigMapName},
+				{Name: s3.AWSCABundle, Value: implicitODHS3CABundlePath},
+				{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: "caller-bundle"},
+				{Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: constants.DefaultCaBundleVolumeMountPath},
+			},
+			wantConfigMapName: "caller-bundle",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := corev1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+			job := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{Namespace: jobNamespace},
+				Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "download", Env: tt.env,
+						VolumeMounts: []corev1.VolumeMount{{Name: CaBundleVolumeName, MountPath: constants.DefaultCaBundleVolumeMountPath, ReadOnly: true}},
+					}},
+					Volumes: []corev1.Volume{{Name: CaBundleVolumeName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: odhCustomCABundleConfigMapName},
+					}}}},
+				}}},
+			}
+
+			if err := (&LocalModelNodeReconciler{APIReader: reader, Log: ctrl.Log.WithName("ca-test")}).mountODHCustomCABundle(context.Background(), job); err != nil {
+				t.Fatal(err)
+			}
+			if len(job.Spec.Template.Spec.Volumes) != 0 || len(job.Spec.Template.Spec.Containers[0].VolumeMounts) != 0 {
+				t.Fatalf("managed CA volume was not removed: volumes=%#v mounts=%#v", job.Spec.Template.Spec.Volumes, job.Spec.Template.Spec.Containers[0].VolumeMounts)
+			}
+
+			var foundConfigMapName, foundMountPathFrom bool
+			for _, env := range job.Spec.Template.Spec.Containers[0].Env {
+				switch env.Name {
+				case s3.AWSCABundleConfigMap, s3.AWSCABundle, constants.CaBundleConfigMapNameEnvVarKey:
+					if env.Value == odhCustomCABundleConfigMapName || env.Name == s3.AWSCABundle {
+						t.Fatalf("managed CA environment was not removed: %#v", job.Spec.Template.Spec.Containers[0].Env)
+					}
+					if env.Name == constants.CaBundleConfigMapNameEnvVarKey && env.Value == tt.wantConfigMapName {
+						foundConfigMapName = true
+					}
+				case constants.CaBundleVolumeMountPathEnvVarKey:
+					foundMountPathFrom = env.ValueFrom != nil
+				}
+			}
+			if tt.wantConfigMapName != "" && !foundConfigMapName {
+				t.Fatalf("caller config map setting was not preserved: %#v", job.Spec.Template.Spec.Containers[0].Env)
+			}
+			if tt.wantMountPathFrom && !foundMountPathFrom {
+				t.Fatalf("caller ValueFrom mount path was not preserved: %#v", job.Spec.Template.Spec.Containers[0].Env)
+			}
+		})
+	}
+}
+
+func TestMountODHCustomCABundleRemovesManagedWiringButPreservesExplicitCA(t *testing.T) {
+	const sourceNamespace = "applications-ca-test"
+	const jobNamespace = "model-serving-cache"
+	t.Setenv(controllerutils.KServeConfigNamespaceEnv, sourceNamespace)
+	for _, tt := range []struct {
+		name        string
+		explicitEnv corev1.EnvVar
+		wantValue   string
+	}{
+		{name: "SSL_CERT_FILE", explicitEnv: corev1.EnvVar{Name: "SSL_CERT_FILE", Value: "/explicit/ca.pem"}, wantValue: "/explicit/ca.pem"},
+		{name: "REQUESTS_CA_BUNDLE", explicitEnv: corev1.EnvVar{Name: "REQUESTS_CA_BUNDLE", Value: "/explicit/ca.pem"}, wantValue: "/explicit/ca.pem"},
+		{name: "AWS_CA_BUNDLE", explicitEnv: corev1.EnvVar{Name: s3.AWSCABundle, Value: "/explicit/ca.pem"}, wantValue: "/explicit/ca.pem"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			scheme := runtime.NewScheme()
+			if err := corev1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+			job := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{Namespace: jobNamespace},
+				Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "download", Env: []corev1.EnvVar{
+						tt.explicitEnv,
+						{Name: s3.AWSCABundleConfigMap, Value: odhCustomCABundleConfigMapName},
+						{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: odhCustomCABundleConfigMapName},
+						{Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: constants.DefaultCaBundleVolumeMountPath},
+					}, VolumeMounts: []corev1.VolumeMount{{Name: CaBundleVolumeName, MountPath: constants.DefaultCaBundleVolumeMountPath, ReadOnly: true}}}},
+					Volumes: []corev1.Volume{{Name: CaBundleVolumeName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+						LocalObjectReference: corev1.LocalObjectReference{Name: odhCustomCABundleConfigMapName},
+					}}}},
+				}}},
+			}
+			if err := (&LocalModelNodeReconciler{APIReader: reader, Log: ctrl.Log.WithName("ca-test")}).mountODHCustomCABundle(context.Background(), job); err != nil {
+				t.Fatal(err)
+			}
+			container := job.Spec.Template.Spec.Containers[0]
+			if len(job.Spec.Template.Spec.Volumes) != 0 || len(container.VolumeMounts) != 0 {
+				t.Fatalf("managed CA volume was not removed: volumes=%#v mounts=%#v", job.Spec.Template.Spec.Volumes, container.VolumeMounts)
+			}
+			for _, env := range container.Env {
+				if env.Name == tt.explicitEnv.Name {
+					if env.Value != tt.wantValue {
+						t.Fatalf("explicit CA env changed: %#v", container.Env)
+					}
+					continue
+				}
+				if env.Name == s3.AWSCABundleConfigMap || env.Name == constants.CaBundleConfigMapNameEnvVarKey || env.Name == constants.CaBundleVolumeMountPathEnvVarKey {
+					t.Fatalf("managed CA env was not removed: %#v", container.Env)
+				}
+			}
+		})
+	}
+}
+
+func TestMountODHCustomCABundleWaitsForSourceWithExplicitCA(t *testing.T) {
+	const sourceNamespace = "applications-ca-test"
+	const jobNamespace = "model-serving-cache"
+	t.Setenv(controllerutils.KServeConfigNamespaceEnv, sourceNamespace)
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	source := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: sourceNamespace}, Data: map[string]string{constants.DefaultCaBundleFileName: "certificate"}}
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(source).Build()
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Namespace: jobNamespace},
+		Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "download", Env: []corev1.EnvVar{
+				{Name: "SSL_CERT_FILE", Value: "/explicit/ca.pem"},
+				{Name: s3.AWSCABundleConfigMap, Value: odhCustomCABundleConfigMapName},
+				{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: odhCustomCABundleConfigMapName},
+				{Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: constants.DefaultCaBundleVolumeMountPath},
+			}, VolumeMounts: []corev1.VolumeMount{{Name: CaBundleVolumeName, MountPath: constants.DefaultCaBundleVolumeMountPath, ReadOnly: true}}}},
+			Volumes: []corev1.Volume{{Name: CaBundleVolumeName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: odhCustomCABundleConfigMapName},
+			}}}},
+		}}},
+	}
+	before := job.DeepCopy()
+	err := (&LocalModelNodeReconciler{APIReader: reader, Log: ctrl.Log.WithName("ca-test")}).mountODHCustomCABundle(context.Background(), job)
+	if err == nil {
+		t.Fatal("expected the Job to wait for the namespace-local managed CA copy")
+	}
+	if !reflect.DeepEqual(job, before) {
+		t.Fatalf("Job changed while waiting for managed CA copy: before=%#v after=%#v", before.Spec.Template.Spec, job.Spec.Template.Spec)
+	}
+}
+
+func TestMountODHCustomCABundleKeepsExplicitAWSPathAndExistingMount(t *testing.T) {
+	const sourceNamespace = "applications-ca-test"
+	const jobNamespace = "model-serving-cache"
+	const explicitPath = "/opt/custom-certs/cabundle.crt"
+	t.Setenv(controllerutils.KServeConfigNamespaceEnv, sourceNamespace)
+	scheme := runtime.NewScheme()
+	if err := corev1.AddToScheme(scheme); err != nil {
+		t.Fatal(err)
+	}
+	bundle := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: sourceNamespace}, Data: map[string]string{constants.DefaultCaBundleFileName: "certificate"}}
+	target := &corev1.ConfigMap{ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: jobNamespace}, Data: map[string]string{constants.DefaultCaBundleFileName: "certificate"}}
+	reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(bundle, target).Build()
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Namespace: jobNamespace},
+		Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "download", Env: []corev1.EnvVar{
+				{Name: s3.AWSCABundleConfigMap, Value: odhCustomCABundleConfigMapName},
+				{Name: s3.AWSCABundle, Value: explicitPath},
+				{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: odhCustomCABundleConfigMapName},
+				{Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: filepath.Dir(explicitPath)},
+			}, VolumeMounts: []corev1.VolumeMount{{Name: CaBundleVolumeName, MountPath: filepath.Dir(explicitPath), ReadOnly: true}}}},
+			Volumes: []corev1.Volume{{Name: CaBundleVolumeName, VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: odhCustomCABundleConfigMapName},
+			}}}},
+		}}},
+	}
+	before := job.DeepCopy()
+	if err := (&LocalModelNodeReconciler{APIReader: reader, Log: ctrl.Log.WithName("ca-test")}).mountODHCustomCABundle(context.Background(), job); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(job, before) {
+		t.Fatalf("explicit AWS CA path or existing mount changed: before=%#v after=%#v", before.Spec.Template.Spec, job.Spec.Template.Spec)
 	}
 }
 
@@ -271,6 +588,12 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			}
 			Expect(k8sClient.Create(ctx, caBundle)).To(Succeed())
 			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, caBundle)).To(Succeed()) })
+			applicationBundle := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: constants.KServeNamespace},
+				Data:       map[string]string{constants.DefaultCaBundleFileName: "test certificate"},
+			}
+			Expect(k8sClient.Create(ctx, applicationBundle)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, applicationBundle)).To(Succeed()) })
 
 			nodeName = "worker-hf-odh-ca"
 			const modelName = "hf-odh-ca-model"

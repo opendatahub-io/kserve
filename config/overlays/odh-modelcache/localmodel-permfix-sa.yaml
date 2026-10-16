@@ -24,4 +24,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kserve-localmodel-permfix
-  namespace: opendatahub
+  namespace: model-serving-cache

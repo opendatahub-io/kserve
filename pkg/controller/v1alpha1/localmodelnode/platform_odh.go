@@ -44,12 +44,15 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	controllerutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/credentials/s3"
 )
 
 const MountPath = "/var/lib/kserve"
 
 const odhCustomCABundleConfigMapName = "odh-kserve-custom-ca-bundle"
+
+var implicitODHS3CABundlePath = filepath.Join(constants.DefaultCaBundleVolumeMountPath, constants.DefaultCaBundleFileName)
 
 // sharedMCSLevel is the category-less SELinux MCS level applied to the cached model tree.
 // The cache is a shared, read-only, cross-namespace hostPath artifact: a directory can carry
@@ -131,15 +134,13 @@ func (c *LocalModelNodeReconciler) mountODHCustomCABundle(ctx context.Context, j
 	}
 
 	container := &job.Spec.Template.Spec.Containers[0]
-	// Keep explicit trust settings from storage credentials and custom containers.
-	for _, env := range container.Env {
-		switch env.Name {
-		case constants.CaBundleConfigMapNameEnvVarKey, s3.AWSCABundleConfigMap, s3.AWSCABundle,
-			"REQUESTS_CA_BUNDLE", "SSL_CERT_FILE":
-			if env.Value != "" || env.ValueFrom != nil {
-				return nil
-			}
-		}
+	envState := inspectCABundleEnv(container)
+	// A named, different CA remains entirely caller-owned. OCI and S3 setup can
+	// also reference this managed ConfigMap explicitly; those Jobs still need to
+	// wait until the namespace copy is current. A nonempty ValueFrom is likewise
+	// caller-owned because its value cannot be compared safely here.
+	if !envState.managedConfigMap && (envState.explicitConfigMap || envState.mountPathFrom || envState.explicitCA) {
+		return nil
 	}
 
 	reader := c.APIReader
@@ -149,6 +150,23 @@ func (c *LocalModelNodeReconciler) mountODHCustomCABundle(ctx context.Context, j
 	if reader == nil {
 		return errors.New("no Kubernetes reader configured for CA bundle lookup")
 	}
+	// The applications namespace is the source of truth. Wait for the LocalModel
+	// controller to publish the same bundle beside the Job before mounting it.
+	// A missing source and target intentionally use the system trust store.
+	sourceNamespace := controllerutils.InferenceServiceConfigNamespace()
+	var sourceBundle string
+	if sourceNamespace != job.Namespace {
+		source := &corev1.ConfigMap{}
+		err := reader.Get(ctx, types.NamespacedName{
+			Name: odhCustomCABundleConfigMapName, Namespace: sourceNamespace,
+		}, source)
+		if err != nil && !apierrors.IsNotFound(err) {
+			return fmt.Errorf("reading applications namespace CA bundle: %w", err)
+		}
+		if err == nil {
+			sourceBundle = source.Data[constants.DefaultCaBundleFileName]
+		}
+	}
 
 	caBundleConfigMap := &corev1.ConfigMap{}
 	err := reader.Get(ctx, types.NamespacedName{
@@ -156,36 +174,74 @@ func (c *LocalModelNodeReconciler) mountODHCustomCABundle(ctx context.Context, j
 		Namespace: job.Namespace,
 	}, caBundleConfigMap)
 	if apierrors.IsNotFound(err) {
+		if strings.TrimSpace(sourceBundle) != "" {
+			return fmt.Errorf("waiting for CA bundle ConfigMap %s in job namespace %s", odhCustomCABundleConfigMapName, job.Namespace)
+		}
+		if envState.managedConfigMap {
+			// The ODH config uses the managed bundle as a default for S3 jobs. An
+			// absent source means that no custom CA is configured, so remove the
+			// default wiring added by mountCaBundleVolume and use system trust.
+			removeImplicitODHBundle(job, envState)
+		}
 		return nil
 	}
 	if err != nil {
 		return err
 	}
+	if sourceNamespace != job.Namespace {
+		targetBundle := strings.TrimSpace(caBundleConfigMap.Data[constants.DefaultCaBundleFileName])
+		if strings.TrimSpace(sourceBundle) == "" && targetBundle == "" {
+			if envState.managedConfigMap {
+				removeImplicitODHBundle(job, envState)
+			}
+			return nil
+		}
+		if strings.TrimSpace(sourceBundle) == "" || caBundleConfigMap.Data[constants.DefaultCaBundleFileName] != sourceBundle {
+			return fmt.Errorf("waiting for CA bundle ConfigMap %s in job namespace %s to match applications namespace %s",
+				odhCustomCABundleConfigMapName, job.Namespace, sourceNamespace)
+		}
+	}
 	if strings.TrimSpace(caBundleConfigMap.Data[constants.DefaultCaBundleFileName]) == "" {
+		if envState.managedConfigMap {
+			removeImplicitODHBundle(job, envState)
+		}
 		return nil
 	}
 
-	mountPath := constants.DefaultCaBundleVolumeMountPath
-	if storageInitializerConfig != nil && storageInitializerConfig.CaBundleVolumeMountPath != "" {
-		mountPath = storageInitializerConfig.CaBundleVolumeMountPath
-	}
-	for _, env := range container.Env {
-		if env.Name != constants.CaBundleVolumeMountPathEnvVarKey {
+	mountPath := caBundleMountPath(envState)
+	volumeIndex := -1
+	for index, volume := range job.Spec.Template.Spec.Volumes {
+		if volume.Name != CaBundleVolumeName {
 			continue
 		}
-		if env.ValueFrom != nil {
-			// The path is supplied dynamically; leave its volume wiring to the caller.
+		if volume.ConfigMap == nil || volume.ConfigMap.Name != odhCustomCABundleConfigMapName {
+			// A caller-owned volume already uses the conventional name. Do not
+			// replace or reinterpret it as the ODH bundle.
 			return nil
 		}
-		if env.Value != "" {
-			mountPath = env.Value
-		}
+		volumeIndex = index
+		break
 	}
-	// A pre-existing volume name or mount path must not be replaced with a different source.
-	for _, volume := range job.Spec.Template.Spec.Volumes {
-		if volume.Name == CaBundleVolumeName {
+	if volumeIndex >= 0 {
+		for _, volumeMount := range container.VolumeMounts {
+			if volumeMount.Name != CaBundleVolumeName {
+				continue
+			}
+			if !sameCABundlePath(volumeMount.MountPath, envState) {
+				// Leave a caller-owned explicit path untouched if it does not
+				// describe the generated mount. The caller may be using a file
+				// name that is not the ConfigMap's default key.
+				return nil
+			}
+			mountPath = volumeMount.MountPath
+			setCABundleEnvIfEmpty(container, constants.CaBundleVolumeMountPathEnvVarKey, mountPath)
 			return nil
 		}
+		container.VolumeMounts = append(container.VolumeMounts, corev1.VolumeMount{
+			Name: CaBundleVolumeName, MountPath: mountPath, ReadOnly: true,
+		})
+		setCABundleEnvIfEmpty(container, constants.CaBundleVolumeMountPathEnvVarKey, mountPath)
+		return nil
 	}
 	for _, volumeMount := range container.VolumeMounts {
 		if volumeMount.Name == CaBundleVolumeName || volumeMount.MountPath == mountPath {
@@ -209,6 +265,134 @@ func (c *LocalModelNodeReconciler) mountODHCustomCABundle(ctx context.Context, j
 	c.Log.Info("Mounted ODH custom CA bundle ConfigMap", "configMap", odhCustomCABundleConfigMapName,
 		"namespace", job.Namespace, "mountPath", mountPath)
 	return nil
+}
+
+type caBundleEnvState struct {
+	managedConfigMap  bool
+	explicitConfigMap bool
+	explicitCA        bool
+	awsCABundlePath   string
+	mountPath         string
+	mountPathFrom     bool
+}
+
+func inspectCABundleEnv(container *corev1.Container) caBundleEnvState {
+	state := caBundleEnvState{}
+	for _, env := range container.Env {
+		if env.Name == constants.CaBundleConfigMapNameEnvVarKey || env.Name == s3.AWSCABundleConfigMap {
+			if env.ValueFrom != nil {
+				state.explicitConfigMap = true
+				continue
+			}
+			switch env.Value {
+			case odhCustomCABundleConfigMapName:
+				state.managedConfigMap = true
+			case "":
+			default:
+				state.explicitConfigMap = true
+			}
+		}
+	}
+	for _, env := range container.Env {
+		switch env.Name {
+		case s3.AWSCABundle:
+			if env.ValueFrom != nil {
+				state.explicitCA = true
+			} else if env.Value != "" {
+				state.awsCABundlePath = env.Value
+				if !state.managedConfigMap {
+					state.explicitCA = true
+				}
+			}
+		case "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE":
+			if env.ValueFrom != nil || env.Value != "" {
+				state.explicitCA = true
+			}
+		case constants.CaBundleVolumeMountPathEnvVarKey:
+			if env.ValueFrom != nil {
+				state.mountPathFrom = true
+			} else if env.Value != "" {
+				state.mountPath = env.Value
+			}
+		}
+	}
+	return state
+}
+
+func caBundleMountPath(state caBundleEnvState) string {
+	if state.mountPathFrom {
+		return constants.DefaultCaBundleVolumeMountPath
+	}
+	if state.mountPath != "" && state.mountPath != constants.DefaultCaBundleVolumeMountPath {
+		return state.mountPath
+	}
+	if state.awsCABundlePath != "" && filepath.Clean(state.awsCABundlePath) != filepath.Clean(implicitODHS3CABundlePath) {
+		if path := filepath.Dir(state.awsCABundlePath); path != "." && path != string(filepath.Separator) {
+			return path
+		}
+	}
+	if storageInitializerConfig != nil && storageInitializerConfig.CaBundleVolumeMountPath != "" {
+		return storageInitializerConfig.CaBundleVolumeMountPath
+	}
+	return constants.DefaultCaBundleVolumeMountPath
+}
+
+func sameCABundlePath(path string, state caBundleEnvState) bool {
+	if path == "" {
+		return false
+	}
+	if state.mountPath != "" && state.mountPath != constants.DefaultCaBundleVolumeMountPath && path != state.mountPath {
+		return false
+	}
+	if state.awsCABundlePath != "" && filepath.Clean(state.awsCABundlePath) != filepath.Clean(implicitODHS3CABundlePath) &&
+		filepath.Dir(state.awsCABundlePath) != path {
+		return false
+	}
+	return true
+}
+
+func removeImplicitODHBundle(job *batchv1.Job, state caBundleEnvState) {
+	if job == nil || len(job.Spec.Template.Spec.Containers) == 0 {
+		return
+	}
+	container := &job.Spec.Template.Spec.Containers[0]
+	implicitPath := state.awsCABundlePath == "" || filepath.Clean(state.awsCABundlePath) == filepath.Clean(implicitODHS3CABundlePath)
+	// A non-default AWS_CA_BUNDLE is caller-owned, so keep that env var while
+	// removing the separately generated ODH ConfigMap wiring. It may be backed
+	// by a caller-supplied volume. CA_BUNDLE_VOLUME_MOUNT_POINT only selects
+	// where the managed bundle is mounted, so its generated default is removed
+	// with the ODH volume when no bundle exists.
+	filteredEnv := container.Env[:0]
+	for _, env := range container.Env {
+		remove := false
+		switch env.Name {
+		case s3.AWSCABundleConfigMap, constants.CaBundleConfigMapNameEnvVarKey:
+			remove = env.Value == odhCustomCABundleConfigMapName
+		case s3.AWSCABundle:
+			remove = implicitPath && env.Value == implicitODHS3CABundlePath
+		case constants.CaBundleVolumeMountPathEnvVarKey:
+			remove = !state.mountPathFrom && (env.Value == "" || env.Value == constants.DefaultCaBundleVolumeMountPath)
+		}
+		if !remove {
+			filteredEnv = append(filteredEnv, env)
+		}
+	}
+	container.Env = filteredEnv
+	filteredVolumes := job.Spec.Template.Spec.Volumes[:0]
+	for _, volume := range job.Spec.Template.Spec.Volumes {
+		remove := volume.Name == CaBundleVolumeName && volume.ConfigMap != nil && volume.ConfigMap.Name == odhCustomCABundleConfigMapName
+		if !remove {
+			filteredVolumes = append(filteredVolumes, volume)
+		}
+	}
+	job.Spec.Template.Spec.Volumes = filteredVolumes
+	filteredMounts := container.VolumeMounts[:0]
+	for _, mount := range container.VolumeMounts {
+		if mount.Name != CaBundleVolumeName {
+			filteredMounts = append(filteredMounts, mount)
+		}
+	}
+	container.VolumeMounts = filteredMounts
 }
 
 func setCABundleEnvIfEmpty(container *corev1.Container, name, value string) {
