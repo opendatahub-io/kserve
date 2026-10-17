@@ -19,6 +19,7 @@ limitations under the License.
 package inferenceservice
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -32,8 +33,11 @@ import (
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
 // getExpectedIsvcStatusODH is the ODH counterpart of getExpectedIsvcStatus: the URL scheme and
@@ -99,6 +103,50 @@ func getExpectedIsvcStatusODH(serviceKey types.NamespacedName, protocol, host, c
 		DeploymentMode:     string(constants.Standard),
 		ServingRuntimeName: "tf-serving-raw",
 	}
+}
+
+// applyExpectedManagedProxyTLS mirrors the profile resolution used when the
+// controller generates a managed auth-proxy sidecar. Integration-test expected
+// objects must account for the envtest cluster's APIServer profile rather than
+// assuming the proxy's legacy hard-coded defaults.
+func applyExpectedManagedProxyTLS(expected *appsv1.Deployment, reader client.Reader) error {
+	var proxy *corev1.Container
+	for i := range expected.Spec.Template.Spec.Containers {
+		if expected.Spec.Template.Spec.Containers[i].Name == constants.KubeRbacContainerName {
+			proxy = &expected.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if proxy == nil {
+		return nil
+	}
+
+	workloadTLS, err := distrotls.ResolveWorkloadArgs(context.Background(), reader)
+	if err != nil {
+		return fmt.Errorf("resolve expected auth-proxy TLS arguments: %w", err)
+	}
+	args := make([]string, 0, len(proxy.Args)+3)
+	for _, arg := range proxy.Args {
+		if strings.HasPrefix(arg, "--tls-min-version=") ||
+			strings.HasPrefix(arg, "--tls-cipher-suites=") ||
+			strings.HasPrefix(arg, "--tls-curve-preferences=") {
+			continue
+		}
+		args = append(args, arg)
+	}
+	args = append(args, "--tls-min-version="+workloadTLS.MinVersion)
+	if workloadTLS.CipherSuites != "" {
+		args = append(args, "--tls-cipher-suites="+workloadTLS.CipherSuites)
+	}
+	if workloadTLS.CurveIDs != "" {
+		args = append(args, "--tls-curve-preferences="+workloadTLS.CurveIDs)
+	}
+	proxy.Args = args
+	if expected.Spec.Template.Annotations == nil {
+		expected.Spec.Template.Annotations = make(map[string]string)
+	}
+	expected.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
+	return nil
 }
 
 // kubeRbacProxyContainer returns the kube-rbac-proxy sidecar container for an InferenceService deployment.
