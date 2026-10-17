@@ -681,7 +681,7 @@ func configureAuditLoggingEnvTestKubeconfig() {
 }
 
 func auditLoggingConfigMap(profile constants.AuditLoggingProfile) *corev1.ConfigMap {
-	configMap := createInferenceServiceConfigMap(getRawKubeTestConfigs())
+	configMap := createInferenceServiceConfigMap(getODHRawKubeTestConfigs())
 	configMap.Data[v1beta1.OpenShiftConfigName] = auditLoggingOpenShiftConfig(profile)
 	return configMap
 }

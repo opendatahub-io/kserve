@@ -59,7 +59,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 	kserveGateway := types.NamespacedName{Name: "kserve-ingress-gateway", Namespace: "kserve"}
 
-	configs := getRawKubeTestConfigs()
+	configs := getODHRawKubeTestConfigs()
 
 	// Checks that any Kubernetes object does not exist
 	expectResourceDoesNotExist := func(ctx context.Context, obj client.Object, objKey types.NamespacedName) {
@@ -1444,7 +1444,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 	Context("When creating inference service with raw kube predictor and serving.kserve.io/stop", func() {
 		// --- Default values ---
-		configs := getRawKubeTestConfigs()
+		configs := getODHRawKubeTestConfigs()
 
 		defaultIsvc := func(serviceKey types.NamespacedName, autoscaler string, qty *v1beta1.MetricQuantity) *v1beta1.InferenceService {
 			predictor := v1beta1.PredictorSpec{
@@ -3233,7 +3233,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 	})
 	Context("When Updating a Serving Runtime", func() {
-		configs := getRawKubeTestConfigs()
+		configs := getODHRawKubeTestConfigs()
 
 		ctx := context.Background()
 		It("InferenceService should reconcile the deployment if auto-update annotation is not present", func() {
@@ -3886,7 +3886,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 	})
 
 	Context("When creating inference service with raw kube predictor and ingress creation disabled", func() {
-		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+		configs := mergeJSONField(getODHRawKubeTestConfigs(), "ingress", map[string]interface{}{
 			"disableIngressCreation": true,
 			"ingressDomain":          "example.com",
 		})
@@ -4081,7 +4081,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 	})
 	Context("When creating inference service with raw kube predictor with domain template", func() {
-		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+		configs := mergeJSONField(getODHRawKubeTestConfigs(), "ingress", map[string]interface{}{
 			"ingressDomain":  "example.com",
 			"domainTemplate": "{{ .Name }}.{{ .Namespace }}.{{ .IngressDomain }}",
 		})
@@ -4445,7 +4445,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 	})
 	Context("When creating inference service with raw kube predictor and transformer", func() {
-		configs := getRawKubeTestConfigs()
+		configs := getODHRawKubeTestConfigs()
 
 		It("Should have httproute/service/deployment/hpa created for transformer and predictor", func() {
 			By("By creating a new InferenceService")
@@ -5223,7 +5223,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 	})
 	Context("When creating inference service with raw kube predictor and explainer", func() {
-		configs := getRawKubeTestConfigs()
+		configs := getODHRawKubeTestConfigs()
 
 		It("Should have httproute/service/deployment/hpa created for explainer and predictor", func() {
 			By("By creating a new InferenceService")
@@ -5976,7 +5976,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 	})
 	Context("When creating inference service with raw kube path based routing predictor", func() {
-		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+		configs := mergeJSONField(getODHRawKubeTestConfigs(), "ingress", map[string]interface{}{
 			"ingressDomain": "example.com",
 			"pathTemplate":  "/serving/{{ .Namespace }}/{{ .Name }}",
 		})
@@ -6385,7 +6385,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 	})
 	Context("When creating inference service with raw kube path based routing predictor and transformer", func() {
-		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+		configs := mergeJSONField(getODHRawKubeTestConfigs(), "ingress", map[string]interface{}{
 			"ingressDomain": "example.com",
 			"pathTemplate":  "/serving/{{ .Namespace }}/{{ .Name }}",
 		})
@@ -7215,7 +7215,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 	})
 	Context("When creating inference service with raw kube path based routing predictor and explainer", func() {
-		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+		configs := mergeJSONField(getODHRawKubeTestConfigs(), "ingress", map[string]interface{}{
 			"ingressDomain": "example.com",
 			"pathTemplate":  "/serving/{{ .Namespace }}/{{ .Name }}",
 		})
@@ -8059,7 +8059,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 		})
 	})
 	Context("When creating inference service with raw kube predictor with gateway api disabled", func() {
-		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+		configs := mergeJSONField(getODHRawKubeTestConfigs(), "ingress", map[string]interface{}{
 			"enableGatewayApi": false,
 		})
 		configs["opentelemetryCollector"] = `{
@@ -9865,7 +9865,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			storageUri = "pvc://llama-3-8b-pvc/hf/8b_instruction_tuned"
 
 			// Create a ConfigMap
-			configs := getRawKubeTestConfigs()
+			configs := getODHRawKubeTestConfigs()
 			configMap := createInferenceServiceConfigMap(configs)
 			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
 			DeferCleanup(func() { _ = k8sClient.Delete(ctx, configMap) })
@@ -11565,7 +11565,7 @@ var _ = Context("When a Standard-mode predictor deployment develops a ReplicaFai
 		DeferCleanup(cancel)
 
 		By("setting up configmap and serving runtime")
-		configs := getRawKubeTestConfigs()
+		configs := getODHRawKubeTestConfigs()
 		configMap := createInferenceServiceConfigMap(configs)
 		Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
 		DeferCleanup(func() { _ = k8sClient.Delete(ctx, configMap) })
