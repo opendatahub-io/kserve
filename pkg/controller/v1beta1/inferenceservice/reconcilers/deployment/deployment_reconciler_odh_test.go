@@ -24,20 +24,24 @@ import (
 	"strings"
 	"testing"
 
+	configv1 "github.com/openshift/api/config/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
+	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
 const (
@@ -751,6 +755,9 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	existingDeployment := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					constants.ODHKserveAuthProxyTLSManagedAnnotation: "true",
+				}},
 				Spec: corev1.PodSpec{
 					AutomountServiceAccountToken: &trueVal,
 					Containers: []corev1.Container{
@@ -796,6 +803,8 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	}
 
 	copyAuthProxyFromExisting(existingDeployment, desiredDeployment, constants.KubeRbacContainerName)
+	require.Equal(t, "true", desiredDeployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation],
+		"reconciled template must retain ownership of generated TLS arguments")
 
 	var foundContainer *corev1.Container
 	for i, c := range desiredDeployment.Spec.Template.Spec.Containers {
@@ -835,6 +844,17 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	}
 	assert.Contains(t, mountNames, "user-data", "user volume mount should be preserved")
 	assert.Contains(t, mountNames, "proxy-tls", "proxy-tls mount should be added")
+
+	// The next reconcile starts with a fresh desired template and copies from
+	// the deployment produced above. The marker must survive that cycle too.
+	secondDesiredDeployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}},
+		}},
+	}
+	copyAuthProxyFromExisting(desiredDeployment, secondDesiredDeployment, constants.KubeRbacContainerName)
+	require.Equal(t, "true", secondDesiredDeployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation],
+		"ownership marker must survive repeated reconciles")
 }
 
 func TestOauthProxyPreservation(t *testing.T) {
@@ -2039,7 +2059,7 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			}
 			assert.Equal(t, tt.wantWarning, authProxyPreserved)
 			if tt.wantProxyArgs != nil {
-				assert.Equal(t, tt.wantProxyArgs, proxy.Args)
+				assert.Equal(t, tt.wantProxyArgs, argsWithoutManagedTLS(proxy.Args))
 			} else {
 				assert.NotContains(t, proxy.Args, "--legacy-unrelated-arg")
 				assert.NotContains(t, proxy.Args, "--audit-future-option=unchanged")
@@ -2055,6 +2075,109 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			}
 		})
 	}
+}
+
+func argsWithoutManagedTLS(args []string) []string {
+	result := make([]string, 0, len(args))
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--tls-min-version=") || strings.HasPrefix(arg, "--tls-cipher-suites=") || strings.HasPrefix(arg, "--tls-curve-preferences=") {
+			continue
+		}
+		result = append(result, arg)
+	}
+	return result
+}
+
+func TestPlatformAuthProxyTLSNeedsUpdateOnProfileChange(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	client := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence: configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{
+				Type: configv1.TLSProfileModernType,
+			},
+		},
+	}).Build()
+
+	deployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					constants.ODHKserveAuthProxyTLSManagedAnnotation: "true",
+				}},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{
+					Name: constants.KubeRbacContainerName,
+					Args: []string{
+						"--tls-min-version=VersionTLS12",
+						"--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+					},
+				}}},
+			},
+		},
+	}
+
+	changed, err := platformAuthProxyTLSNeedsUpdate(t.Context(), client, deployment, constants.KubeRbacContainerName)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	deployment.Spec.Template.Spec.Containers[0].Args = []string{"--tls-min-version=VersionTLS13"}
+	changed, err = platformAuthProxyTLSNeedsUpdate(t.Context(), client, deployment, constants.KubeRbacContainerName)
+	require.NoError(t, err)
+	assert.True(t, changed, "curve-preferences must also match the resolved profile")
+}
+
+func TestPlatformAuthProxyTLSNeedsUpdateDoesNotClaimUserTLSArgs(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	reader := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence:       configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileModernType},
+		},
+	}).Build()
+	deployment := &appsv1.Deployment{Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: constants.KubeRbacContainerName,
+			Args: []string{"--tls-min-version=VersionTLS13"},
+		}}},
+	}}}
+	changed, err := platformAuthProxyTLSNeedsUpdate(t.Context(), reader, deployment, constants.KubeRbacContainerName)
+	require.NoError(t, err)
+	assert.False(t, changed, "TLS flags on an unmarked user template must remain user-owned")
+}
+
+func TestSetManagedAuthProxyTLSArgsPreservesUnmanagedArgs(t *testing.T) {
+	deployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: constants.KubeRbacContainerName,
+						Args: []string{
+							"--upstream=http://localhost:8080",
+							"--tls-min-version=VersionTLS12",
+							"--audit-future-option=keep-me",
+							"--tls-cipher-suites=old-suite",
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, setManagedAuthProxyTLSArgs(deployment, desiredAuthProxyTLSArgs(distrotls.WorkloadTLSArgs{
+		MinVersion: "VersionTLS13",
+		CurveIDs:   "23,29",
+	})))
+	assert.Equal(t, []string{
+		"--upstream=http://localhost:8080",
+		"--audit-future-option=keep-me",
+		"--tls-min-version=VersionTLS13",
+		"--tls-curve-preferences=23,29",
+	}, deployment.Spec.Template.Spec.Containers[0].Args)
 }
 
 func TestCreateRawDeploymentODHPreservesAnnotationlessConfiguredProxy(t *testing.T) {

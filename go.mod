@@ -30,7 +30,8 @@ require (
 	github.com/onsi/ginkgo/v2 v2.32.2
 	github.com/onsi/gomega v1.43.0
 	github.com/open-telemetry/opentelemetry-operator v0.152.0
-	github.com/openshift/api v0.0.0-20260317165824-54a3998d81eb
+	// Distro: TLS profile Groups support used by ODH workload enforcement.
+	github.com/openshift/api v0.0.0-20260601143908-70f01b82bb53
 	github.com/parquet-go/parquet-go v0.27.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.91.0

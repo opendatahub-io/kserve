@@ -53,7 +53,20 @@ func settingsEqual(a, b Settings) bool {
 
 func profileSpecEqual(a, b configv1.TLSProfileSpec) bool {
 	return a.MinTLSVersion == b.MinTLSVersion &&
-		stringSlicesEqual(a.Ciphers, b.Ciphers)
+		stringSlicesEqual(a.Ciphers, b.Ciphers) &&
+		tlsGroupsEqual(a.Groups, b.Groups)
+}
+
+func tlsGroupsEqual(a, b []configv1.TLSGroup) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func stringSlicesEqual(a, b []string) bool {
