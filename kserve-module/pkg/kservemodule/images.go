@@ -40,6 +40,7 @@ var kserveImageParamMap = map[string]string{
 	"kserve-llm-d-cpu-fast-2-upstream-version":         "RELATED_IMAGE_RHAII_VLLM_CPU_FAST_2_IMAGE_UPSTREAM_VERSION",
 	"kserve-llm-d-inference-scheduler":                 "RELATED_IMAGE_ODH_LLM_D_ROUTER_ENDPOINT_PICKER_IMAGE",
 	"kserve-llm-d-routing-sidecar":                     "RELATED_IMAGE_ODH_LLM_D_ROUTER_DISAGG_SIDECAR_IMAGE",
+	"kserve-llm-d-kv-pvc-evictor":                      "RELATED_IMAGE_ODH_LLM_D_KV_PVC_EVICTOR_IMAGE",
 	"kserve-llm-d-tokenizer":                           "RELATED_IMAGE_RHAII_VLLM_CPU_IMAGE",
 	"kube-rbac-proxy":                                  "RELATED_IMAGE_ODH_KUBE_RBAC_PROXY_IMAGE",
 	"kserve-localmodel-controller":                     "RELATED_IMAGE_ODH_KSERVE_LOCALMODEL_CONTROLLER_IMAGE",
