@@ -31,6 +31,7 @@ const OpenShiftConfigName = "openshiftConfig"
 // +kubebuilder:object:generate=false
 type OpenShiftConfig struct {
 	ModelcachePermissionFixImage string                        `json:"modelcachePermissionFixImage,omitempty"`
+	LLMDKVPVCEvictorImage        string                        `json:"llmDKVPVCEvictorImage,omitempty"`
 	OvmsVersioningImage          string                        `json:"ovmsVersioningImage,omitempty"`
 	AuditLoggingProfile          constants.AuditLoggingProfile `json:"auditLoggingProfile,omitempty"`
 }
