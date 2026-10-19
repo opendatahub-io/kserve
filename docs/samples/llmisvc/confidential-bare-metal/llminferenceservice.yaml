@@ -1,0 +1,39 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceService
+metadata:
+  name: confidential-model
+spec:
+  baseRefs:
+  - name: kserve-config-llm-confidential-bare-metal
+  model:
+    uri: s3://my-bucket/encrypted-model
+    confidential:
+      enabled: true
+      resourceId: kbs:///default/model-key/key
+  annotations:
+    io.katacontainers.config.hypervisor.default_memory: "57344"
+    io.katacontainers.config.hypervisor.default_vcpus: "8"
+  template:
+    # Optional: use this service's disk key instead of the installation default.
+    initContainers:
+    - name: format-disk
+      env:
+      - name: LUKS_RESOURCE_ID
+        value: kbs:///customer/model-disk/key
+    volumes:
+    - name: luks-block
+      persistentVolumeClaim:
+        claimName: my-existing-model-disk
+    containers:
+    - name: main
+      resources:
+        requests:
+          cpu: "8"
+          memory: 48Gi
+        limits:
+          cpu: "8"
+          memory: 48Gi
+  router:
+    route: {}
+    gateway: {}
+    scheduler: {}

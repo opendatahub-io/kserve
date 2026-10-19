@@ -75,6 +75,11 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 		llmSvc.MarkMainWorkloadNotReady("Stopped", "Service is stopped")
 	}
 
+	if err := r.preparePlatformWorkload(ctx, llmSvc, config); err != nil {
+		llmSvc.MarkMainWorkloadNotReady("PreparePlatformWorkloadError", "%s", err.Error())
+		return fmt.Errorf("failed to prepare platform workload: %w", err)
+	}
+
 	disaggregatedSetDecision := r.decideDisaggregatedSet(llmSvc, config)
 	r.markDisaggregatedSetDecision(ctx, llmSvc, disaggregatedSetDecision)
 	useDisaggregatedSet := useDisaggregatedSetWorkload(llmSvc, disaggregatedSetDecision)

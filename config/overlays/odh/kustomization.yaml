@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
 - ../../base
 - rbac/
+- confidential/
 - accelerators/
 - accelerators-fast/
 - network-policies.yaml
@@ -82,6 +83,28 @@ replacements:
       name: kserve-controller-manager
     fieldPaths:
     - spec.template.spec.containers.[name=manager].image
+# Confidential downloads use the product storage initializer with CDH/JWE support.
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-storage-initializer
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-confidential-bare-metal
+    fieldPaths:
+    - spec.template.initContainers.[name=storage-initializer].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-osc-storage-helper
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-confidential-bare-metal
+    fieldPaths:
+    - spec.template.initContainers.[name=format-disk].image
+    - spec.template.initContainers.[name=check-ready].image
 # Replace base LLMInferenceServiceConfig images with Red Hat CUDA image
 - source:
     kind: ConfigMap

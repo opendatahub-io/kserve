@@ -39,6 +39,24 @@ var _ = Describe("KserveModule Reconciler", func() {
 		Expect(k8serr.IsInvalid(err)).To(BeTrue())
 	})
 
+	DescribeTable("rejects invalid confidential disk-key references", func(ctx SpecContext, key string) {
+		cr := fixture.KserveCR()
+		cr.Spec.ConfidentialContainers = &platformv1alpha1.ConfidentialContainersConfig{LUKSResourceID: key}
+		err := testEnv.Client.Create(ctx, cr)
+		Expect(err).To(HaveOccurred())
+		Expect(k8serr.IsInvalid(err)).To(BeTrue())
+	},
+		Entry("missing KBS scheme", "not-a-kbs-reference"),
+		Entry("missing path segment", "kbs:///repository/type"),
+		Entry("empty path segment", "kbs:///repository//tag"),
+		Entry("extra path segment", "kbs:///repository/type/tag/extra"),
+		Entry("parent directory", "kbs:///repository/../tag"),
+		Entry("current directory", "kbs:///repository/./tag"),
+		Entry("whitespace", "kbs:///repository/type/a tag"),
+		Entry("query", "kbs:///repository/type/tag?query"),
+		Entry("fragment", "kbs:///repository/type/tag#fragment"),
+	)
+
 	It("sets error status when manifests are missing", func(ctx SpecContext) {
 		savedWorkDir := testEnv.Reconciler.WorkDir()
 		testEnv.Reconciler.SetWorkDir(GinkgoT().TempDir())
@@ -90,6 +108,66 @@ var _ = Describe("KserveModule Reconciler", func() {
 			cm := &corev1.ConfigMap{}
 			Expect(testEnv.Client.Get(ctx,
 				client.ObjectKey{Name: "inferenceservice-config", Namespace: "opendatahub"}, cm)).To(Succeed())
+		})
+
+		It("applies confidential settings from the Kserve API and restores defaults when removed", func(ctx SpecContext) {
+			key := client.ObjectKey{Name: "inferenceservice-config", Namespace: "opendatahub"}
+			for i, tc := range []struct {
+				config *platformv1alpha1.ConfidentialContainersConfig
+				key    string
+				init   string
+			}{
+				{
+					config: &platformv1alpha1.ConfidentialContainersConfig{
+						LUKSResourceID: "kbs:///customer/disk/key", InitData: "customer-initdata",
+					},
+					key: "kbs:///customer/disk/key", init: "customer-initdata",
+				},
+				{
+					config: &platformv1alpha1.ConfidentialContainersConfig{InitData: "updated-initdata"},
+					key:    "kbs:///default/kserve-luks-password/key", init: "updated-initdata",
+				},
+				{
+					config: &platformv1alpha1.ConfidentialContainersConfig{LUKSResourceID: "kbs:///customer/other/key"},
+					key:    "kbs:///customer/other/key",
+				},
+				{key: "kbs:///default/kserve-luks-password/key"},
+			} {
+				// Old ConfigMap edits are replaced by the API settings on reconciliation.
+				Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+					cm := &corev1.ConfigMap{}
+					if err := testEnv.Client.Get(ctx, key, cm); err != nil {
+						return err
+					}
+					cm.Data["confidentialBareMetal"] = "old-manual-configmap-edit"
+					return testEnv.Client.Update(ctx, cm)
+				})).To(Succeed())
+				tlsEnabled := i%2 == 0
+				Expect(retry.RetryOnConflict(retry.DefaultRetry, func() error {
+					if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
+						return err
+					}
+					cr.Spec.ConfidentialContainers = tc.config
+					cr.Spec.EnableLLMInferenceServiceTLS = ptr.To(tlsEnabled)
+					return testEnv.Client.Update(ctx, cr)
+				})).To(Succeed())
+				Eventually(func(g Gomega) {
+					cm := &corev1.ConfigMap{}
+					g.Expect(testEnv.Client.Get(ctx, key, cm)).To(Succeed())
+					defaults := map[string]string{}
+					g.Expect(json.Unmarshal([]byte(cm.Data["confidentialBareMetal"]), &defaults)).To(Succeed())
+					g.Expect(defaults).To(Equal(map[string]string{"luksResourceId": tc.key, "initData": tc.init}))
+					ingress := map[string]any{}
+					g.Expect(json.Unmarshal([]byte(cm.Data["ingress"]), &ingress)).To(Succeed())
+					g.Expect(ingress["enableLLMInferenceServiceTLS"]).To(Equal(tlsEnabled))
+					g.Expect(testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr)).To(Succeed())
+					if tc.config != nil {
+						g.Expect(cr.Spec.ConfidentialContainers).NotTo(BeNil())
+						g.Expect(cr.Spec.ConfidentialContainers.LUKSResourceID).To(Equal(tc.key))
+					}
+					g.Expect(cr.Status.ObservedGeneration).To(Equal(cr.Generation))
+				}).WithContext(ctx).Should(Succeed())
+			}
 		})
 
 		It("reports ready with all OCP deployments", func(ctx SpecContext) {

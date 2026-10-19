@@ -21,11 +21,12 @@ package scheme
 import (
 	configv1 "github.com/openshift/api/config/v1"
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
 
 func init() {
-	distroSchemes = append(distroSchemes, AddOpenShiftConfigAPIs, AddMonitoringAPIs)
+	distroSchemes = append(distroSchemes, AddOpenShiftConfigAPIs, AddMonitoringAPIs, storagev1.AddToScheme)
 }
 
 // AddOpenShiftConfigAPIs registers OpenShift config APIs (e.g. APIServer for TLS profile watching).
