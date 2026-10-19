@@ -5,7 +5,7 @@ FROM ${BASE_IMAGE} AS builder
 WORKDIR /
 USER 0
 
-RUN dnf install -y gcc python3.11-devel && dnf clean all
+RUN dnf install -y --allowerasing gcc python3.11-devel && dnf clean all
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh && \

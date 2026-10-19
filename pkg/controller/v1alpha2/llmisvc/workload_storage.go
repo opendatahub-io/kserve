@@ -29,11 +29,11 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
 	"github.com/kserve/kserve/pkg/credentials/s3"
+	"github.com/kserve/kserve/pkg/localmodelcache"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/utils"
 )
@@ -87,6 +87,9 @@ func extractAndStripStorageInitializer(podSpec *corev1.PodSpec) *corev1.Containe
 //
 //	An error if the configuration fails, otherwise nil.
 func (r *LLMISVCReconciler) attachModelArtifacts(ctx context.Context, serviceAccount *corev1.ServiceAccount, llmSvc *v1alpha2.LLMInferenceService, curr corev1.PodSpec, podSpec *corev1.PodSpec, config *Config, containerName string, modelPath string, attachLoRA bool) error {
+	if handled, err := r.attachPlatformModelArtifacts(ctx, serviceAccount, llmSvc, podSpec, config); handled {
+		return err
+	}
 	modelUri := llmSvc.Spec.Model.URI.String()
 	schema, _, sepFound := strings.Cut(modelUri, "://")
 
@@ -113,18 +116,19 @@ func (r *LLMISVCReconciler) attachModelArtifacts(ctx context.Context, serviceAcc
 		if !ok {
 			return fmt.Errorf("LLMInferenceService %s/%s: annotation %s not found", llmSvc.Namespace, llmSvc.Name, constants.LocalModelPVCNameAnnotationKey)
 		}
-		subPath, _ := strings.CutPrefix(modelUri, sourceUri)
-		if !strings.HasPrefix(subPath, "/") {
-			subPath = "/" + subPath
-		}
-		storageKey := v1alpha1.GetStorageKey(sourceUri)
-		modelUri = "pvc://" + pvcName + "/models/" + storageKey + subPath
+		modelUri = localmodelcache.BuildCachedPVCURI(sourceUri, pvcName, modelUri)
 		schema = "pvc"
 	}
 
+	var resolvedLoRAAdapters []resolvedLoRAAdapter
 	var loraPairs []storageDownloadPair
 	if attachLoRA {
-		loraPairs = collectLoRADownloadPairs(config.ResolvedLoRAAdapters)
+		var err error
+		resolvedLoRAAdapters, err = rewriteLoRAAdaptersFromLocalModelCache(ctx, r.Client, llmSvc, config.ResolvedLoRAAdapters)
+		if err != nil {
+			return fmt.Errorf("rewrite LoRA adapters from local model cache: %w", err)
+		}
+		loraPairs = collectLoRADownloadPairs(resolvedLoRAAdapters)
 	}
 
 	// Handle model artifact downloads based on URI scheme
@@ -205,7 +209,7 @@ func (r *LLMISVCReconciler) attachModelArtifacts(ctx context.Context, serviceAcc
 
 	// Attach LoRA adapters (PVC mounts + vLLM flag injection) after model downloads
 	if attachLoRA {
-		if err := r.attachLoRAAdapters(ctx, llmSvc, podSpec, config.ResolvedLoRAAdapters); err != nil {
+		if err := r.attachLoRAAdapters(ctx, llmSvc, podSpec, resolvedLoRAAdapters); err != nil {
 			return err
 		}
 	}
@@ -402,9 +406,10 @@ func (r *LLMISVCReconciler) attachStorageInitializer(llmSvc *v1alpha2.LLMInferen
 		constants.DefaultModelLocalMountPath,
 	}
 	storageMountParams := utils.StorageMountParams{
-		MountPath:  constants.DefaultModelLocalMountPath,
-		VolumeName: constants.StorageInitializerVolumeName,
-		ReadOnly:   false,
+		MountPath:           constants.DefaultModelLocalMountPath,
+		VolumeName:          constants.StorageInitializerVolumeName,
+		ReadOnly:            false,
+		DefaultVolumeSource: storageConfig.ModelVolumeSource,
 	}
 
 	copied := *storageConfig
@@ -517,16 +522,18 @@ func (r *LLMISVCReconciler) attachMultiStorageDownloads(
 	iname := initC.Name
 
 	if err := utils.AddModelMount(utils.StorageMountParams{
-		MountPath:  parent,
-		VolumeName: constants.StorageInitializerVolumeName,
-		ReadOnly:   false,
+		MountPath:           parent,
+		VolumeName:          constants.StorageInitializerVolumeName,
+		ReadOnly:            false,
+		DefaultVolumeSource: storageConfig.ModelVolumeSource,
 	}, iname, podSpec); err != nil {
 		return err
 	}
 	if err := utils.AddModelMount(utils.StorageMountParams{
-		MountPath:  parent,
-		VolumeName: constants.StorageInitializerVolumeName,
-		ReadOnly:   true,
+		MountPath:           parent,
+		VolumeName:          constants.StorageInitializerVolumeName,
+		ReadOnly:            true,
+		DefaultVolumeSource: storageConfig.ModelVolumeSource,
 	}, containerName, podSpec); err != nil {
 		return err
 	}

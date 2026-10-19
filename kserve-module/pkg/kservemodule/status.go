@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/api/equality"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/util/retry"
@@ -18,11 +19,22 @@ import (
 )
 
 const (
-	ConditionKServeReady           = "KServeReady"
-	ConditionModelControllerReady  = "ModelControllerReady"
-	ConditionWVAReady              = "WVAReady"
-	ConditionModelCacheReady       = "ModelCacheReady"
-	ConditionDependenciesAvailable = "DependenciesAvailable"
+	ConditionKServeReady            = "KServeReady"
+	ConditionModelControllerReady   = "ModelControllerReady"
+	ConditionWVAReady               = "WVAReady"
+	ConditionModelExpressReady      = "ModelExpressReady"
+	ConditionModelCacheReady        = "ModelCacheReady"
+	ConditionDependenciesAvailable  = "DependenciesAvailable"
+	ConditionTracingConfigAvailable = "TracingConfigAvailable"
+	ConditionAuditLoggingReady      = "AuditLoggingReady"
+
+	// ReasonDeletionBlocked is the Degraded reason used when Kserve CR deletion
+	// is held back by resources that cannot yet be removed.
+	ReasonDeletionBlocked = "DeletionBlocked"
+
+	// ReasonRemovalBlocked is the reason used when a component set to Removed
+	// stays deployed because resources only it can finalize still exist.
+	ReasonRemovalBlocked = "RemovalBlocked"
 )
 
 func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
@@ -32,9 +44,29 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 		ConditionKServeReady,
 		ConditionModelControllerReady,
 		ConditionWVAReady,
+		ConditionModelExpressReady,
 		ConditionModelCacheReady,
 		ConditionDependenciesAvailable,
+		ConditionTracingConfigAvailable,
 	)
+}
+
+func applyOCSFAuditLoggingCondition(condMgr *conditions.Manager, kserve *platformv1alpha1.Kserve, condition *auditLoggingCondition) {
+	if kserve.Spec.AuditLoggingProfile != platformv1alpha1.AuditProfileMetadata {
+		condMgr.MarkTrue(ConditionAuditLoggingReady,
+			conditions.WithReason(reasonAuditLoggingDisabled))
+		return
+	}
+	if condition == nil {
+		condMgr.MarkTrue(ConditionAuditLoggingReady,
+			conditions.WithReason(reasonAuditLoggingConfigured))
+		return
+	}
+	condMgr.MarkFalse(ConditionAuditLoggingReady,
+		conditions.WithSeverity(common.ConditionSeverityInfo),
+		conditions.WithReason(condition.reason),
+		conditions.WithMessage("%s", condition.message),
+		conditions.WithObservedGeneration(kserve.Generation))
 }
 
 func applyDependencyConditions(condMgr *conditions.Manager, result dependencyResult) {
@@ -115,6 +147,20 @@ func applyProvisioningCondition(condMgr *conditions.Manager, componentErrors map
 		conditions.WithMessage("%s", strings.Join(msgs, "; ")))
 }
 
+func applyTracingConfigCondition(condMgr *conditions.Manager, generation int64, err error) {
+	observedGeneration := conditions.WithObservedGeneration(generation)
+	if err == nil {
+		condMgr.MarkTrue(ConditionTracingConfigAvailable,
+			conditions.WithReason("TracingConfigAvailable"), observedGeneration)
+		return
+	}
+	condMgr.MarkFalse(ConditionTracingConfigAvailable,
+		conditions.WithSeverity(common.ConditionSeverityInfo),
+		conditions.WithReason("TracingConfigUnavailable"),
+		conditions.WithMessage("platform tracing configuration unavailable: %s", err),
+		observedGeneration)
+}
+
 func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, kserve *platformv1alpha1.Kserve, condMgr *conditions.Manager) {
 	ns := r.getApplicationsNamespace()
 	isXKS := r.isKubernetes(ctx)
@@ -122,6 +168,10 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 	if err := checkKServeReadiness(ctx, r.Client, ns, isXKS); err != nil {
 		condMgr.MarkFalse(ConditionKServeReady,
 			conditions.WithReason("DeploymentNotReady"),
+			conditions.WithMessage("%s", err.Error()))
+	} else if err := checkPresetsPresent(ctx, r.Client, ns, r.expectedPresets); err != nil {
+		condMgr.MarkFalse(ConditionKServeReady,
+			conditions.WithReason("PresetsMissing"),
 			conditions.WithMessage("%s", err.Error()))
 	} else {
 		condMgr.MarkTrue(ConditionKServeReady,
@@ -137,17 +187,24 @@ func (r *KserveModuleReconciler) updateComponentReadiness(ctx context.Context, k
 			conditions.WithReason("AllDeploymentsAvailable"))
 	}
 
-	if isWVAEnabled(kserve) {
-		if err := checkWVAReadiness(ctx, r.Client, ns); err != nil {
-			condMgr.MarkFalse(ConditionWVAReady,
+	condMgr.ClearCondition(ConditionWVAReady)
+
+	if isModelExpressEnabled(kserve) {
+		if err := checkModelExpressReadiness(ctx, r.Client, ns); err != nil {
+			condMgr.MarkFalse(ConditionModelExpressReady,
 				conditions.WithReason("DeploymentNotReady"),
 				conditions.WithMessage("%s", err.Error()))
 		} else {
-			condMgr.MarkTrue(ConditionWVAReady,
+			condMgr.MarkTrue(ConditionModelExpressReady,
 				conditions.WithReason("AllDeploymentsAvailable"))
 		}
+	} else if blockers := r.removalBlockers[ModelExpressComponentName]; len(blockers) > 0 {
+		condMgr.MarkFalse(ConditionModelExpressReady,
+			conditions.WithReason(ReasonRemovalBlocked),
+			conditions.WithMessage("removal waits for ModelExpressServers holding %s to be deleted: %s",
+				modelExpressAuthDelegatorFinalizer, strings.Join(blockers, ", ")))
 	} else {
-		condMgr.ClearCondition(ConditionWVAReady)
+		condMgr.ClearCondition(ConditionModelExpressReady)
 	}
 
 	if !isModelCacheEnabled(kserve) {
@@ -187,15 +244,25 @@ func (r *KserveModuleReconciler) updateStatus(ctx context.Context, kserve *platf
 			}
 			return err
 		}
+		kserve.Status.ObservedGeneration = kserve.Generation
+		if equality.Semantic.DeepEqual(latest.Status, kserve.Status) {
+			return nil
+		}
 		latest.Status = kserve.Status
-		latest.Status.ObservedGeneration = kserve.Generation
 		return r.Status().Update(ctx, latest)
 	})
 }
 
 func (r *KserveModuleReconciler) setReleaseStatus(ctx context.Context, kserve *platformv1alpha1.Kserve) {
-	releases, err := loadComponentReleases(r.ManifestsTemplatePath,
-		[]string{KserveComponentName, OdhModelControllerComponentName})
+	// The modelcontroller component_metadata.yaml only lists serving runtime
+	// releases (OVMS, MLServer, Caikit, ...). On XKS those runtimes are not
+	// installed, so exclude them from status.releases.
+	componentDirs := []string{KserveComponentName}
+	if !r.isKubernetes(ctx) {
+		componentDirs = append(componentDirs, OdhModelControllerComponentName)
+	}
+
+	releases, err := loadComponentReleases(r.ManifestsTemplatePath, componentDirs)
 	if err != nil {
 		ctrl.Log.Error(err, "failed to load component releases")
 		return

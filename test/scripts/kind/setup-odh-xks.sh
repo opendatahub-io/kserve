@@ -17,7 +17,8 @@
 #   GATEWAY_API_VERSION=v1.2.1
 #   KSERVE_NAMESPACE=opendatahub
 #   KO_DOCKER_REPO=local
-#   LLMISVC_CONTROLLER_IMG=llmisvc-controller:dev
+#   LLMISVC_CONTROLLER_IMG=llmisvc-controller
+#   IMAGE_TAG=dev
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -42,10 +43,14 @@ LWS_VERSION="${LWS_VERSION:-v0.6.2}"
 GATEWAY_API_VERSION="${GATEWAY_API_VERSION:-v1.4.1}"
 KSERVE_NAMESPACE="${KSERVE_NAMESPACE:-opendatahub}"
 KO_DOCKER_REPO="${KO_DOCKER_REPO:-local}"
-LLMISVC_CONTROLLER_IMG="${LLMISVC_CONTROLLER_IMG:-llmisvc-controller:dev}"
-KSERVE_CONTROLLER_IMAGE="${KO_DOCKER_REPO}/${LLMISVC_CONTROLLER_IMG}"
-STORAGE_INIT_IMG="${STORAGE_INIT_IMG:-storage-initializer:dev}"
-STORAGE_INIT_IMAGE="${KO_DOCKER_REPO}/${STORAGE_INIT_IMG}"
+# Image tag passed to the Makefile docker-build-* targets as TAG. Kept separate
+# from the image name: upstream recipes append ':${TAG}', so baking the tag into
+# the IMG var here would produce an invalid double tag (e.g. 'name:dev:latest').
+IMAGE_TAG="${IMAGE_TAG:-dev}"
+LLMISVC_CONTROLLER_IMG="${LLMISVC_CONTROLLER_IMG:-llmisvc-controller}"
+KSERVE_CONTROLLER_IMAGE="${KO_DOCKER_REPO}/${LLMISVC_CONTROLLER_IMG}:${IMAGE_TAG}"
+STORAGE_INIT_IMG="${STORAGE_INIT_IMG:-storage-initializer}"
+STORAGE_INIT_IMAGE="${KO_DOCKER_REPO}/${STORAGE_INIT_IMG}:${IMAGE_TAG}"
 
 # Determine script and project directories
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -332,7 +337,8 @@ build_and_load_controller() {
   log_wait "Running make docker-build-llmisvc..."
   make -C "${PROJECT_ROOT}" docker-build-llmisvc \
     KO_DOCKER_REPO="${KO_DOCKER_REPO}" \
-    LLMISVC_CONTROLLER_IMG="${LLMISVC_CONTROLLER_IMG}"
+    LLMISVC_CONTROLLER_IMG="${LLMISVC_CONTROLLER_IMG}" \
+    TAG="${IMAGE_TAG}"
 
   # Load image into KinD cluster
   log_wait "Loading image into KinD cluster..."
@@ -351,7 +357,8 @@ build_and_load_storage_initializer() {
   log_wait "Running make docker-build-storageInitializer..."
   make -C "${PROJECT_ROOT}" docker-build-storageInitializer \
     KO_DOCKER_REPO="${KO_DOCKER_REPO}" \
-    STORAGE_INIT_IMG="${STORAGE_INIT_IMG}"
+    STORAGE_INIT_IMG="${STORAGE_INIT_IMG}" \
+    TAG="${IMAGE_TAG}"
 
   log_wait "Loading image into KinD cluster..."
   kind load docker-image "${STORAGE_INIT_IMAGE}" --name "${KIND_CLUSTER_NAME}"

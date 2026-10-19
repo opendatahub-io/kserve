@@ -3,3 +3,4 @@ kind: Kustomization
 
 resources:
   - llmisvc-webhook-server-certificate.yaml
+  - llmisvc-metrics-certificate.yaml

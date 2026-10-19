@@ -47,7 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
-	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
+	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -55,6 +55,8 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
+	kservemetrics "github.com/kserve/kserve/pkg/metrics"
+	"github.com/kserve/kserve/pkg/oteljson"
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
 	kservetls "github.com/kserve/kserve/pkg/tls"
 	llmisvcwebhook "github.com/kserve/kserve/pkg/webhook/admission/llminferenceservice"
@@ -91,6 +93,7 @@ type Options struct {
 	tlsMinVersion         string
 	tlsCipherSuites       string
 	zapOpts               zap.Options
+	logFormat             oteljson.Format
 }
 
 func DefaultOptions() Options {
@@ -103,6 +106,7 @@ func DefaultOptions() Options {
 		migrationTimeout:      1 * time.Hour,
 		migrationPollInterval: 30 * time.Second,
 		zapOpts:               zap.Options{},
+		logFormat:             oteljson.FormatZap,
 	}
 }
 
@@ -115,7 +119,7 @@ func GetOptions() Options {
 		"Enable leader election for kserve controller manager. "+
 			"Enabling this will ensure there is only one active kserve controller manager.")
 	flag.StringVar(&opts.probeAddr, "health-probe-addr", opts.probeAddr, "The address the probe endpoint binds to.")
-	flag.BoolVar(&opts.metricsSecure, "metrics-secure", opts.metricsSecure, "Whether to serve metrics via HTTPS.")
+	flag.BoolVar(&opts.metricsSecure, "metrics-secure", opts.metricsSecure, "Serve metrics over HTTPS with Kubernetes authentication and authorization.")
 	flag.StringVar(&opts.metricsCertPath, "metrics-cert-path", opts.metricsCertPath, "Directory containing tls.crt and tls.key for the metrics server. If empty, self-signed certificates are generated.")
 	flag.BoolVar(&opts.enableHTTP2, "enable-http2", false, "Deprecated: CVE-2023-44487 is fixed in Go 1.21.3+. Use --tls-min-version and --tls-cipher-suites instead.")
 	flag.StringVar(&opts.tlsMinVersion, "tls-min-version", opts.tlsMinVersion, "Minimum TLS version (VersionTLS12, VersionTLS13). Defaults to VersionTLS12.")
@@ -123,6 +127,7 @@ func GetOptions() Options {
 	flag.DurationVar(&opts.migrationTimeout, "storage-migration-timeout", opts.migrationTimeout, "Total retry budget for storage version migration.")
 	flag.DurationVar(&opts.migrationPollInterval, "storage-migration-poll-interval", opts.migrationPollInterval, "Polling interval for storage version migration retries after initial backoff.")
 	opts.zapOpts.BindFlags(flag.CommandLine)
+	oteljson.BindFlags(flag.CommandLine, &opts.logFormat)
 	flag.Parse()
 	return opts
 }
@@ -130,6 +135,9 @@ func GetOptions() Options {
 func main() {
 	ctx := signals.SetupSignalHandler()
 	options := GetOptions()
+	if options.logFormat == oteljson.FormatOTelJSON {
+		oteljson.Apply(&options.zapOpts, "kserve-llmisvc-controller", os.Stdout)
+	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&options.zapOpts)))
 
 	defaults := DefaultOptions()
@@ -170,7 +178,7 @@ func main() {
 	switch {
 	case options.tlsMinVersion != "" || options.tlsCipherSuites != "":
 		var err error
-		tlsOpts, err = kservetls.Resolve(ctx, cfg, options.tlsMinVersion, options.tlsCipherSuites)
+		tlsOpts, err = resolveTLS(ctx, cfg, options.tlsMinVersion, options.tlsCipherSuites)
 		if err != nil {
 			setupLog.Error(err, "unable to resolve TLS configuration")
 			os.Exit(1)
@@ -180,27 +188,32 @@ func main() {
 			"CVE-2023-44487 is fixed in Go 1.21.3+. Use --tls-min-version and --tls-cipher-suites instead.")
 		if !options.enableHTTP2 {
 			tlsOpts = kservetls.LegacyHTTP2TLSOpts()
+		} else {
+			var err error
+			tlsOpts, err = resolveTLS(ctx, cfg, "", "")
+			if err != nil {
+				setupLog.Error(err, "unable to resolve TLS configuration")
+				os.Exit(1)
+			}
 		}
 	default:
 		var err error
-		tlsOpts, err = kservetls.Resolve(ctx, cfg, "", "")
+		tlsOpts, err = resolveTLS(ctx, cfg, "", "")
 		if err != nil {
 			setupLog.Error(err, "unable to resolve TLS configuration")
 			os.Exit(1)
 		}
 	}
 
-	metricsServerOptions := metricsserver.Options{
+	metricsServerOptions, err := kservemetrics.ConfigureServerOptions(metricsserver.Options{
 		BindAddress:   options.metricsAddr,
 		SecureServing: options.metricsSecure,
+		CertDir:       options.metricsCertPath,
 		TLSOpts:       tlsOpts,
-	}
-
-	if options.metricsSecure {
-		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
-	}
-	if options.metricsCertPath != "" {
-		metricsServerOptions.CertDir = options.metricsCertPath
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to configure metrics server")
+		os.Exit(1)
 	}
 
 	llmSvcCacheSelector, _ := metav1.LabelSelectorAsSelector(&llmisvc.ChildResourcesLabelSelector)
@@ -252,6 +265,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	ctrlmetrics.Registry.MustRegister(llmisvc.NewInfoMetricsCollector(mgr.GetClient()))
+
 	// Register webhooks: validation (v1alpha1, v1alpha2) and conversion
 	v1alpha2LLMValidator := &v1alpha2.LLMInferenceServiceValidator{}
 	if err = v1alpha2LLMValidator.SetupWithManager(mgr); err != nil {
@@ -283,14 +298,12 @@ func main() {
 		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceserviceconfig-v1alpha2")
 		os.Exit(1)
 	}
-	if err = ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha2.LLMInferenceService{}).
+	if err = ctrl.NewWebhookManagedBy(mgr, &v1alpha2.LLMInferenceService{}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create conversion webhook", "webhook", "llminferenceservice")
 		os.Exit(1)
 	}
-	if err = ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha2.LLMInferenceServiceConfig{}).
+	if err = ctrl.NewWebhookManagedBy(mgr, &v1alpha2.LLMInferenceServiceConfig{}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create conversion webhook", "webhook", "llminferenceserviceconfig")
 		os.Exit(1)
@@ -312,16 +325,14 @@ func main() {
 	// Register version-specific mutating webhooks.
 	// This ensures admission decoding matches request version (v1alpha1 or v1alpha2)
 	// before shared defaulting logic is applied.
-	if err = ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha1.LLMInferenceService{}).
+	if err = ctrl.NewWebhookManagedBy(mgr, &v1alpha1.LLMInferenceService{}).
 		WithDefaulter(&llmisvcwebhook.LLMInferenceServiceDefaulterV1Alpha1{Client: mgr.GetClient(), Clientset: clientSet}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create defaulting webhook", "webhook", "llminferenceservice-v1alpha1")
 		os.Exit(1)
 	}
 
-	if err = ctrl.NewWebhookManagedBy(mgr).
-		For(&v1alpha2.LLMInferenceService{}).
+	if err = ctrl.NewWebhookManagedBy(mgr, &v1alpha2.LLMInferenceService{}).
 		WithDefaulter(&llmisvcwebhook.LLMInferenceServiceDefaulterV1Alpha2{Client: mgr.GetClient(), Clientset: clientSet}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create defaulting webhook", "webhook", "llminferenceservice-v1alpha2")
@@ -398,7 +409,11 @@ func main() {
 	}
 
 	setupLog.Info("starting manager")
-	if err := mgr.Start(ctx); err != nil {
+	startCtx, err := setupDistroStartup(ctx, mgr)
+	if err != nil {
+		setupLog.Error(err, "Failed to set up distro startup; profile changes will not trigger a restart")
+	}
+	if err := mgr.Start(startCtx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)
 	}

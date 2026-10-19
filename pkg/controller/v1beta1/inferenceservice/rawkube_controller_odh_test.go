@@ -1,0 +1,11673 @@
+//go:build distro
+
+/*
+Copyright 2026 The KServe Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package inferenceservice
+
+import (
+	"context"
+	"fmt"
+	"reflect"
+
+	kedav1alpha1 "github.com/kedacore/keda/v2/apis/keda/v1alpha1"
+	otelv1beta1 "github.com/open-telemetry/opentelemetry-operator/apis/v1beta1"
+	routev1 "github.com/openshift/api/route/v1"
+	apierr "k8s.io/apimachinery/pkg/api/errors"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+
+	appsv1 "k8s.io/api/apps/v1"
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
+	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/utils/ptr"
+	"knative.dev/pkg/apis"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
+	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/components"
+	"github.com/kserve/kserve/pkg/utils"
+)
+
+var _ = Describe("v1beta1 inference service controller", func() {
+	// Define utility constants for object names and testing timeouts/durations and intervals.
+
+	kserveGateway := types.NamespacedName{Name: "kserve-ingress-gateway", Namespace: "kserve"}
+
+	configs := getRawKubeTestConfigs()
+
+	// Checks that any Kubernetes object does not exist
+	expectResourceDoesNotExist := func(ctx context.Context, obj client.Object, objKey types.NamespacedName) {
+		Consistently(func() bool {
+			err := k8sClient.Get(ctx, objKey, obj)
+			return apierr.IsNotFound(err)
+		}, fastTimeout, interval).Should(BeTrue(), "%T %s should not be created", obj, objKey.Name)
+	}
+
+	Context("When creating inference service with raw kube predictor", func() {
+		It("Should have httproute/service/deployment/httproute created", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+			serviceName := "raw-foo"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas:    ptr.To(int32(1)),
+							MaxReplicas:    3,
+							TimeoutSeconds: ptr.To(int64(30)),
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricMemory,
+											Target: v1beta1.MetricTarget{
+												Type:         v1beta1.AverageValueMetricType,
+												AverageValue: v1beta1.NewMetricQuantity("10Gi"),
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
+			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
+
+			// Verify INFERENCE_SERVICE_NAME environment variable is set
+			verifyEnvKeyValueDeployments(actualDeployment, constants.InferenceServiceNameEnvVarKey, serviceName)
+
+			// check service
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedService := getExectedService(predictorServiceKey, serviceName)
+			actualService.Spec.ClusterIP = ""
+			actualService.Spec.ClusterIPs = nil
+			actualService.Spec.IPFamilies = nil
+			actualService.Spec.IPFamilyPolicy = nil
+			actualService.Spec.InternalTrafficPolicy = nil
+			Expect(actualService.Spec).To(BeComparableTo(expectedService.Spec))
+
+			// check isvc status
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
+
+			// check http route
+			actualTopLevelHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualTopLevelHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			expectedTopLevelHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(topLevelHost), gwapiv1.Hostname(fmt.Sprintf("%s-%s.additional.example.com", serviceKey.Name, serviceKey.Namespace))},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualTopLevelHttpRoute.Spec).To(BeComparableTo(expectedTopLevelHttpRoute.Spec))
+
+			actualPredictorHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      predictorServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualPredictorHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedPredictorHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(predictorHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+
+			// Mark the Ingress as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualPredictorHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			actualTopLevelHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualTopLevelHttpRoute)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-foo-default.example.com",
+				"raw-foo-predictor-default.example.com", "8080")
+
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check HPA
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorHPAKey, actualHPA)
+			}, timeout, interval).Should(Succeed())
+			expectedHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       predictorServiceKey.Name,
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceMemory,
+								Target: autoscalingv2.MetricTarget{
+									Type:         autoscalingv2.AverageValueMetricType,
+									AverageValue: &v1beta1.NewMetricQuantity("10Gi").Quantity,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualHPA.Spec).To(BeComparableTo(expectedHPA.Spec))
+		})
+
+		It("Should have httproute/service/deployment/hpa created with DeploymentStrategy", func() {
+			By("By creating a new InferenceService with DeploymentStrategy in PredictorSpec")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-customized"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+
+			ctx := context.Background()
+			var cpuUtilization int32 = 75
+
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+							DeploymentStrategy: &appsv1.DeploymentStrategy{
+								Type: appsv1.RecreateDeploymentStrategyType,
+							},
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricCPU,
+											Target: v1beta1.MetricTarget{
+												Type:               v1beta1.UtilizationMetricType,
+												AverageUtilization: &cpuUtilization,
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualDeployment := &appsv1.Deployment{}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment) }, timeout).
+				Should(Succeed())
+
+			expectedDeployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorDeploymentKey.Name,
+					Namespace: predictorDeploymentKey.Namespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr.To(REPLICAS),
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "isvc." + predictorDeploymentKey.Name,
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      predictorDeploymentKey.Name,
+							Namespace: "default",
+							Labels: map[string]string{
+								"app":                                 "isvc." + predictorDeploymentKey.Name,
+								constants.KServiceComponentLabel:      constants.Predictor.String(),
+								constants.InferenceServicePodLabelKey: serviceName,
+							},
+							Annotations: map[string]string{
+								constants.OpenshiftServingCertAnnotation:                   serviceName + "-predictor" + constants.ServingCertSecretSuffix,
+								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
+								constants.DeploymentMode:                                   string(constants.Standard),
+								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "tensorflow/serving:" +
+										*isvc.Spec.Predictor.Model.RuntimeVersion,
+									Name:    constants.InferenceServiceContainerName,
+									Command: []string{v1beta1.TensorflowEntrypointCommand},
+									Args: []string{
+										"--port=" + v1beta1.TensorflowServingGRPCPort,
+										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
+										"--model_base_path=" + constants.DefaultModelLocalMountPath,
+										"--rest_api_timeout_in_ms=60000",
+									},
+									Env: []corev1.EnvVar{
+										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
+									},
+									Resources: defaultResource,
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
+												Port: intstr.IntOrString{
+													IntVal: 8080,
+												},
+											},
+										},
+										InitialDelaySeconds: 0,
+										TimeoutSeconds:      1,
+										PeriodSeconds:       10,
+										SuccessThreshold:    1,
+										FailureThreshold:    3,
+									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "File",
+									ImagePullPolicy:          "IfNotPresent",
+								},
+								kubeRbacProxyContainer(nil),
+							},
+							Volumes: proxyVolumes(
+								predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
+								fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+							),
+							SchedulerName:                 "default-scheduler",
+							RestartPolicy:                 "Always",
+							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
+							DNSPolicy:                     "ClusterFirst",
+							SecurityContext:               defaultSecurityContext,
+							AutomountServiceAccountToken:  ptr.To(true),
+						},
+					},
+					// This is now customized and different from defaults set via `setDefaultDeploymentSpec`.
+					Strategy: appsv1.DeploymentStrategy{
+						Type: appsv1.RecreateDeploymentStrategyType,
+					},
+					RevisionHistoryLimit:    ptr.To(REVISION_HISTORY),
+					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
+				},
+			}
+			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
+
+			// check isvc status
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
+
+			// check service
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
+				Should(Succeed())
+
+			expectedService := getExectedService(predictorServiceKey, serviceName)
+			actualService.Spec.ClusterIP = ""
+			actualService.Spec.ClusterIPs = nil
+			actualService.Spec.IPFamilies = nil
+			actualService.Spec.IPFamilyPolicy = nil
+			actualService.Spec.InternalTrafficPolicy = nil
+			Expect(actualService.Spec).To(BeComparableTo(expectedService.Spec))
+
+			// check http route
+			actualToplevelHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualToplevelHttpRoute)
+			}, timeout).
+				Should(Succeed())
+			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			expectedToplevelHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(topLevelHost), gwapiv1.Hostname(fmt.Sprintf("%s-%s.additional.example.com", serviceKey.Name, serviceKey.Namespace))},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+
+			actualPredictorHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      predictorServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualPredictorHttpRoute)
+			}, timeout).
+				Should(Succeed())
+			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedPredictorHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(predictorHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+
+			// Mark the Ingress as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualPredictorHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			actualToplevelHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-foo-customized-default.example.com",
+				"raw-foo-customized-predictor-default.example.com", "8080")
+
+			// Check that the ISVC was updated
+			actualIsvc := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, actualIsvc)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Check that the inference service is ready
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, actualIsvc)
+				if err != nil {
+					return false
+				}
+				return actualIsvc.Status.IsConditionReady(v1beta1.PredictorReady)
+			}, timeout, interval).Should(BeTrue(), "The predictor should be ready")
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, actualIsvc)
+				if err != nil {
+					return false
+				}
+				return actualIsvc.Status.IsConditionReady(v1beta1.IngressReady)
+			}, timeout, interval).Should(BeTrue(), "The ingress should be ready")
+			diff := cmp.Diff(&expectedIsvcStatus, &actualIsvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			Expect(diff).To(BeEmpty())
+
+			// check HPA
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorHPAKey, actualHPA) }, timeout).
+				Should(Succeed())
+			expectedHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       predictorServiceKey.Name,
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               autoscalingv2.UtilizationMetricType,
+									AverageUtilization: &cpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualHPA.Spec).To(BeComparableTo(expectedHPA.Spec))
+		})
+		It("Should have httproute/service/deployment created", func() {
+			By("By creating a new InferenceService with AutoscalerClass None")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-2"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment) }, timeout).
+				Should(Succeed())
+
+			expectedDeployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorDeploymentKey.Name,
+					Namespace: predictorDeploymentKey.Namespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr.To(REPLICAS),
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "isvc." + predictorDeploymentKey.Name,
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      predictorDeploymentKey.Name,
+							Namespace: "default",
+							Labels: map[string]string{
+								"app":                                 "isvc." + predictorDeploymentKey.Name,
+								constants.KServiceComponentLabel:      constants.Predictor.String(),
+								constants.InferenceServicePodLabelKey: serviceName,
+							},
+							Annotations: map[string]string{
+								constants.OpenshiftServingCertAnnotation:                   serviceName + "-predictor" + constants.ServingCertSecretSuffix,
+								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
+								constants.DeploymentMode:                                   string(constants.Standard),
+								constants.AutoscalerClass:                                  string(constants.AutoscalerClassNone),
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "tensorflow/serving:" +
+										*isvc.Spec.Predictor.Model.RuntimeVersion,
+									Name:    constants.InferenceServiceContainerName,
+									Command: []string{v1beta1.TensorflowEntrypointCommand},
+									Args: []string{
+										"--port=" + v1beta1.TensorflowServingGRPCPort,
+										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
+										"--model_base_path=" + constants.DefaultModelLocalMountPath,
+										"--rest_api_timeout_in_ms=60000",
+									},
+									Env: []corev1.EnvVar{
+										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
+									},
+									Resources: defaultResource,
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
+												Port: intstr.IntOrString{
+													IntVal: 8080,
+												},
+											},
+										},
+										InitialDelaySeconds: 0,
+										TimeoutSeconds:      1,
+										PeriodSeconds:       10,
+										SuccessThreshold:    1,
+										FailureThreshold:    3,
+									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "File",
+									ImagePullPolicy:          "IfNotPresent",
+								},
+								kubeRbacProxyContainer(nil),
+							},
+							Volumes: proxyVolumes(
+								predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
+								fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+							),
+							SchedulerName:                 "default-scheduler",
+							RestartPolicy:                 "Always",
+							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
+							DNSPolicy:                     "ClusterFirst",
+							SecurityContext:               defaultSecurityContext,
+							AutomountServiceAccountToken:  ptr.To(true),
+						},
+					},
+					Strategy:                getDefaultRollingStrategy(),
+					RevisionHistoryLimit:    ptr.To(REVISION_HISTORY),
+					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
+				},
+			}
+			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
+
+			// check service
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
+				Should(Succeed())
+
+			expectedService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorServiceKey.Name,
+					Namespace: predictorServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       "raw-foo-2-predictor",
+							Protocol:   "TCP",
+							Port:       80,
+							TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc.raw-foo-2-predictor",
+					},
+				},
+			}
+			actualService.Spec.ClusterIP = ""
+			actualService.Spec.ClusterIPs = nil
+			actualService.Spec.IPFamilies = nil
+			actualService.Spec.IPFamilyPolicy = nil
+			actualService.Spec.InternalTrafficPolicy = nil
+			Expect(actualService.Spec).To(BeComparableTo(expectedService.Spec))
+
+			// check isvc status
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
+
+			// check http Route
+			actualToplevelHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualToplevelHttpRoute)
+			}, timeout).
+				Should(Succeed())
+			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			expectedToplevelHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(topLevelHost), gwapiv1.Hostname(fmt.Sprintf("%s-%s.additional.example.com", serviceKey.Name, serviceKey.Namespace))},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+
+			actualPredictorHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      predictorServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualPredictorHttpRoute)
+			}, timeout).
+				Should(Succeed())
+			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedPredictorHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(predictorHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+
+			// Mark the Ingress as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualPredictorHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			actualToplevelHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-foo-2-default.example.com",
+				"raw-foo-2-predictor-default.example.com", "8080")
+
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}), cmpopts.IgnoreFields(v1beta1.InferenceServiceStatus{}, "DeploymentMode"))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check HPA is not created
+			actualHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorHPAKey, actualHPA) }, timeout).
+				Should(HaveOccurred())
+
+			// Replica should not be nil and it should be set to minReplicas if it was set.
+			updated_isvc := &v1beta1.InferenceService{}
+
+			Eventually(func() error {
+				return k8sClient.Get(ctx, serviceKey, updated_isvc)
+			}, timeout, interval).Should(Succeed())
+			if updated_isvc.Labels == nil {
+				updated_isvc.Labels = make(map[string]string)
+			}
+			updated_isvc.Spec.Predictor.ComponentExtensionSpec = v1beta1.ComponentExtensionSpec{
+				MinReplicas: ptr.To(int32(2)),
+			}
+			Expect(k8sClient.Update(context.TODO(), updated_isvc)).NotTo(HaveOccurred())
+
+			updatedDeployment_isvc_updated := &appsv1.Deployment{}
+			Eventually(func() bool {
+				if err := k8sClient.Get(context.TODO(), predictorDeploymentKey, updatedDeployment_isvc_updated); err == nil {
+					return updatedDeployment_isvc_updated.Spec.Replicas != nil && *updatedDeployment_isvc_updated.Spec.Replicas == 2
+				} else {
+					return false
+				}
+			}, timeout, interval).Should(BeTrue())
+		})
+	})
+	Context("When updating ISVC envs", func() {
+		It("Should reconcile the deployment if isvc envs are updated", func() {
+			defaultEnvs := []corev1.EnvVar{
+				{
+					Name:  "env1",
+					Value: "val1",
+				},
+				{
+					Name:  "env2",
+					Value: "val2",
+				},
+				{
+					Name:  "env3",
+					Value: "val3",
+				},
+			}
+
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-test-env"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+			// create isvc
+
+			isvcOriginal := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":              "Standard",
+						"serving.kserve.io/autoscalerClass":             "hpa",
+						"serving.kserve.io/metrics":                     "cpu",
+						"serving.kserve.io/targetUtilizationPercentage": "75",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvcOriginal.Spec.Predictor.Tensorflow.Env = defaultEnvs
+
+			isvcOriginal.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(context.TODO(), isvcOriginal)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(context.TODO(), serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			deployed1 := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, deployed1)
+			}, timeout, interval).Should(Succeed())
+			Expect(deployed1.Spec.Template.Spec.Containers[0].Env).To(ContainElements(defaultEnvs))
+
+			// Now, update the isvc with new env
+			newEnvs := []corev1.EnvVar{
+				{
+					Name:  "newEnv1",
+					Value: "newValue1",
+				},
+				{
+					Name:  "newEnv2",
+					Value: "delete",
+				},
+			}
+
+			// Update the isvc to add new envs
+			fmt.Fprintln(GinkgoWriter, "### Adding new envs")
+			isvcUpdated1 := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				// get the latest deployed version
+				if err := k8sClient.Get(context.TODO(), serviceKey, inferenceService); err != nil {
+					return false
+				}
+
+				isvcUpdated1 = inferenceService.DeepCopy()
+				isvcUpdated1.Spec.Predictor.Model.Env = append(isvcUpdated1.Spec.Predictor.Model.Env, newEnvs...)
+				if err1 := k8sClient.Update(context.TODO(), isvcUpdated1); err1 != nil {
+					return false
+				}
+				return true
+			}, timeout, interval).Should(BeTrue())
+
+			// The deployment should be reconciled
+			deployed2 := &appsv1.Deployment{}
+			appendedEnvs := append(defaultEnvs, newEnvs...)
+			Eventually(func() []corev1.EnvVar {
+				_ = k8sClient.Get(context.TODO(), predictorDeploymentKey, deployed2)
+				return deployed2.Spec.Template.Spec.Containers[0].Env
+			}, timeout, interval).Should(ContainElements(appendedEnvs))
+
+			// Now remove the default envs and update the isvc
+			fmt.Fprintln(GinkgoWriter, "### Removing default envs")
+			isvcUpdated2 := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				// get the latest deployed version
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvcUpdated1); err != nil {
+					return false
+				}
+
+				isvcUpdated2 = isvcUpdated1.DeepCopy()
+				isvcUpdated2.Spec.Predictor.Model.Env = newEnvs
+				// Make sure the default envs were removed before updating the isvc
+				Expect(isvcUpdated2.Spec.Predictor.Model.Env).ToNot(ContainElements(defaultEnvs))
+
+				if err1 := k8sClient.Update(context.TODO(), isvcUpdated2); err1 != nil {
+					return false
+				}
+				return true
+			}, timeout, interval).Should(BeTrue())
+
+			deployed3 := &appsv1.Deployment{}
+			Eventually(func() []corev1.EnvVar {
+				_ = k8sClient.Get(context.TODO(), predictorDeploymentKey, deployed3)
+				return deployed3.Spec.Template.Spec.Containers[0].Env
+			}, timeout, interval).Should(Not(ContainElements(defaultEnvs)))
+
+			Expect(deployed3.Spec.Template.Spec.Containers[0].Env).To(ContainElements(newEnvs))
+		})
+	})
+
+	Context("When creating inference service with raw kube predictor and serving.kserve.io/stop", func() {
+		// --- Default values ---
+		configs := getRawKubeTestConfigs()
+
+		defaultIsvc := func(serviceKey types.NamespacedName, autoscaler string, qty *v1beta1.MetricQuantity) *v1beta1.InferenceService {
+			predictor := v1beta1.PredictorSpec{
+				ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+					MinReplicas:    ptr.To(int32(1)),
+					MaxReplicas:    3,
+					TimeoutSeconds: ptr.To(int64(30)),
+					AutoScaling: &v1beta1.AutoScalingSpec{
+						Metrics: []v1beta1.MetricsSpec{
+							{
+								Type: v1beta1.ResourceMetricSourceType,
+								Resource: &v1beta1.ResourceMetricSource{
+									Name: v1beta1.ResourceMetricMemory,
+									Target: v1beta1.MetricTarget{
+										Type:         v1beta1.AverageValueMetricType,
+										AverageValue: qty,
+									},
+								},
+							},
+						},
+					},
+				},
+				Tensorflow: &v1beta1.TFServingSpec{
+					PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+				},
+			}
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						constants.DeploymentMode:  string(constants.Standard),
+						constants.AutoscalerClass: autoscaler,
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: predictor,
+				},
+			}
+
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			return isvc
+		}
+
+		// --- Reusable Check Functions ---
+		// Wait for the ISVC to exist.
+		expectIsvcToExist := func(ctx context.Context, serviceKey types.NamespacedName) v1beta1.InferenceService {
+			// Check that the ISVC was updated
+			updatedIsvc := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			return *updatedIsvc
+		}
+
+		// Wait for the Deployment to exist and then set the DeploymentAvailable condition to true
+		expectDeploymentToBeReady := func(ctx context.Context, predictorKey types.NamespacedName) {
+			actualDeployment := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, updatedDeployment)).NotTo(HaveOccurred())
+		}
+
+		// Waits for the http route to be ready
+		// Note: top level route uses serviceKey, predictor route uses predictorKey
+		expectHttpRouteToBeReady := func(ctx context.Context, objKey types.NamespacedName) {
+			actualHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, objKey, actualHttpRoute)
+			}, timeout).Should(Succeed())
+
+			// Mark the route as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(ctx, actualHttpRoute)).NotTo(HaveOccurred())
+		}
+
+		// Wait for the InferenceService's Stopped condition to be false.
+		expectIsvcFalseStoppedStatus := func(ctx context.Context, serviceKey types.NamespacedName) {
+			// Check that the stopped condition is false
+			updatedIsvc := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				if err == nil {
+					stopped_cond := updatedIsvc.Status.GetCondition(v1beta1.Stopped)
+					if stopped_cond != nil && stopped_cond.Status == corev1.ConditionFalse {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "The stopped condition should be set to false")
+		}
+
+		// Wait for the InferenceService's PredictorReady and IngressReady condition.
+		expectIsvcReadyStatus := func(ctx context.Context, serviceKey types.NamespacedName) {
+			updatedIsvc := &v1beta1.InferenceService{}
+			// Check that the inference service is ready
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				if err != nil {
+					return false
+				}
+				readyCond := updatedIsvc.Status.GetCondition(v1beta1.PredictorReady)
+				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+			}, timeout, interval).Should(BeTrue(), "The predictor should be ready")
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				if err != nil {
+					return false
+				}
+				readyCond := updatedIsvc.Status.GetCondition(v1beta1.IngressReady)
+				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+			}, timeout, interval).Should(BeTrue(), "The ingress should be ready")
+		}
+
+		// Wait for the InferenceService's TransformerReady condition.
+		expectIsvcTransformerReadyStatus := func(ctx context.Context, serviceKey types.NamespacedName) {
+			updatedIsvc := &v1beta1.InferenceService{}
+			// Check that the transformer is ready
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				if err != nil {
+					return false
+				}
+				readyCond := updatedIsvc.Status.GetCondition(v1beta1.TransformerReady)
+				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+			}, timeout, interval).Should(BeTrue(), "The transformer should be ready")
+		}
+
+		// Wait for the InferenceService's ExplainerReady condition.
+		expectIsvcExplainerReadyStatus := func(ctx context.Context, serviceKey types.NamespacedName) {
+			updatedIsvc := &v1beta1.InferenceService{}
+			// Check that the explainer is ready
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				if err != nil {
+					return false
+				}
+				readyCond := updatedIsvc.Status.GetCondition(v1beta1.ExplainerReady)
+				return readyCond != nil && readyCond.Status == corev1.ConditionTrue
+			}, timeout, interval).Should(BeTrue(), "The explainer should be ready")
+		}
+
+		// Wait for the InferenceService's Stopped condition to be true.
+		expectIsvcTrueStoppedStatus := func(ctx context.Context, serviceKey types.NamespacedName) {
+			// Check that the ISVC status reflects that it is stopped
+			updatedIsvc := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				if err == nil {
+					stopped_cond := updatedIsvc.Status.GetCondition(v1beta1.Stopped)
+					if stopped_cond != nil && stopped_cond.Status == corev1.ConditionTrue {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "The stopped condition should be set to true")
+		}
+
+		// Waits for any Kubernetes object to be found
+		expectResourceToExist := func(ctx context.Context, obj client.Object, objKey types.NamespacedName) {
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, objKey, obj)
+				return err == nil
+			}, timeout, interval).Should(BeTrue(), "%T %s should exist", obj, objKey.Name)
+		}
+
+		// Wait for any Kubernetes object to be not found.
+		expectResourceToBeDeleted := func(ctx context.Context, obj client.Object, objKey types.NamespacedName) {
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, objKey, obj)
+				return apierr.IsNotFound(err)
+			}, timeout, interval).Should(BeTrue(), "%T %s should be deleted", obj, objKey.Name)
+		}
+
+		Describe("inference service only", func() {
+			It("Should keep the httproute/service/deployment/hpa created when the annotation is set to false", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-false-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultIsvc(serviceKey, string(constants.AutoscalerClassHPA), v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check the deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+
+				// check the service
+				expectResourceToExist(ctx, &corev1.Service{}, predictorKey)
+
+				// top level http route
+				expectHttpRouteToBeReady(ctx, serviceKey)
+				// predictor http route
+				expectHttpRouteToBeReady(ctx, predictorKey)
+
+				// check the HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+			})
+
+			It("Should keep the ingress/service/deployment/keda/otel created when gateway api is disabled and the annotation is set to false", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				configMap.Data["ingress"] = `{
+					"enableGatewayAPI": false,
+					"ingressGateway": "knative-serving/knative-ingress-gateway",
+					"localGateway": "knative-serving/knative-local-gateway",
+					"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
+				}`
+				configMap.Data["opentelemetryCollector"] = `{
+					"scrapeInterval": "5s",
+					"metricReceiverEndpoint": "keda-otel-scaler.keda.svc:4317",
+					"metricScalerEndpoint": "keda-otel-scaler.keda.svc:4318"
+				}`
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-false-ingress-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultIsvc(serviceKey, string(constants.AutoscalerClassKeda), v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "false"
+				isvc.Annotations["sidecar.opentelemetry.io/inject"] = "true"
+				isvc.Spec.Predictor.AutoScaling = &v1beta1.AutoScalingSpec{
+					Metrics: getDefaultMetrics(),
+				}
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check the OpenTelemetry Collector
+				expectResourceToExist(ctx, &otelv1beta1.OpenTelemetryCollector{}, predictorKey)
+
+				// Check the deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+
+				// Check the service
+				expectResourceToExist(ctx, &corev1.Service{}, predictorKey)
+
+				// Check ingress
+				expectResourceToExist(ctx, &netv1.Ingress{}, serviceKey)
+
+				// Check KEDA
+				expectResourceToExist(ctx, &kedav1alpha1.ScaledObject{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+			})
+
+			It("Should not create the httproute/service/deployment/hpa when the annotation is set to true", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-true-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultIsvc(serviceKey, string(constants.AutoscalerClassHPA), v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the deployment was not created
+				expectResourceDoesNotExist(ctx, &appsv1.Deployment{}, predictorKey)
+
+				// check that the service was not created
+				expectResourceDoesNotExist(ctx, &corev1.Service{}, predictorKey)
+
+				// check that the http routes were not created
+				// top level http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, serviceKey)
+				// predictor http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, predictorKey)
+
+				// check that the HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+			})
+
+			It("Should not create the ingress/service/deployment/keda/otel when gateway api is disabled and the annotation is set to true", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				configMap.Data["ingress"] = `{
+					"enableGatewayAPI": false,
+					"ingressGateway": "knative-serving/knative-ingress-gateway",
+					"localGateway": "knative-serving/knative-local-gateway",
+					"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
+				}`
+				configMap.Data["opentelemetryCollector"] = `{
+					"scrapeInterval": "5s",
+					"metricReceiverEndpoint": "keda-otel-scaler.keda.svc:4317",
+					"metricScalerEndpoint": "keda-otel-scaler.keda.svc:4318"
+				}`
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-true-ingress-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(context.Background(), &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultIsvc(serviceKey, string(constants.AutoscalerClassKeda), v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "true"
+				isvc.Annotations["sidecar.opentelemetry.io/inject"] = "true"
+				isvc.Spec.Predictor.AutoScaling = &v1beta1.AutoScalingSpec{
+					Metrics: getDefaultMetrics(),
+				}
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the OpenTelemetry Collector was not created
+				expectResourceDoesNotExist(ctx, &otelv1beta1.OpenTelemetryCollector{}, predictorKey)
+
+				// Check that the deployment was not created
+				expectResourceDoesNotExist(ctx, &appsv1.Deployment{}, predictorKey)
+
+				// check that the service was not created
+				expectResourceDoesNotExist(ctx, &corev1.Service{}, predictorKey)
+
+				// Check that the ingress was not created
+				expectResourceDoesNotExist(ctx, &netv1.Ingress{}, serviceKey)
+
+				// Check that the KEDA autoscaler was not created
+				expectResourceDoesNotExist(ctx, &kedav1alpha1.ScaledObject{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+			})
+
+			It("Should delete the httproute/service/deployment/hpa when the annotation is updated to true on an existing ISVC", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-edit-true-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultIsvc(serviceKey, string(constants.AutoscalerClassHPA), v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check the deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+
+				// check the service
+				expectResourceToExist(ctx, &corev1.Service{}, predictorKey)
+
+				// check the http routes
+				// top level http route
+				expectHttpRouteToBeReady(ctx, serviceKey)
+				// predictor http route
+				expectHttpRouteToBeReady(ctx, predictorKey)
+
+				// check the HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+
+				// Stop the inference service
+				updatedIsvc := expectIsvcToExist(ctx, serviceKey)
+				stoppedIsvc := updatedIsvc.DeepCopy()
+				stoppedIsvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Update(ctx, stoppedIsvc)).NotTo(HaveOccurred())
+
+				// Check that the deployment was deleted
+				expectResourceToBeDeleted(ctx, &appsv1.Deployment{}, predictorKey)
+
+				// check that the service was deleted
+				expectResourceToBeDeleted(ctx, &corev1.Service{}, predictorKey)
+
+				// check that the http routes were deleted
+				// top level http route
+				expectResourceToBeDeleted(ctx, &gwapiv1.HTTPRoute{}, serviceKey)
+				// predictor http route
+				expectResourceToBeDeleted(ctx, &gwapiv1.HTTPRoute{}, predictorKey)
+
+				// check that the HPA was deleted
+				expectResourceToBeDeleted(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+			})
+
+			It("Should delete the ingress/service/deployment/keda/otel when gateway api is disabled and the annotation is updated to true on an existing ISVC", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				configMap.Data["ingress"] = `{
+					"enableGatewayAPI": false,
+					"ingressGateway": "knative-serving/knative-ingress-gateway",
+					"localGateway": "knative-serving/knative-local-gateway",
+					"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
+				}`
+				configMap.Data["opentelemetryCollector"] = `{
+					"scrapeInterval": "5s",
+					"metricReceiverEndpoint": "keda-otel-scaler.keda.svc:4317",
+					"metricScalerEndpoint": "keda-otel-scaler.keda.svc:4318"
+				}`
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-edit-ingress-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultIsvc(serviceKey, string(constants.AutoscalerClassKeda), v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "false"
+				isvc.Annotations["sidecar.opentelemetry.io/inject"] = "true"
+				isvc.Spec.Predictor.AutoScaling = &v1beta1.AutoScalingSpec{
+					Metrics: getDefaultMetrics(),
+				}
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check the OpenTelemetry Collector
+				expectResourceToExist(ctx, &otelv1beta1.OpenTelemetryCollector{}, predictorKey)
+
+				// Check the deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+
+				// Check the service
+				expectResourceToExist(ctx, &corev1.Service{}, predictorKey)
+
+				// Check ingress
+				expectResourceToExist(ctx, &netv1.Ingress{}, serviceKey)
+
+				// Check KEDA
+				expectResourceToExist(ctx, &kedav1alpha1.ScaledObject{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+
+				// Stop the inference service
+				updatedIsvc := expectIsvcToExist(ctx, serviceKey)
+				stoppedIsvc := updatedIsvc.DeepCopy()
+				stoppedIsvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Update(ctx, stoppedIsvc)).NotTo(HaveOccurred())
+
+				// Check that the OpenTelemetry Collector was deleted
+				expectResourceToBeDeleted(ctx, &otelv1beta1.OpenTelemetryCollector{}, predictorKey)
+
+				// Check that the deployment was deleted
+				expectResourceToBeDeleted(ctx, &appsv1.Deployment{}, predictorKey)
+
+				// check that the service was deleted
+				expectResourceToBeDeleted(ctx, &corev1.Service{}, predictorKey)
+
+				// Check that the ingress was deleted
+				expectResourceToBeDeleted(ctx, &netv1.Ingress{}, serviceKey)
+
+				// Check that the KEDA autoscaler was deleted
+				expectResourceToBeDeleted(ctx, &kedav1alpha1.ScaledObject{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+			})
+
+			It("Should create the httproute/service/deployment/hpa when the annotation is updated to false on an existing ISVC that is stopped", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-edit-false-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultIsvc(serviceKey, string(constants.AutoscalerClassHPA), v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the deployment was not created
+				expectResourceDoesNotExist(ctx, &appsv1.Deployment{}, predictorKey)
+
+				// check that the service was not created
+				expectResourceDoesNotExist(ctx, &corev1.Service{}, predictorKey)
+
+				// check that the http routes were not created
+				// top level http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, serviceKey)
+				// predictor http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, predictorKey)
+
+				// check that the predictor HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+
+				// Resume the inference service
+				updatedIsvc := expectIsvcToExist(ctx, serviceKey)
+				stoppedIsvc := updatedIsvc.DeepCopy()
+				stoppedIsvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Update(ctx, stoppedIsvc)).NotTo(HaveOccurred())
+
+				// Check the deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+
+				// check the service
+				expectResourceToExist(ctx, &corev1.Service{}, predictorKey)
+
+				// top level http route
+				expectHttpRouteToBeReady(ctx, serviceKey)
+				// predictor http route
+				expectHttpRouteToBeReady(ctx, predictorKey)
+
+				// check the HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+			})
+
+			It("Should create the ingress/service/deployment/keda/otel when gateway api is disabled when the annotation is updated to false on an existing ISVC that is stopped", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				configMap.Data["ingress"] = `{
+					"enableGatewayAPI": false,
+					"ingressGateway": "knative-serving/knative-ingress-gateway",
+					"localGateway": "knative-serving/knative-local-gateway",
+					"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
+				}`
+				configMap.Data["opentelemetryCollector"] = `{
+					"scrapeInterval": "5s",
+					"metricReceiverEndpoint": "keda-otel-scaler.keda.svc:4317",
+					"metricScalerEndpoint": "keda-otel-scaler.keda.svc:4318"
+				}`
+				Expect(k8sClient.Create(context.Background(), configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-edit-false-ingress-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(context.Background(), &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultIsvc(serviceKey, string(constants.AutoscalerClassKeda), v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "true"
+				isvc.Annotations["sidecar.opentelemetry.io/inject"] = "true"
+				isvc.Spec.Predictor.AutoScaling = &v1beta1.AutoScalingSpec{
+					Metrics: getDefaultMetrics(),
+				}
+				Expect(k8sClient.Create(context.Background(), isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the OpenTelemetry Collector was not created
+				expectResourceDoesNotExist(ctx, &otelv1beta1.OpenTelemetryCollector{}, predictorKey)
+
+				// Check that the deployment was not created
+				expectResourceDoesNotExist(ctx, &appsv1.Deployment{}, predictorKey)
+
+				// check that the service was not created
+				expectResourceDoesNotExist(ctx, &corev1.Service{}, predictorKey)
+
+				// Check that the ingress was not created
+				expectResourceDoesNotExist(ctx, &netv1.Ingress{}, serviceKey)
+
+				// Check that the KEDA autoscaler was not created
+				expectResourceDoesNotExist(ctx, &kedav1alpha1.ScaledObject{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+
+				// Resume the inference service
+				updatedIsvc := expectIsvcToExist(ctx, serviceKey)
+				stoppedIsvc := updatedIsvc.DeepCopy()
+				stoppedIsvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Update(ctx, stoppedIsvc)).NotTo(HaveOccurred())
+
+				// Check the OpenTelemetry Collector
+				expectResourceToExist(ctx, &otelv1beta1.OpenTelemetryCollector{}, predictorKey)
+
+				// Check the deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+
+				// Check the service
+				expectResourceToExist(ctx, &corev1.Service{}, predictorKey)
+
+				// Check ingress
+				expectResourceToExist(ctx, &netv1.Ingress{}, serviceKey)
+
+				// Check KEDA
+				expectResourceToExist(ctx, &kedav1alpha1.ScaledObject{}, predictorKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+			})
+		})
+
+		Describe("inference service with a transformer", func() {
+			// --- Default values ---
+			defaultTransformerIsvc := func(serviceKey types.NamespacedName, qty *v1beta1.MetricQuantity) *v1beta1.InferenceService {
+				predictor := v1beta1.PredictorSpec{
+					ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+						MinReplicas:    ptr.To(int32(1)),
+						MaxReplicas:    3,
+						TimeoutSeconds: ptr.To(int64(30)),
+						AutoScaling: &v1beta1.AutoScalingSpec{
+							Metrics: []v1beta1.MetricsSpec{
+								{
+									Type: v1beta1.ResourceMetricSourceType,
+									Resource: &v1beta1.ResourceMetricSource{
+										Name: v1beta1.ResourceMetricMemory,
+										Target: v1beta1.MetricTarget{
+											Type:         v1beta1.AverageValueMetricType,
+											AverageValue: qty,
+										},
+									},
+								},
+							},
+						},
+					},
+					Tensorflow: &v1beta1.TFServingSpec{
+						PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+					},
+				}
+				transformer := &v1beta1.TransformerSpec{
+					ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+						MinReplicas:    ptr.To(int32(1)),
+						MaxReplicas:    1,
+						ScaleTarget:    ptr.To(int32(80)),
+						TimeoutSeconds: ptr.To(int64(30)),
+					},
+					PodSpec: v1beta1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Image:     "transformer:v1",
+								Resources: defaultResource,
+								Args: []string{
+									"--port=8080",
+								},
+							},
+						},
+					},
+				}
+				isvc := &v1beta1.InferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        serviceKey.Name,
+						Namespace:   serviceKey.Namespace,
+						Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+					},
+					Spec: v1beta1.InferenceServiceSpec{
+						Predictor:   predictor,
+						Transformer: transformer,
+					},
+				}
+
+				isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+				return isvc
+			}
+
+			It("Should keep the transformer httproute/service/deployment/hpa created when the annotation is set to false", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-transformer-false-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				transformerKey := types.NamespacedName{
+					Name:      constants.TransformerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultTransformerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check the predictor deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+				// Check the transformer deployment
+				expectDeploymentToBeReady(ctx, transformerKey)
+
+				// check the predictor service
+				expectResourceToExist(ctx, &corev1.Service{}, predictorKey)
+				// check the transformer service
+				expectResourceToExist(ctx, &corev1.Service{}, transformerKey)
+
+				// top level http route
+				expectHttpRouteToBeReady(ctx, serviceKey)
+				// predictor http route
+				expectHttpRouteToBeReady(ctx, predictorKey)
+				// transformer http route
+				expectHttpRouteToBeReady(ctx, transformerKey)
+
+				// check the predictor HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check the transformer HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, transformerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+				expectIsvcTransformerReadyStatus(ctx, serviceKey)
+			})
+
+			It("Should not create the transformer httproute/service/deployment/hpa when the annotation is set to true", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-transformer-true-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				transformerKey := types.NamespacedName{
+					Name:      constants.TransformerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultTransformerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the predictor deployment was not created
+				expectResourceDoesNotExist(ctx, &appsv1.Deployment{}, predictorKey)
+				// Check that the transformer deployment was not created
+				expectResourceDoesNotExist(ctx, &appsv1.Deployment{}, transformerKey)
+
+				// check that the predictor service was not created
+				expectResourceDoesNotExist(ctx, &corev1.Service{}, predictorKey)
+				// check that the transformer service was not created
+				expectResourceDoesNotExist(ctx, &corev1.Service{}, transformerKey)
+
+				// check that the http routes were not created
+				// top level http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, serviceKey)
+				// predictor http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, predictorKey)
+				// transformer http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, transformerKey)
+
+				// check that the predictor HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check that the transformer HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, transformerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+			})
+
+			It("Should delete the transformer httproute/service/deployment/hpa when the annotation is updated to true on an existing ISVC", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-transformer-edit-true-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				transformerKey := types.NamespacedName{
+					Name:      constants.TransformerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(context.Background(), &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultTransformerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check the predictor deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+				// Check the transformer deployment
+				expectDeploymentToBeReady(ctx, transformerKey)
+
+				// check the predictor service
+				expectResourceToExist(ctx, &corev1.Service{}, predictorKey)
+				// check the transformer service
+				expectResourceToExist(ctx, &corev1.Service{}, transformerKey)
+
+				// top level http route
+				expectHttpRouteToBeReady(ctx, serviceKey)
+				// predictor http route
+				expectHttpRouteToBeReady(ctx, predictorKey)
+				// transformer http route
+				expectHttpRouteToBeReady(ctx, transformerKey)
+
+				// check the predictor HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check the transformer HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, transformerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+				expectIsvcTransformerReadyStatus(ctx, serviceKey)
+
+				// Stop the inference service
+				updatedIsvc := expectIsvcToExist(ctx, serviceKey)
+				stoppedIsvc := updatedIsvc.DeepCopy()
+				stoppedIsvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Update(ctx, stoppedIsvc)).NotTo(HaveOccurred())
+
+				// Check that the predictor deployment was deleted
+				expectResourceToBeDeleted(ctx, &appsv1.Deployment{}, predictorKey)
+				// Check that the transformer deployment was deleted
+				expectResourceToBeDeleted(ctx, &appsv1.Deployment{}, transformerKey)
+
+				// check that the predictor service was deleted
+				expectResourceToBeDeleted(ctx, &corev1.Service{}, predictorKey)
+				// check that the transformer service was deleted
+				expectResourceToBeDeleted(ctx, &corev1.Service{}, transformerKey)
+
+				// check that the http routes were deleted
+				// top level http route
+				expectResourceToBeDeleted(ctx, &gwapiv1.HTTPRoute{}, serviceKey)
+				// predictor http route
+				expectResourceToBeDeleted(ctx, &gwapiv1.HTTPRoute{}, predictorKey)
+				// transformer http route
+				expectResourceToBeDeleted(ctx, &gwapiv1.HTTPRoute{}, transformerKey)
+
+				// check that the predictor HPA was deleted
+				expectResourceToBeDeleted(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check that the transformer HPA was deleted
+				expectResourceToBeDeleted(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, transformerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+			})
+
+			It("Should create the transformer httproute/service/deployment/hpa when the annotation is updated to false on an existing ISVC that is stopped", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-transformer-edit-false-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				transformerKey := types.NamespacedName{
+					Name:      constants.TransformerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultTransformerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the predictor deployment was not created
+				expectResourceDoesNotExist(ctx, &appsv1.Deployment{}, predictorKey)
+				// Check that the transformer deployment was not created
+				expectResourceDoesNotExist(ctx, &appsv1.Deployment{}, transformerKey)
+
+				// check that the predictor service was not created
+				expectResourceDoesNotExist(ctx, &corev1.Service{}, predictorKey)
+				// check that the transformer service was not created
+				expectResourceDoesNotExist(ctx, &corev1.Service{}, transformerKey)
+
+				// check that the http routes were not created
+				// top level http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, serviceKey)
+				// predictor http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, predictorKey)
+				// transformer http route
+				expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, transformerKey)
+
+				// check that the predictor HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check that the transformer HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, transformerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+
+				// Resume the inference service
+				updatedIsvc := expectIsvcToExist(ctx, serviceKey)
+				stoppedIsvc := updatedIsvc.DeepCopy()
+				stoppedIsvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Update(ctx, stoppedIsvc)).NotTo(HaveOccurred())
+
+				// Check the predictor deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+				// Check the transformer deployment
+				expectDeploymentToBeReady(ctx, transformerKey)
+
+				// check the predictor service
+				expectResourceToExist(ctx, &corev1.Service{}, predictorKey)
+				// check the transformer service
+				expectResourceToExist(ctx, &corev1.Service{}, transformerKey)
+
+				// top level http route
+				expectHttpRouteToBeReady(ctx, serviceKey)
+				// predictor http route
+				expectHttpRouteToBeReady(ctx, predictorKey)
+				// transformer http route
+				expectHttpRouteToBeReady(ctx, transformerKey)
+
+				// check the predictor HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check the transformer HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, transformerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+				expectIsvcTransformerReadyStatus(ctx, serviceKey)
+			})
+
+			It("Should inject TLS infrastructure into transformer deployment when auth is enabled", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "trans-auth-tls-isvc"
+				serviceNamespace := "default"
+				serviceKey := types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				transformerKey := types.NamespacedName{
+					Name:      constants.TransformerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(ctx, &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService with auth enabled
+				isvc := defaultTransformerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.ODHKserveRawAuth] = "true"
+				Expect(k8sClient.Create(ctx, isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+				expectDeploymentToBeReady(ctx, transformerKey)
+				expectDeploymentToBeReady(ctx, predictorKey)
+
+				By("Checking that the transformer deployment has the CA bundle volume and TLS env vars")
+				actualTransformerDeployment := &appsv1.Deployment{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, transformerKey, actualTransformerDeployment)
+				}, timeout, interval).Should(Succeed())
+
+				// Check CA bundle volume
+				var caBundleVolumeFound bool
+				for _, v := range actualTransformerDeployment.Spec.Template.Spec.Volumes {
+					if v.Name == constants.ServiceCaBundleVolumeName {
+						caBundleVolumeFound = true
+						Expect(v.VolumeSource.ConfigMap).NotTo(BeNil())
+						Expect(v.VolumeSource.ConfigMap.Name).To(Equal(constants.OpenShiftServiceCaConfigMapName))
+						break
+					}
+				}
+				Expect(caBundleVolumeFound).To(BeTrue(), "transformer should have openshift-service-ca-bundle volume")
+
+				// Check kserve-container has TLS volume mount and env vars
+				transformerContainerFound := false
+				for _, container := range actualTransformerDeployment.Spec.Template.Spec.Containers {
+					if container.Name == constants.InferenceServiceContainerName {
+						transformerContainerFound = true
+						var mountFound bool
+						for _, vm := range container.VolumeMounts {
+							if vm.Name == constants.ServiceCaBundleVolumeName {
+								mountFound = true
+								Expect(vm.MountPath).To(Equal(constants.ServiceCaBundleMountPath))
+								Expect(vm.ReadOnly).To(BeTrue())
+								break
+							}
+						}
+						Expect(mountFound).To(BeTrue(), "kserve-container should have CA bundle volume mount")
+
+						envMap := make(map[string]string)
+						for _, env := range container.Env {
+							envMap[env.Name] = env.Value
+						}
+						Expect(envMap["SSL_CERT_DIR"]).To(Equal(constants.ServiceCaBundleMountPath))
+						Expect(envMap["REQUESTS_CA_BUNDLE"]).To(Equal(constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile))
+						Expect(envMap[constants.PredictorHostEnvVar]).To(Equal(
+							fmt.Sprintf("%s.%s.svc", predictorKey.Name, serviceNamespace)))
+						Expect(envMap[constants.PredictorPortEnvVar]).To(Equal("8443"))
+						Expect(envMap[constants.PredictorProtocolEnvVar]).To(Equal("https"))
+						break
+					}
+				}
+				Expect(transformerContainerFound).To(BeTrue(), "transformer should contain kserve-container")
+
+				By("Checking that the predictor deployment does NOT have TLS env vars")
+				actualPredictorDeployment := &appsv1.Deployment{}
+				Eventually(func() error {
+					return k8sClient.Get(ctx, predictorKey, actualPredictorDeployment)
+				}, timeout, interval).Should(Succeed())
+
+				for _, v := range actualPredictorDeployment.Spec.Template.Spec.Volumes {
+					Expect(v.Name).NotTo(Equal(constants.ServiceCaBundleVolumeName),
+						"predictor should not have CA bundle volume")
+				}
+
+				predictorContainerFound := false
+				for _, container := range actualPredictorDeployment.Spec.Template.Spec.Containers {
+					if container.Name == constants.InferenceServiceContainerName {
+						predictorContainerFound = true
+						for _, vm := range container.VolumeMounts {
+							Expect(vm.Name).NotTo(Equal(constants.ServiceCaBundleVolumeName),
+								"predictor should not have CA bundle volume mount")
+						}
+						for _, env := range container.Env {
+							Expect(env.Name).NotTo(Equal(constants.PredictorHostEnvVar),
+								"predictor should not have PREDICTOR_HOST env var")
+							Expect(env.Name).NotTo(Equal(constants.PredictorProtocolEnvVar),
+								"predictor should not have PREDICTOR_PROTOCOL env var")
+							Expect(env.Name).NotTo(Equal("SSL_CERT_DIR"),
+								"predictor should not have SSL_CERT_DIR env var")
+							Expect(env.Name).NotTo(Equal("REQUESTS_CA_BUNDLE"),
+								"predictor should not have REQUESTS_CA_BUNDLE env var")
+							Expect(env.Name).NotTo(Equal(constants.PredictorPortEnvVar),
+								"predictor should not have PREDICTOR_PORT env var")
+						}
+						break
+					}
+				}
+				Expect(predictorContainerFound).To(BeTrue(), "predictor should contain kserve-container")
+			})
+		})
+
+		Describe("inference service with an explainer", func() {
+			// --- Default values ---
+			defaultExplainerIsvc := func(serviceKey types.NamespacedName, qty *v1beta1.MetricQuantity) *v1beta1.InferenceService {
+				predictor := v1beta1.PredictorSpec{
+					ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+						MinReplicas:    ptr.To(int32(1)),
+						MaxReplicas:    3,
+						TimeoutSeconds: ptr.To(int64(30)),
+						AutoScaling: &v1beta1.AutoScalingSpec{
+							Metrics: []v1beta1.MetricsSpec{
+								{
+									Type: v1beta1.ResourceMetricSourceType,
+									Resource: &v1beta1.ResourceMetricSource{
+										Name: v1beta1.ResourceMetricMemory,
+										Target: v1beta1.MetricTarget{
+											Type:         v1beta1.AverageValueMetricType,
+											AverageValue: qty,
+										},
+									},
+								},
+							},
+						},
+					},
+					Tensorflow: &v1beta1.TFServingSpec{
+						PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+					},
+				}
+				explainer := &v1beta1.ExplainerSpec{
+					ART: &v1beta1.ARTExplainerSpec{
+						Type: v1beta1.ARTSquareAttackExplainer,
+						ExplainerExtensionSpec: v1beta1.ExplainerExtensionSpec{
+							Config: map[string]string{"nb_classes": "10"},
+							Container: corev1.Container{
+								Name:      constants.InferenceServiceContainerName,
+								Resources: defaultResource,
+							},
+							RuntimeVersion: ptr.To("latest"),
+						},
+					},
+					ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+						MinReplicas:    ptr.To(int32(1)),
+						MaxReplicas:    2,
+						ScaleTarget:    ptr.To(int32(80)),
+						TimeoutSeconds: ptr.To(int64(30)),
+					},
+				}
+				isvc := &v1beta1.InferenceService{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      serviceKey.Name,
+						Namespace: serviceKey.Namespace,
+						Annotations: map[string]string{
+							constants.DeploymentMode:  string(constants.Standard),
+							constants.AutoscalerClass: string(constants.AutoscalerClassHPA),
+						},
+					},
+					Spec: v1beta1.InferenceServiceSpec{
+						Predictor: predictor,
+						Explainer: explainer,
+					},
+				}
+
+				isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+				return isvc
+			}
+
+			It("Should keep the explainer httproute/service/deployment/hpa created when the annotation is set to false", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(context.Background(), configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-explainer-false-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				explainerKey := types.NamespacedName{
+					Name:      constants.ExplainerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(context.Background(), &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultExplainerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Create(context.Background(), isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check the predictor deployment
+				expectDeploymentToBeReady(context.Background(), predictorKey)
+				// Check the explainer deployment
+				expectDeploymentToBeReady(context.Background(), explainerKey)
+
+				// check the predictor service
+				expectResourceToExist(context.Background(), &corev1.Service{}, predictorKey)
+				// check the explainer service
+				expectResourceToExist(context.Background(), &corev1.Service{}, explainerKey)
+
+				// top level http route
+				expectHttpRouteToBeReady(context.Background(), serviceKey)
+				// predictor http route
+				expectHttpRouteToBeReady(context.Background(), predictorKey)
+				// explainer http route
+				expectHttpRouteToBeReady(context.Background(), explainerKey)
+
+				// check the predictor HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check the explainer HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, explainerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+				expectIsvcExplainerReadyStatus(ctx, serviceKey)
+			})
+
+			It("Should not create the explainer httproute/service/deployment/hpa when the annotation is set to true", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(context.Background(), configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-explainer-true-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				explainerKey := types.NamespacedName{
+					Name:      constants.ExplainerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(context.Background(), &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultExplainerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Create(context.Background(), isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the predictor deployment was not created
+				expectResourceDoesNotExist(context.Background(), &appsv1.Deployment{}, predictorKey)
+				// Check that the explainer deployment was not created
+				expectResourceDoesNotExist(context.Background(), &appsv1.Deployment{}, explainerKey)
+
+				// check that the predictor service was not created
+				expectResourceDoesNotExist(context.Background(), &corev1.Service{}, predictorKey)
+				// check that the explainer service was not created
+				expectResourceDoesNotExist(context.Background(), &corev1.Service{}, explainerKey)
+
+				// check that the http routes were not created
+				// top level http route
+				expectResourceDoesNotExist(context.Background(), &gwapiv1.HTTPRoute{}, serviceKey)
+				// predictor http route
+				expectResourceDoesNotExist(context.Background(), &gwapiv1.HTTPRoute{}, predictorKey)
+				// explainer http route
+				expectResourceDoesNotExist(context.Background(), &gwapiv1.HTTPRoute{}, explainerKey)
+
+				// check that the predictor HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check that the explainer HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, explainerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+			})
+
+			It("Should delete the explainer httproute/service/deployment/hpa when the annotation is updated to true on an existing ISVC", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(context.Background(), configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-explainer-edit-true-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				explainerKey := types.NamespacedName{
+					Name:      constants.ExplainerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(context.Background(), &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultExplainerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Create(context.Background(), isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check the predictor deployment
+				expectDeploymentToBeReady(ctx, predictorKey)
+				// Check the explainer deployment
+				expectDeploymentToBeReady(ctx, explainerKey)
+
+				// check the predictor service
+				expectResourceToExist(context.Background(), &corev1.Service{}, predictorKey)
+				// check the explainer service
+				expectResourceToExist(context.Background(), &corev1.Service{}, explainerKey)
+
+				// top level http route
+				expectHttpRouteToBeReady(context.Background(), serviceKey)
+				// predictor http route
+				expectHttpRouteToBeReady(context.Background(), predictorKey)
+				// explainer http route
+				expectHttpRouteToBeReady(context.Background(), explainerKey)
+
+				// check the predictor HPA
+				expectResourceToExist(context.Background(), &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check the explainer HPA
+				expectResourceToExist(context.Background(), &autoscalingv2.HorizontalPodAutoscaler{}, explainerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+				expectIsvcExplainerReadyStatus(ctx, serviceKey)
+
+				// Stop the inference service
+				updatedIsvc := expectIsvcToExist(ctx, serviceKey)
+				stoppedIsvc := updatedIsvc.DeepCopy()
+				stoppedIsvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Update(ctx, stoppedIsvc)).NotTo(HaveOccurred())
+
+				// Check that the predictor deployment was deleted
+				expectResourceToBeDeleted(context.Background(), &appsv1.Deployment{}, predictorKey)
+				// Check that the explainer deployment was deleted
+				expectResourceToBeDeleted(context.Background(), &appsv1.Deployment{}, explainerKey)
+
+				// check that the predictor service was deleted
+				expectResourceToBeDeleted(context.Background(), &corev1.Service{}, predictorKey)
+				// check that the explainer service was deleted
+				expectResourceToBeDeleted(context.Background(), &corev1.Service{}, explainerKey)
+
+				// check that the http routes were deleted
+				// top level http route
+				expectResourceToBeDeleted(context.Background(), &gwapiv1.HTTPRoute{}, serviceKey)
+				// predictor http route
+				expectResourceToBeDeleted(context.Background(), &gwapiv1.HTTPRoute{}, predictorKey)
+				// explainer http route
+				expectResourceToBeDeleted(context.Background(), &gwapiv1.HTTPRoute{}, explainerKey)
+
+				// check that the predictor HPA was deleted
+				expectResourceToBeDeleted(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check that the explainer HPA was deleted
+				expectResourceToBeDeleted(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, explainerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+			})
+
+			It("Should create the explainer httproute/service/deployment/hpa when the annotation is updated to false on an existing ISVC that is stopped", func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				DeferCleanup(cancel)
+
+				// Config map
+				configMap := createInferenceServiceConfigMap(configs)
+				Expect(k8sClient.Create(context.Background(), configMap)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, configMap)
+
+				// Setup values
+				serviceName := "stop-explainer-edit-false-isvc"
+				serviceNamespace := "default"
+				expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: serviceNamespace}}
+				serviceKey := expectedRequest.NamespacedName
+
+				predictorKey := types.NamespacedName{
+					Name:      constants.PredictorServiceName(serviceKey.Name),
+					Namespace: serviceKey.Namespace,
+				}
+				explainerKey := types.NamespacedName{
+					Name:      constants.ExplainerServiceName(serviceName),
+					Namespace: serviceKey.Namespace,
+				}
+
+				// Serving runtime
+				servingRuntime := getServingRuntime("tf-serving-raw", serviceKey.Namespace)
+				Expect(k8sClient.Create(context.Background(), &servingRuntime)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, &servingRuntime)
+
+				// Define InferenceService
+				isvc := defaultExplainerIsvc(serviceKey, v1beta1.NewMetricQuantity("10Gi"))
+				isvc.Annotations[constants.StopAnnotationKey] = "true"
+				Expect(k8sClient.Create(context.Background(), isvc)).NotTo(HaveOccurred())
+				defer k8sClient.Delete(ctx, isvc)
+
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the predictor deployment was not created
+				expectResourceDoesNotExist(context.Background(), &appsv1.Deployment{}, predictorKey)
+				// Check that the explainer deployment was not created
+				expectResourceDoesNotExist(context.Background(), &appsv1.Deployment{}, explainerKey)
+
+				// check that the predictor service was not created
+				expectResourceDoesNotExist(context.Background(), &corev1.Service{}, predictorKey)
+				// check that the explainer service was not created
+				expectResourceDoesNotExist(context.Background(), &corev1.Service{}, explainerKey)
+
+				// check that the http routes were not created
+				// top level http route
+				expectResourceDoesNotExist(context.Background(), &gwapiv1.HTTPRoute{}, serviceKey)
+				// predictor http route
+				expectResourceDoesNotExist(context.Background(), &gwapiv1.HTTPRoute{}, predictorKey)
+				// explainer http route
+				expectResourceDoesNotExist(context.Background(), &gwapiv1.HTTPRoute{}, explainerKey)
+
+				// check that the predictor HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check that the explainer HPA was not created
+				expectResourceDoesNotExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, explainerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the ISVC status reflects that it is stopped
+				expectIsvcTrueStoppedStatus(ctx, serviceKey)
+
+				// Resume the inference service
+				updatedIsvc := expectIsvcToExist(ctx, serviceKey)
+				stoppedIsvc := updatedIsvc.DeepCopy()
+				stoppedIsvc.Annotations[constants.StopAnnotationKey] = "false"
+				Expect(k8sClient.Update(ctx, stoppedIsvc)).NotTo(HaveOccurred())
+
+				// Check the predictor deployment
+				expectDeploymentToBeReady(context.Background(), predictorKey)
+				// Check the explainer deployment
+				expectDeploymentToBeReady(context.Background(), explainerKey)
+
+				// check the predictor service
+				expectResourceToExist(context.Background(), &corev1.Service{}, predictorKey)
+				// check the explainer service
+				expectResourceToExist(context.Background(), &corev1.Service{}, explainerKey)
+
+				// top level http route
+				expectHttpRouteToBeReady(context.Background(), serviceKey)
+				// predictor http route
+				expectHttpRouteToBeReady(context.Background(), predictorKey)
+				// explainer http route
+				expectHttpRouteToBeReady(context.Background(), explainerKey)
+
+				// check the predictor HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, predictorKey)
+				// check the explainer HPA
+				expectResourceToExist(ctx, &autoscalingv2.HorizontalPodAutoscaler{}, explainerKey)
+
+				// Check that the ISVC was updated
+				expectIsvcToExist(ctx, serviceKey)
+
+				// Check that the stopped condition is false
+				expectIsvcFalseStoppedStatus(ctx, serviceKey)
+
+				// Check that the inference service is ready
+				expectIsvcReadyStatus(ctx, serviceKey)
+				expectIsvcExplainerReadyStatus(ctx, serviceKey)
+			})
+		})
+	})
+	Context("When Updating a Serving Runtime", func() {
+		configs := getRawKubeTestConfigs()
+
+		ctx := context.Background()
+		It("InferenceService should reconcile the deployment if auto-update annotation is not present", func() {
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			isvcNamespace := constants.KServeNamespace
+			Eventually(func() error {
+				cm := &corev1.ConfigMap{}
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, cm)
+			}, timeout, interval).Should(Succeed())
+			isvcName := "isvc-enable-auto-update-missing"
+			serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			servingRuntimeName := "pytorch-serving-auto-update-missing"
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimeName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "pytorch",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "pytorch/serving:1.14.0",
+								Command: []string{"/usr/bin/pytorch_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+
+			// Define InferenceService with auto-update disabled.
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":              "Standard",
+						"serving.kserve.io/autoscalerClass":             "hpa",
+						"serving.kserve.io/metrics":                     "cpu",
+						"serving.kserve.io/targetUtilizationPercentage": "75",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						PyTorch: &v1beta1.TorchServeSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+
+			createdConfigMap := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, createdConfigMap)
+			}, timeout, interval).Should(Succeed())
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, isvc)
+
+			originalDeployment := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, originalDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			// Update the ServingRuntime spec
+			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
+			servingRuntimeToUpdate.Spec.Labels["key1"] = "updatedServingRuntime"
+			Eventually(func() error {
+				return k8sClient.Update(ctx, servingRuntimeToUpdate)
+			}, timeout, interval).Should(Succeed())
+
+			// Wait until the ServingRuntime reflects the updated spec.
+			servingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+			deploymentAfterUpdate := &appsv1.Deployment{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return deploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+		})
+
+		It("InferenceService should reconcile the deployment if auto-update is enabled ", func() {
+			// Create configmap
+			isvcNamespace := constants.KServeNamespace
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: isvcNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			Eventually(func() error {
+				cm := &corev1.ConfigMap{}
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, cm)
+			}, timeout, interval).Should(Succeed())
+			isvcName := "isvc-enable-auto-update-true"
+			serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			servingRuntimeName := "pytorch-serving-auto-update-true"
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimeName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "pytorch",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "pytorch/serving:1.14.0",
+								Command: []string{"/usr/bin/pytorch_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+			// Define InferenceService with auto-update disabled.
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":       "Standard",
+						"serving.kserve.io/autoscalerClass":      "external",
+						constants.DisableAutoUpdateAnnotationKey: "false",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						PyTorch: &v1beta1.TorchServeSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, isvc)
+
+			originalDeployment := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, originalDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			// Update the ServingRuntime spec
+			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
+			servingRuntimeToUpdate.Spec.Labels["key1"] = "updatedServingRuntime"
+			Eventually(func() error {
+				return k8sClient.Update(ctx, servingRuntimeToUpdate)
+			}, timeout, interval).Should(Succeed())
+
+			// Wait until the ServingRuntime reflects the updated spec.
+			servingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+			// Wait until the Deployment reflects the update
+			deploymentAfterUpdate := &appsv1.Deployment{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return deploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+		})
+
+		It("InferenceService should not reconcile the deployment if auto-update is disabled", func() {
+			// Create configmap
+			isvcNamespace := constants.KServeNamespace
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: isvcNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			Eventually(func() error {
+				cm := &corev1.ConfigMap{}
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, cm)
+			}, timeout, interval).Should(Succeed())
+
+			isvcName := "isvc-enable-auto-update-false"
+			serviceKey := types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			servingRuntimeName := "pytorch-serving-auto-update-false"
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimeName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "pytorch",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "pytorch/serving:1.14.0",
+								Command: []string{"/usr/bin/pytorch_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+
+			// Define InferenceService with auto-update disabled.
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":       "Standard",
+						"serving.kserve.io/autoscalerClass":      "external",
+						constants.DisableAutoUpdateAnnotationKey: "true",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						PyTorch: &v1beta1.TorchServeSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, isvc)
+
+			originalDeployment := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKey.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, originalDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			predictorReadyCondition := &apis.Condition{
+				Type:   v1beta1.PredictorReady,
+				Status: corev1.ConditionTrue,
+			}
+			ingressReadyCondition := &apis.Condition{
+				Type:   v1beta1.IngressReady,
+				Status: corev1.ConditionTrue,
+			}
+			Expect(k8sClient.Get(ctx, serviceKey, inferenceService)).Should(Succeed())
+			inferenceService.Status.SetCondition(v1beta1.PredictorReady, predictorReadyCondition)
+			inferenceService.Status.SetCondition(v1beta1.IngressReady, ingressReadyCondition)
+			Expect(k8sClient.Status().Update(ctx, inferenceService)).Should(Succeed())
+
+			updatedIsvc := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, updatedIsvc)
+				if err != nil {
+					return false
+				}
+				return updatedIsvc.Status.IsReady()
+			}, timeout, interval).Should(BeTrue(), "The InferenceService should be ready")
+
+			// Update the ServingRuntime spec
+			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
+			servingRuntimeToUpdate.Spec.Labels["key1"] = "updatedServingRuntime"
+			Expect(k8sClient.Update(ctx, servingRuntimeToUpdate)).Should(Succeed())
+
+			// Wait until the ServingRuntime reflects the updated spec.
+			servingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+
+			// Check to make sure deployment didn't update
+			deploymentAfterUpdate := &appsv1.Deployment{}
+			Consistently(func() (string, error) {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate); err != nil {
+					return "", err
+				}
+				return deploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"], nil
+			}, fastTimeout, interval).Should(Equal("val1FromSR"))
+		})
+		It("InferenceService should reconcile only if the matching serving runtime was updated even if multiple exist", func() {
+			// Create configmap
+			isvcNamespace := constants.KServeNamespace
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: isvcNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			Eventually(func() error {
+				cm := &corev1.ConfigMap{}
+				return k8sClient.Get(context.TODO(), types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: isvcNamespace}, cm)
+			}, timeout, interval).Should(Succeed())
+
+			isvcNamePytorch := "isvc-multi-pytorch"
+			serviceKeyPytorch := types.NamespacedName{Name: isvcNamePytorch, Namespace: isvcNamespace}
+			isvcNameTensorflow := "isvc-multi-tensorflow"
+			serviceKeyTensorflow := types.NamespacedName{Name: isvcNameTensorflow, Namespace: isvcNamespace}
+
+			servingRuntimePytorchName := "pytorch-serving-auto-update-true-multiple"
+			servingRuntimeTensorflowName := "tensorflow-serving-auto-update-true-multiple"
+			pytorchServingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimePytorchName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "pytorch",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "pytorch/serving:1.14.0",
+								Command: []string{"/usr/bin/pytorch_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, pytorchServingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimePytorchName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+			defer k8sClient.Delete(ctx, pytorchServingRuntime)
+
+			tensorflowServingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      servingRuntimeTensorflowName,
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Labels: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Annotations: map[string]string{
+							"key1": "val1FromSR",
+							"key2": "val2FromSR",
+							"key3": "val3FromSR",
+						},
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_server_model"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "sr-image-pull-secret"},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+
+			Expect(k8sClient.Create(ctx, tensorflowServingRuntime)).Should(Succeed())
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeTensorflowName, Namespace: isvcNamespace}, &v1alpha1.ServingRuntime{})
+			}, timeout, interval).Should(Succeed())
+
+			defer k8sClient.Delete(ctx, tensorflowServingRuntime)
+			// Define InferenceService with auto-update disabled.
+			pytorchIsvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKeyPytorch.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":       "Standard",
+						"serving.kserve.io/autoscalerClass":      "external",
+						constants.DisableAutoUpdateAnnotationKey: "false",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						PyTorch: &v1beta1.TorchServeSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			pytorchIsvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, pytorchIsvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKeyPytorch, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, pytorchIsvc)
+
+			tensorflowIsvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKeyTensorflow.Name,
+					Namespace: isvcNamespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":       "Standard",
+						"serving.kserve.io/autoscalerClass":      "external",
+						constants.DisableAutoUpdateAnnotationKey: "false",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			tensorflowIsvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, tensorflowIsvc)).Should(Succeed())
+
+			inferenceServiceTensorflow := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKeyTensorflow, inferenceServiceTensorflow)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+			defer k8sClient.Delete(ctx, tensorflowIsvc)
+
+			// Update the ServingRuntime spec
+			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
+			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimePytorchName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
+			servingRuntimeToUpdate.Spec.Labels["key1"] = "updatedServingRuntime"
+			Eventually(func() error {
+				return k8sClient.Update(ctx, servingRuntimeToUpdate)
+			}, timeout, interval).Should(Succeed())
+
+			// Wait until the ServingRuntime reflects the updated spec.
+			pytorchServingRuntimeAfterUpdate := &v1alpha1.ServingRuntime{}
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimePytorchName, Namespace: isvcNamespace}, pytorchServingRuntimeAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return pytorchServingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+
+			// Wait until the Deployment reflects the update
+			pytorchDeploymentAfterUpdate := &appsv1.Deployment{}
+			deploymentName := constants.PredictorServiceName(serviceKeyPytorch.Name)
+			Eventually(func() (string, error) {
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKeyPytorch.Namespace}, pytorchDeploymentAfterUpdate)
+				if err != nil {
+					return "", err
+				}
+				return pytorchDeploymentAfterUpdate.Spec.Template.Labels["key1"], nil
+			}, timeout, interval).Should(Equal("updatedServingRuntime"))
+
+			tensorFlowDeploymentAfterUpdate := &appsv1.Deployment{}
+			tensorflowDeploymentName := constants.PredictorServiceName(serviceKeyTensorflow.Name)
+			Eventually(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: tensorflowDeploymentName, Namespace: serviceKeyTensorflow.Namespace}, tensorFlowDeploymentAfterUpdate)
+			}, timeout, interval).Should(Succeed())
+			Expect(tensorFlowDeploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"]).Should(Equal("val1FromSR"))
+		})
+	})
+
+	Context("When creating inference service with raw kube predictor and ingress creation disabled", func() {
+		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+			"disableIngressCreation": true,
+			"ingressDomain":          "example.com",
+		})
+
+		It("Should have service/deployment/hpa created and http route should not be created", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			// Create InferenceService
+			serviceName := "raw-foo-no-ingress-class"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricCPU,
+											Target: v1beta1.MetricTarget{
+												Type:               v1beta1.UtilizationMetricType,
+												AverageUtilization: ptr.To(int32(75)),
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
+			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
+
+			// check service
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedService := getExectedService(predictorServiceKey, serviceName)
+			actualService.Spec.ClusterIP = ""
+			actualService.Spec.ClusterIPs = nil
+			actualService.Spec.IPFamilies = nil
+			actualService.Spec.IPFamilyPolicy = nil
+			actualService.Spec.InternalTrafficPolicy = nil
+			Expect(actualService.Spec).To(BeComparableTo(expectedService.Spec))
+
+			// check isvc status
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
+
+			// check ingress not created
+			// expectResourceDoesNotExist
+			expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, serviceKey)
+			// actualPredictorHttpRoute
+			expectResourceDoesNotExist(ctx, &gwapiv1.HTTPRoute{}, predictorServiceKey)
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-foo-no-ingress-class-default.example.com",
+				"raw-foo-no-ingress-class-predictor-default.example.com", "8080")
+
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check HPA
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var cpuUtilization int32 = 75
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorHPAKey, actualHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       predictorServiceKey.Name,
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               "Utilization",
+									AverageUtilization: &cpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualHPA.Spec).To(BeComparableTo(expectedHPA.Spec))
+		})
+	})
+	Context("When creating inference service with raw kube predictor with domain template", func() {
+		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+			"ingressDomain":  "example.com",
+			"domainTemplate": "{{ .Name }}.{{ .Namespace }}.{{ .IngressDomain }}",
+		})
+
+		It("Should have httproute/service/deployment/hpa created", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			// Create InferenceService
+			serviceName := "model"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricCPU,
+											Target: v1beta1.MetricTarget{
+												Type:               v1beta1.UtilizationMetricType,
+												AverageUtilization: ptr.To(int32(75)),
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
+			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
+
+			// check service
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedService := getExectedService(predictorServiceKey, serviceName)
+			actualService.Spec.ClusterIP = ""
+			actualService.Spec.ClusterIPs = nil
+			actualService.Spec.IPFamilies = nil
+			actualService.Spec.IPFamilyPolicy = nil
+			actualService.Spec.InternalTrafficPolicy = nil
+			Expect(actualService.Spec).To(BeComparableTo(expectedService.Spec))
+
+			// check isvc status
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
+
+			// check http route
+			actualToplevelHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualToplevelHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			topLevelHost := fmt.Sprintf("%s.%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			expectedToplevelHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(topLevelHost), gwapiv1.Hostname(fmt.Sprintf("%s.%s.additional.example.com", serviceKey.Name, serviceKey.Namespace))},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+
+			actualPredictorHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      predictorServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualPredictorHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			predictorHost := fmt.Sprintf("%s.%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedPredictorHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(predictorHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+
+			// Mark the Ingress as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualPredictorHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			actualToplevelHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "model.default.example.com",
+				"model-predictor.default.example.com", "8080")
+
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check HPA
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var cpuUtilization int32 = 75
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorHPAKey, actualHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       predictorServiceKey.Name,
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               "Utilization",
+									AverageUtilization: &cpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualHPA.Spec).To(BeComparableTo(expectedHPA.Spec))
+		})
+	})
+	Context("When creating inference service with raw kube predictor and transformer", func() {
+		configs := getRawKubeTestConfigs()
+
+		It("Should have httproute/service/deployment/hpa created for transformer and predictor", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-trans"
+			namespace := "default"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: namespace}}
+			serviceKey := expectedRequest.NamespacedName
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceName),
+				Namespace: namespace,
+			}
+			transformerServiceKey := types.NamespacedName{
+				Name:      constants.TransformerServiceName(serviceName),
+				Namespace: namespace,
+			}
+
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var transformerMinReplicas int32 = 1
+			var transformerMaxReplicas int32 = 2
+			var transformerCpuUtilization int32 = 80
+			var transformerStabilizationWindowSeconds int32 = 0
+			transformerSelectPolicy := autoscalingv2.MaxChangePolicySelect
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(minReplicas),
+							MaxReplicas: maxReplicas,
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricCPU,
+											Target: v1beta1.MetricTarget{
+												Type:               v1beta1.UtilizationMetricType,
+												AverageUtilization: ptr.To(int32(75)),
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+					Transformer: &v1beta1.TransformerSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas:    ptr.To(transformerMinReplicas),
+							MaxReplicas:    transformerMaxReplicas,
+							ScaleTarget:    ptr.To(transformerCpuUtilization),
+							TimeoutSeconds: ptr.To(int64(30)),
+						},
+						PodSpec: v1beta1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image:     "transformer:v1",
+									Resources: defaultResource,
+									Args: []string{
+										"--port=8080",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// check predictor deployment
+			actualPredictorDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualPredictorDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorDeployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorDeploymentKey.Name,
+					Namespace: predictorDeploymentKey.Namespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr.To(REPLICAS),
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "isvc." + predictorDeploymentKey.Name,
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      predictorDeploymentKey.Name,
+							Namespace: "default",
+							Labels: map[string]string{
+								"app":                                 "isvc." + predictorDeploymentKey.Name,
+								constants.KServiceComponentLabel:      constants.Predictor.String(),
+								constants.InferenceServicePodLabelKey: serviceName,
+							},
+							Annotations: map[string]string{
+								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
+								constants.DeploymentMode:                                   string(constants.Standard),
+								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "tensorflow/serving:" +
+										*isvc.Spec.Predictor.Model.RuntimeVersion,
+									Name:    constants.InferenceServiceContainerName,
+									Command: []string{v1beta1.TensorflowEntrypointCommand},
+									Args: []string{
+										"--port=" + v1beta1.TensorflowServingGRPCPort,
+										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
+										"--model_base_path=" + constants.DefaultModelLocalMountPath,
+										"--rest_api_timeout_in_ms=60000",
+									},
+									Env: []corev1.EnvVar{
+										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
+									},
+									Resources: defaultResource,
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
+												Port: intstr.IntOrString{
+													IntVal: 8080,
+												},
+											},
+										},
+										InitialDelaySeconds: 0,
+										TimeoutSeconds:      1,
+										PeriodSeconds:       10,
+										SuccessThreshold:    1,
+										FailureThreshold:    3,
+									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "File",
+									ImagePullPolicy:          "IfNotPresent",
+								},
+								kubeRbacProxyContainer(nil),
+							},
+							Volumes: proxyVolumes(
+								predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
+								fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+							),
+							SchedulerName:                 "default-scheduler",
+							RestartPolicy:                 "Always",
+							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
+							DNSPolicy:                     "ClusterFirst",
+							SecurityContext:               defaultSecurityContext,
+							AutomountServiceAccountToken:  ptr.To(true),
+						},
+					},
+					Strategy:                getDefaultRollingStrategy(),
+					RevisionHistoryLimit:    ptr.To(REVISION_HISTORY),
+					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
+				},
+			}
+			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
+
+			// check transformer deployment
+			actualTransformerDeployment := &appsv1.Deployment{}
+			transformerDeploymentKey := types.NamespacedName{
+				Name:      transformerServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), transformerDeploymentKey, actualTransformerDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			annotations := getDefaultAnnotations(constants.AutoscalerClassHPA)
+			annotations[constants.OpenshiftServingCertAnnotation] = transformerDeploymentKey.Name + constants.ServingCertSecretSuffix
+			expectedTransformerDeployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      transformerDeploymentKey.Name,
+					Namespace: transformerDeploymentKey.Namespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr.To(REPLICAS),
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "isvc." + transformerDeploymentKey.Name,
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      transformerDeploymentKey.Name,
+							Namespace: "default",
+							Labels: map[string]string{
+								"app":                                 "isvc." + transformerDeploymentKey.Name,
+								constants.KServiceComponentLabel:      constants.Transformer.String(),
+								constants.InferenceServicePodLabelKey: serviceName,
+							},
+							Annotations: annotations,
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "transformer:v1",
+									Name:  constants.InferenceServiceContainerName,
+									Args: []string{
+										"--port=8080",
+										"--model_name",
+										serviceKey.Name,
+										"--predictor_host",
+										fmt.Sprintf("%s.%s", predictorServiceKey.Name, predictorServiceKey.Namespace),
+										"--http_port",
+										"8080",
+									},
+									Env: []corev1.EnvVar{
+										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
+									},
+									Resources: defaultResource,
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
+												Port: intstr.IntOrString{
+													IntVal: 8080,
+												},
+											},
+										},
+										InitialDelaySeconds: 0,
+										TimeoutSeconds:      1,
+										PeriodSeconds:       10,
+										SuccessThreshold:    1,
+										FailureThreshold:    3,
+									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "File",
+									ImagePullPolicy:          "IfNotPresent",
+								},
+							},
+							SchedulerName:                 "default-scheduler",
+							RestartPolicy:                 "Always",
+							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
+							DNSPolicy:                     "ClusterFirst",
+							SecurityContext:               defaultSecurityContext,
+							AutomountServiceAccountToken:  ptr.To(false),
+						},
+					},
+					Strategy:                getDefaultRollingStrategy(),
+					RevisionHistoryLimit:    ptr.To(REVISION_HISTORY),
+					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
+				},
+			}
+			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
+
+			// check predictor service
+			actualPredictorService := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualPredictorService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorServiceKey.Name,
+					Namespace: predictorServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       predictorServiceKey.Name,
+							Protocol:   "TCP",
+							Port:       80,
+							TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc." + predictorServiceKey.Name,
+					},
+				},
+			}
+			actualPredictorService.Spec.ClusterIP = ""
+			actualPredictorService.Spec.ClusterIPs = nil
+			actualPredictorService.Spec.IPFamilies = nil
+			actualPredictorService.Spec.IPFamilyPolicy = nil
+			actualPredictorService.Spec.InternalTrafficPolicy = nil
+			Expect(actualPredictorService.Spec).To(BeComparableTo(expectedPredictorService.Spec))
+
+			// check transformer service
+			actualTransformerService := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), transformerServiceKey, actualTransformerService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedTransformerService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      transformerServiceKey.Name,
+					Namespace: transformerServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       transformerServiceKey.Name,
+							Protocol:   "TCP",
+							Port:       80,
+							TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc." + transformerServiceKey.Name,
+					},
+				},
+			}
+			actualTransformerService.Spec.ClusterIP = ""
+			actualTransformerService.Spec.ClusterIPs = nil
+			actualTransformerService.Spec.IPFamilies = nil
+			actualTransformerService.Spec.IPFamilyPolicy = nil
+			actualTransformerService.Spec.InternalTrafficPolicy = nil
+			Expect(actualTransformerService.Spec).To(BeComparableTo(expectedTransformerService.Spec))
+
+			// update deployment status to make isvc ready
+			updatedPredictorDeployment := actualPredictorDeployment.DeepCopy()
+			updatedPredictorDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedPredictorDeployment)).NotTo(HaveOccurred())
+			updatedTransformerDeployment := actualTransformerDeployment.DeepCopy()
+			updatedTransformerDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedTransformerDeployment)).NotTo(HaveOccurred())
+
+			// check http route
+			actualToplevelHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualToplevelHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			expectedToplevelHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(topLevelHost), gwapiv1.Hostname(fmt.Sprintf("%s-%s.additional.example.com", serviceKey.Name, serviceKey.Namespace))},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(transformerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+
+			actualPredictorHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      predictorServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualPredictorHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedPredictorHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(predictorHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+
+			actualTransformerHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      transformerServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualTransformerHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			transformerHost := fmt.Sprintf("%s-%s.%s", transformerServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedTransformerHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(transformerHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(transformerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualTransformerHttpRoute.Spec).To(BeComparableTo(expectedTransformerHttpRoute.Spec))
+
+			// Mark the Ingress as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualPredictorHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			actualTransformerHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualTransformerHttpRoute)).NotTo(HaveOccurred())
+			actualToplevelHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-foo-trans-default.example.com",
+				"raw-foo-trans-predictor-default.example.com", "8080")
+			expectedIsvcStatus.Conditions = append(expectedIsvcStatus.Conditions, apis.Condition{
+				Type:     v1beta1.TransformerReady,
+				Status:   "True",
+				Severity: "Info",
+			})
+			transformer := map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
+				v1beta1.TransformerComponent: {
+					LatestCreatedRevision: "",
+					// Status improvement from upstream is now synced
+					URL: &apis.URL{
+						Scheme: "http",
+						Host:   "raw-foo-trans-transformer-default.example.com",
+					},
+				},
+			}
+			expectedIsvcStatus.Components[v1beta1.TransformerComponent] = transformer[v1beta1.TransformerComponent]
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check predictor HPA
+			var cpuUtilization int32 = 75
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualPredictorHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorHPAKey, actualPredictorHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       predictorServiceKey.Name,
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               "Utilization",
+									AverageUtilization: &cpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHPA.Spec).To(BeComparableTo(expectedPredictorHPA.Spec))
+
+			// check transformer HPA
+			actualTransformerHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			transformerHPAKey := types.NamespacedName{
+				Name:      transformerServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), transformerHPAKey, actualTransformerHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedTransformerHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       transformerServiceKey.Name,
+					},
+					MinReplicas: &transformerMinReplicas,
+					MaxReplicas: transformerMaxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               "Utilization",
+									AverageUtilization: &transformerCpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &transformerStabilizationWindowSeconds,
+							SelectPolicy:               &transformerSelectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &transformerSelectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualTransformerHPA.Spec).To(BeComparableTo(expectedTransformerHPA.Spec))
+		})
+	})
+	Context("When creating inference service with raw kube predictor and explainer", func() {
+		configs := getRawKubeTestConfigs()
+
+		It("Should have httproute/service/deployment/hpa created for explainer and predictor", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-exp"
+			namespace := "default"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: namespace}}
+			serviceKey := expectedRequest.NamespacedName
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceName),
+				Namespace: namespace,
+			}
+			explainerServiceKey := types.NamespacedName{
+				Name:      constants.ExplainerServiceName(serviceName),
+				Namespace: namespace,
+			}
+
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var explainerMinReplicas int32 = 1
+			var explainerMaxReplicas int32 = 2
+			var explainerCpuUtilization int32 = 80
+			var explainerStabilizationWindowSeconds int32 = 0
+			ExplainerSelectPolicy := autoscalingv2.MaxChangePolicySelect
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(minReplicas),
+							MaxReplicas: maxReplicas,
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricCPU,
+											Target: v1beta1.MetricTarget{
+												Type:               v1beta1.UtilizationMetricType,
+												AverageUtilization: ptr.To(int32(75)),
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+					Explainer: &v1beta1.ExplainerSpec{
+						ART: &v1beta1.ARTExplainerSpec{
+							Type: v1beta1.ARTSquareAttackExplainer,
+							ExplainerExtensionSpec: v1beta1.ExplainerExtensionSpec{
+								Config: map[string]string{"nb_classes": "10"},
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas:    ptr.To(explainerMinReplicas),
+							MaxReplicas:    explainerMaxReplicas,
+							ScaleTarget:    ptr.To(explainerCpuUtilization),
+							TimeoutSeconds: ptr.To(int64(30)),
+						},
+					},
+				},
+			}
+			isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(context.Background(), clientset)
+			Expect(err).NotTo(HaveOccurred())
+			isvcConfig, err := v1beta1.NewInferenceServicesConfig(isvcConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+			isvc.DefaultInferenceService(isvcConfig, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// check predictor deployment
+			actualPredictorDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualPredictorDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorDeployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorDeploymentKey.Name,
+					Namespace: predictorDeploymentKey.Namespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr.To(REPLICAS),
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "isvc." + predictorDeploymentKey.Name,
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      predictorDeploymentKey.Name,
+							Namespace: "default",
+							Labels: map[string]string{
+								"app":                                 "isvc." + predictorDeploymentKey.Name,
+								constants.KServiceComponentLabel:      constants.Predictor.String(),
+								constants.InferenceServicePodLabelKey: serviceName,
+							},
+							Annotations: map[string]string{
+								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
+								constants.DeploymentMode:                                   string(constants.Standard),
+								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "tensorflow/serving:" +
+										*isvc.Spec.Predictor.Model.RuntimeVersion,
+									Name:    constants.InferenceServiceContainerName,
+									Command: []string{v1beta1.TensorflowEntrypointCommand},
+									Args: []string{
+										"--port=" + v1beta1.TensorflowServingGRPCPort,
+										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
+										"--model_base_path=" + constants.DefaultModelLocalMountPath,
+										"--rest_api_timeout_in_ms=60000",
+									},
+									Env: []corev1.EnvVar{
+										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
+									},
+									Resources: defaultResource,
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
+												Port: intstr.IntOrString{
+													IntVal: 8080,
+												},
+											},
+										},
+										InitialDelaySeconds: 0,
+										TimeoutSeconds:      1,
+										PeriodSeconds:       10,
+										SuccessThreshold:    1,
+										FailureThreshold:    3,
+									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "File",
+									ImagePullPolicy:          "IfNotPresent",
+								},
+								kubeRbacProxyContainer(nil),
+							},
+							Volumes: proxyVolumes(
+								predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
+								fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+							),
+							SchedulerName:                 "default-scheduler",
+							RestartPolicy:                 "Always",
+							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
+							DNSPolicy:                     "ClusterFirst",
+							SecurityContext:               defaultSecurityContext,
+							AutomountServiceAccountToken:  ptr.To(true),
+						},
+					},
+					Strategy:                getDefaultRollingStrategy(),
+					RevisionHistoryLimit:    ptr.To(REVISION_HISTORY),
+					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
+				},
+			}
+			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
+
+			// check Explainer deployment
+			actualExplainerDeployment := &appsv1.Deployment{}
+			explainerDeploymentKey := types.NamespacedName{
+				Name:      explainerServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), explainerDeploymentKey, actualExplainerDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedExplainerDeployment := getExpectedDeploymentODH(explainerDeploymentKey, serviceName, serviceKey, predictorServiceKey)
+			expectedExplainerDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = explainerDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(actualExplainerDeployment.Spec).To(BeComparableTo(expectedExplainerDeployment.Spec))
+
+			// check predictor service
+			actualPredictorService := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualPredictorService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorServiceKey.Name,
+					Namespace: predictorServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       predictorServiceKey.Name,
+							Protocol:   "TCP",
+							Port:       80,
+							TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc." + predictorServiceKey.Name,
+					},
+				},
+			}
+			actualPredictorService.Spec.ClusterIP = ""
+			actualPredictorService.Spec.ClusterIPs = nil
+			actualPredictorService.Spec.IPFamilies = nil
+			actualPredictorService.Spec.IPFamilyPolicy = nil
+			actualPredictorService.Spec.InternalTrafficPolicy = nil
+			Expect(actualPredictorService.Spec).To(BeComparableTo(expectedPredictorService.Spec))
+
+			// check Explainer service
+			actualExplainerService := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), explainerServiceKey, actualExplainerService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedExplainerService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      explainerServiceKey.Name,
+					Namespace: explainerServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       explainerServiceKey.Name,
+							Protocol:   "TCP",
+							Port:       80,
+							TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc." + explainerServiceKey.Name,
+					},
+				},
+			}
+			actualExplainerService.Spec.ClusterIP = ""
+			actualExplainerService.Spec.ClusterIPs = nil
+			actualExplainerService.Spec.IPFamilies = nil
+			actualExplainerService.Spec.IPFamilyPolicy = nil
+			actualExplainerService.Spec.InternalTrafficPolicy = nil
+			Expect(actualExplainerService.Spec).To(BeComparableTo(expectedExplainerService.Spec))
+
+			// update deployment status to make isvc ready
+			updatedPredictorDeployment := actualPredictorDeployment.DeepCopy()
+			updatedPredictorDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedPredictorDeployment)).NotTo(HaveOccurred())
+			updatedExplainerDeployment := actualExplainerDeployment.DeepCopy()
+			updatedExplainerDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedExplainerDeployment)).NotTo(HaveOccurred())
+
+			// check http route
+			actualToplevelHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualToplevelHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			expectedToplevelHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(topLevelHost), gwapiv1.Hostname(fmt.Sprintf("%s-%s.additional.example.com", serviceKey.Name, serviceKey.Namespace))},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.ExplainPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(explainerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+
+			actualPredictorHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      predictorServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualPredictorHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedPredictorHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(predictorHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+
+			actualExplainerHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      explainerServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualExplainerHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			explainerHost := fmt.Sprintf("%s-%s.%s", explainerServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedExplainerHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(explainerHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(explainerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualExplainerHttpRoute.Spec).To(BeComparableTo(expectedExplainerHttpRoute.Spec))
+
+			// Mark the Ingress as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualPredictorHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			actualExplainerHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualExplainerHttpRoute)).NotTo(HaveOccurred())
+			actualToplevelHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-foo-exp-default.example.com",
+				"raw-foo-exp-predictor-default.example.com", "8080")
+			expectedIsvcStatus.SetCondition(v1beta1.ExplainerReady, &apis.Condition{
+				Type:     v1beta1.ExplainerReady,
+				Status:   corev1.ConditionTrue,
+				Severity: apis.ConditionSeverityInfo,
+			})
+			explainer := map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
+				v1beta1.ExplainerComponent: {
+					LatestCreatedRevision: "",
+					// Status improvement from upstream is now synced
+					URL: &apis.URL{
+						Scheme: "http",
+						Host:   "raw-foo-exp-explainer-default.example.com",
+					},
+				},
+			}
+			expectedIsvcStatus.Components[v1beta1.ExplainerComponent] = explainer[v1beta1.ExplainerComponent]
+
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check predictor HPA
+			var cpuUtilization int32 = 75
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualPredictorHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorHPAKey, actualPredictorHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       predictorServiceKey.Name,
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               "Utilization",
+									AverageUtilization: &cpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHPA.Spec).To(BeComparableTo(expectedPredictorHPA.Spec))
+
+			// check Explainer HPA
+			actualExplainerHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			explainerHPAKey := types.NamespacedName{
+				Name:      explainerServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), explainerHPAKey, actualExplainerHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedExplainerHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       explainerServiceKey.Name,
+					},
+					MinReplicas: &explainerMinReplicas,
+					MaxReplicas: explainerMaxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               "Utilization",
+									AverageUtilization: &explainerCpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &explainerStabilizationWindowSeconds,
+							SelectPolicy:               &ExplainerSelectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &ExplainerSelectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualExplainerHPA.Spec).To(BeComparableTo(expectedExplainerHPA.Spec))
+		})
+	})
+	Context("When creating inference service with raw kube path based routing predictor", func() {
+		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+			"ingressDomain": "example.com",
+			"pathTemplate":  "/serving/{{ .Namespace }}/{{ .Name }}",
+		})
+
+		It("Should have httproute/service/deployment/hpa created", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-path"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas:    ptr.To(int32(1)),
+							MaxReplicas:    3,
+							TimeoutSeconds: ptr.To(int64(30)),
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricCPU,
+											Target: v1beta1.MetricTarget{
+												Type:               v1beta1.UtilizationMetricType,
+												AverageUtilization: ptr.To(int32(75)),
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
+			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
+
+			// check service
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedService := getExectedService(predictorServiceKey, serviceName)
+			actualService.Spec.ClusterIP = ""
+			actualService.Spec.ClusterIPs = nil
+			actualService.Spec.IPFamilies = nil
+			actualService.Spec.IPFamilyPolicy = nil
+			actualService.Spec.InternalTrafficPolicy = nil
+			Expect(actualService.Spec).To(BeComparableTo(expectedService.Spec))
+
+			// check isvc status
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
+
+			// check http route
+			actualToplevelHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualToplevelHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			prefixUrlPath := fmt.Sprintf("/serving/%s/%s", serviceKey.Namespace, serviceKey.Name)
+			expectedToplevelHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(topLevelHost), gwapiv1.Hostname(fmt.Sprintf("%s-%s.additional.example.com", serviceKey.Name, serviceKey.Namespace)), "example.com"},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(prefixUrlPath + "/"),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+
+			actualPredictorHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      predictorServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualPredictorHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedPredictorHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(predictorHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+
+			// Mark the Ingress as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualPredictorHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			actualToplevelHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-foo-path-default.example.com",
+				"raw-foo-path-predictor-default.example.com", "8080")
+
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check HPA
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var cpuUtilization int32 = 75
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorHPAKey, actualHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       predictorServiceKey.Name,
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               autoscalingv2.UtilizationMetricType,
+									AverageUtilization: &cpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualHPA.Spec).To(BeComparableTo(expectedHPA.Spec))
+		})
+	})
+	Context("When creating inference service with raw kube path based routing predictor and transformer", func() {
+		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+			"ingressDomain": "example.com",
+			"pathTemplate":  "/serving/{{ .Namespace }}/{{ .Name }}",
+		})
+
+		It("Should have ingress/service/deployment/hpa created for transformer and predictor", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-trans-path"
+			namespace := "default"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: namespace}}
+			serviceKey := expectedRequest.NamespacedName
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceName),
+				Namespace: namespace,
+			}
+			transformerServiceKey := types.NamespacedName{
+				Name:      constants.TransformerServiceName(serviceName),
+				Namespace: namespace,
+			}
+
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var transformerMinReplicas int32 = 1
+			var transformerMaxReplicas int32 = 2
+			var transformerCpuUtilization int32 = 80
+			var transformerStabilizationWindowSeconds int32 = 0
+			transformerSelectPolicy := autoscalingv2.MaxChangePolicySelect
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(minReplicas),
+							MaxReplicas: maxReplicas,
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricCPU,
+											Target: v1beta1.MetricTarget{
+												Type: v1beta1.UtilizationMetricType,
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+					Transformer: &v1beta1.TransformerSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas:    ptr.To(transformerMinReplicas),
+							MaxReplicas:    transformerMaxReplicas,
+							ScaleTarget:    ptr.To(transformerCpuUtilization),
+							TimeoutSeconds: ptr.To(int64(30)),
+						},
+						PodSpec: v1beta1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image:     "transformer:v1",
+									Resources: defaultResource,
+									Args: []string{
+										"--port=8080",
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(context.Background(), clientset)
+			Expect(err).NotTo(HaveOccurred())
+			isvcConfig, err := v1beta1.NewInferenceServicesConfig(isvcConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+			isvc.DefaultInferenceService(isvcConfig, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// check predictor deployment
+			actualPredictorDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualPredictorDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorDeployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorDeploymentKey.Name,
+					Namespace: predictorDeploymentKey.Namespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr.To(REPLICAS),
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "isvc." + predictorDeploymentKey.Name,
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      predictorDeploymentKey.Name,
+							Namespace: "default",
+							Labels: map[string]string{
+								"app":                                 "isvc." + predictorDeploymentKey.Name,
+								constants.KServiceComponentLabel:      constants.Predictor.String(),
+								constants.InferenceServicePodLabelKey: serviceName,
+							},
+							Annotations: map[string]string{
+								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
+								constants.DeploymentMode:                                   string(constants.Standard),
+								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "tensorflow/serving:" +
+										*isvc.Spec.Predictor.Model.RuntimeVersion,
+									Name:    constants.InferenceServiceContainerName,
+									Command: []string{v1beta1.TensorflowEntrypointCommand},
+									Args: []string{
+										"--port=" + v1beta1.TensorflowServingGRPCPort,
+										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
+										"--model_base_path=" + constants.DefaultModelLocalMountPath,
+										"--rest_api_timeout_in_ms=60000",
+									},
+									Env: []corev1.EnvVar{
+										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
+									},
+									Resources: defaultResource,
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
+												Port: intstr.IntOrString{
+													IntVal: 8080,
+												},
+											},
+										},
+										InitialDelaySeconds: 0,
+										TimeoutSeconds:      1,
+										PeriodSeconds:       10,
+										SuccessThreshold:    1,
+										FailureThreshold:    3,
+									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "File",
+									ImagePullPolicy:          "IfNotPresent",
+								},
+								kubeRbacProxyContainer(nil),
+							},
+							Volumes: proxyVolumes(
+								predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
+								fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+							),
+							SchedulerName:                 "default-scheduler",
+							RestartPolicy:                 "Always",
+							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
+							DNSPolicy:                     "ClusterFirst",
+							SecurityContext:               defaultSecurityContext,
+							AutomountServiceAccountToken:  ptr.To(true),
+						},
+					},
+					Strategy:                getDefaultRollingStrategy(),
+					RevisionHistoryLimit:    ptr.To(REVISION_HISTORY),
+					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
+				},
+			}
+			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
+
+			// check transformer deployment
+			actualTransformerDeployment := &appsv1.Deployment{}
+			transformerDeploymentKey := types.NamespacedName{
+				Name:      transformerServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), transformerDeploymentKey, actualTransformerDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			annotations := getDefaultAnnotations(constants.AutoscalerClassHPA)
+			annotations[constants.OpenshiftServingCertAnnotation] = transformerDeploymentKey.Name + constants.ServingCertSecretSuffix
+			expectedTransformerDeployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      transformerDeploymentKey.Name,
+					Namespace: transformerDeploymentKey.Namespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr.To(REPLICAS),
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "isvc." + transformerDeploymentKey.Name,
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      transformerDeploymentKey.Name,
+							Namespace: "default",
+							Labels: map[string]string{
+								"app":                                 "isvc." + transformerDeploymentKey.Name,
+								constants.KServiceComponentLabel:      constants.Transformer.String(),
+								constants.InferenceServicePodLabelKey: serviceName,
+							},
+							Annotations: annotations,
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "transformer:v1",
+									Name:  constants.InferenceServiceContainerName,
+									Args: []string{
+										"--port=8080",
+										"--model_name",
+										serviceKey.Name,
+										"--predictor_host",
+										fmt.Sprintf("%s.%s", predictorServiceKey.Name, predictorServiceKey.Namespace),
+										"--http_port",
+										"8080",
+									},
+									Env: []corev1.EnvVar{
+										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
+									},
+									Resources: defaultResource,
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
+												Port: intstr.IntOrString{
+													IntVal: 8080,
+												},
+											},
+										},
+										InitialDelaySeconds: 0,
+										TimeoutSeconds:      1,
+										PeriodSeconds:       10,
+										SuccessThreshold:    1,
+										FailureThreshold:    3,
+									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "File",
+									ImagePullPolicy:          "IfNotPresent",
+								},
+							},
+							SchedulerName:                 "default-scheduler",
+							RestartPolicy:                 "Always",
+							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
+							DNSPolicy:                     "ClusterFirst",
+							SecurityContext:               defaultSecurityContext,
+							AutomountServiceAccountToken:  ptr.To(false),
+						},
+					},
+					Strategy:                getDefaultRollingStrategy(),
+					RevisionHistoryLimit:    ptr.To(REVISION_HISTORY),
+					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
+				},
+			}
+			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
+
+			// check predictor service
+			actualPredictorService := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualPredictorService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorServiceKey.Name,
+					Namespace: predictorServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       predictorServiceKey.Name,
+							Protocol:   "TCP",
+							Port:       80,
+							TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc." + predictorServiceKey.Name,
+					},
+				},
+			}
+			actualPredictorService.Spec.ClusterIP = ""
+			actualPredictorService.Spec.ClusterIPs = nil
+			actualPredictorService.Spec.IPFamilies = nil
+			actualPredictorService.Spec.IPFamilyPolicy = nil
+			actualPredictorService.Spec.InternalTrafficPolicy = nil
+			Expect(actualPredictorService.Spec).To(BeComparableTo(expectedPredictorService.Spec))
+
+			// check transformer service
+			actualTransformerService := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), transformerServiceKey, actualTransformerService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedTransformerService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      transformerServiceKey.Name,
+					Namespace: transformerServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       transformerServiceKey.Name,
+							Protocol:   "TCP",
+							Port:       80,
+							TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc." + transformerServiceKey.Name,
+					},
+				},
+			}
+			actualTransformerService.Spec.ClusterIP = ""
+			actualTransformerService.Spec.ClusterIPs = nil
+			actualTransformerService.Spec.IPFamilies = nil
+			actualTransformerService.Spec.IPFamilyPolicy = nil
+			actualTransformerService.Spec.InternalTrafficPolicy = nil
+			Expect(actualTransformerService.Spec).To(BeComparableTo(expectedTransformerService.Spec))
+
+			// update deployment status to make isvc ready
+			updatedPredictorDeployment := actualPredictorDeployment.DeepCopy()
+			updatedPredictorDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedPredictorDeployment)).NotTo(HaveOccurred())
+			updatedTransformerDeployment := actualTransformerDeployment.DeepCopy()
+			updatedTransformerDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedTransformerDeployment)).NotTo(HaveOccurred())
+
+			// check http route
+			actualToplevelHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualToplevelHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			prefixUrlPath := fmt.Sprintf("/serving/%s/%s", serviceKey.Namespace, serviceKey.Name)
+			expectedToplevelHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(topLevelHost), gwapiv1.Hostname(fmt.Sprintf("%s-%s.additional.example.com", serviceKey.Name, serviceKey.Namespace)), "example.com"},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(transformerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(prefixUrlPath + "/"),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(transformerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+
+			actualPredictorHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      predictorServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualPredictorHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedPredictorHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(predictorHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+
+			actualTransformerHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      transformerServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualTransformerHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			transformerHost := fmt.Sprintf("%s-%s.%s", transformerServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedTransformerHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(transformerHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(transformerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualTransformerHttpRoute.Spec).To(BeComparableTo(expectedTransformerHttpRoute.Spec))
+
+			// Mark the Ingress as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualPredictorHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			actualTransformerHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualTransformerHttpRoute)).NotTo(HaveOccurred())
+			actualToplevelHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			// TODO update
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-foo-trans-path-default.example.com",
+				"raw-foo-trans-path-predictor-default.example.com", "8080")
+			expectedIsvcStatus.Conditions = append(expectedIsvcStatus.Conditions, apis.Condition{
+				Type:     v1beta1.TransformerReady,
+				Status:   "True",
+				Severity: "Info",
+			})
+			transformer := map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
+				v1beta1.TransformerComponent: {
+					LatestCreatedRevision: "",
+					// Status improvement from upstream is now synced
+					URL: &apis.URL{
+						Scheme: "http",
+						Host:   "raw-foo-trans-path-transformer-default.example.com",
+					},
+				},
+			}
+			expectedIsvcStatus.Components[v1beta1.TransformerComponent] = transformer[v1beta1.TransformerComponent]
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check predictor HPA
+			var defaultCpuUtilization int32 = 80
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualPredictorHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorHPAKey, actualPredictorHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       predictorServiceKey.Name,
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               autoscalingv2.UtilizationMetricType,
+									AverageUtilization: &defaultCpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHPA.Spec).To(BeComparableTo(expectedPredictorHPA.Spec))
+
+			// check transformer HPA
+			actualTransformerHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			transformerHPAKey := types.NamespacedName{
+				Name:      transformerServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), transformerHPAKey, actualTransformerHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedTransformerHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       transformerServiceKey.Name,
+					},
+					MinReplicas: &transformerMinReplicas,
+					MaxReplicas: transformerMaxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               "Utilization",
+									AverageUtilization: &transformerCpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &transformerStabilizationWindowSeconds,
+							SelectPolicy:               &transformerSelectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &transformerSelectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualTransformerHPA.Spec).To(BeComparableTo(expectedTransformerHPA.Spec))
+		})
+	})
+	Context("When creating inference service with raw kube path based routing predictor and explainer", func() {
+		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+			"ingressDomain": "example.com",
+			"pathTemplate":  "/serving/{{ .Namespace }}/{{ .Name }}",
+		})
+
+		It("Should have httproute/service/deployment/hpa created for explainer and predictor", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-exp-path"
+			namespace := "default"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: namespace}}
+			serviceKey := expectedRequest.NamespacedName
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceName),
+				Namespace: namespace,
+			}
+			explainerServiceKey := types.NamespacedName{
+				Name:      constants.ExplainerServiceName(serviceName),
+				Namespace: namespace,
+			}
+
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var explainerMinReplicas int32 = 1
+			var explainerMaxReplicas int32 = 2
+			var explainerCpuUtilization int32 = 80
+			var explainerStabilizationWindowSeconds int32 = 0
+			ExplainerSelectPolicy := autoscalingv2.MaxChangePolicySelect
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(minReplicas),
+							MaxReplicas: maxReplicas,
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricCPU,
+											Target: v1beta1.MetricTarget{
+												Type:               v1beta1.UtilizationMetricType,
+												AverageUtilization: ptr.To(int32(75)),
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+					Explainer: &v1beta1.ExplainerSpec{
+						ART: &v1beta1.ARTExplainerSpec{
+							Type: v1beta1.ARTSquareAttackExplainer,
+							ExplainerExtensionSpec: v1beta1.ExplainerExtensionSpec{
+								Config: map[string]string{"nb_classes": "10"},
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas:    ptr.To(explainerMinReplicas),
+							MaxReplicas:    explainerMaxReplicas,
+							ScaleTarget:    ptr.To(explainerCpuUtilization),
+							TimeoutSeconds: ptr.To(int64(30)),
+						},
+					},
+				},
+			}
+			isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(context.Background(), clientset)
+			Expect(err).NotTo(HaveOccurred())
+			isvcConfig, err := v1beta1.NewInferenceServicesConfig(isvcConfigMap)
+			Expect(err).NotTo(HaveOccurred())
+			isvc.DefaultInferenceService(isvcConfig, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// check predictor deployment
+			actualPredictorDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualPredictorDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorDeployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorDeploymentKey.Name,
+					Namespace: predictorDeploymentKey.Namespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: ptr.To(REPLICAS),
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "isvc." + predictorDeploymentKey.Name,
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      predictorDeploymentKey.Name,
+							Namespace: "default",
+							Labels: map[string]string{
+								"app":                                 "isvc." + predictorDeploymentKey.Name,
+								constants.KServiceComponentLabel:      constants.Predictor.String(),
+								constants.InferenceServicePodLabelKey: serviceName,
+							},
+							Annotations: map[string]string{
+								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
+								constants.DeploymentMode:                                   string(constants.Standard),
+								constants.AutoscalerClass:                                  string(constants.AutoscalerClassHPA),
+								constants.OpenshiftServingCertAnnotation:                   predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "tensorflow/serving:" +
+										*isvc.Spec.Predictor.Model.RuntimeVersion,
+									Name:    constants.InferenceServiceContainerName,
+									Command: []string{v1beta1.TensorflowEntrypointCommand},
+									Args: []string{
+										"--port=" + v1beta1.TensorflowServingGRPCPort,
+										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
+										"--model_base_path=" + constants.DefaultModelLocalMountPath,
+										"--rest_api_timeout_in_ms=60000",
+									},
+									Env: []corev1.EnvVar{
+										{Name: constants.InferenceServiceNameEnvVarKey, Value: serviceName},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
+									},
+									Resources: defaultResource,
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
+												Port: intstr.IntOrString{
+													IntVal: 8080,
+												},
+											},
+										},
+										InitialDelaySeconds: 0,
+										TimeoutSeconds:      1,
+										PeriodSeconds:       10,
+										SuccessThreshold:    1,
+										FailureThreshold:    3,
+									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "File",
+									ImagePullPolicy:          "IfNotPresent",
+								},
+								kubeRbacProxyContainer(nil),
+							},
+							Volumes: proxyVolumes(
+								predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
+								fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+							),
+							SchedulerName:                 "default-scheduler",
+							RestartPolicy:                 "Always",
+							TerminationGracePeriodSeconds: ptr.To(GRACE_PERIOD),
+							DNSPolicy:                     "ClusterFirst",
+							SecurityContext:               defaultSecurityContext,
+							AutomountServiceAccountToken:  ptr.To(true),
+						},
+					},
+					Strategy:                getDefaultRollingStrategy(),
+					RevisionHistoryLimit:    ptr.To(REVISION_HISTORY),
+					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
+				},
+			}
+			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
+
+			// check Explainer deployment
+			actualExplainerDeployment := &appsv1.Deployment{}
+			explainerDeploymentKey := types.NamespacedName{
+				Name:      explainerServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), explainerDeploymentKey, actualExplainerDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedExplainerDeployment := getExpectedDeploymentODH(explainerDeploymentKey, serviceName, serviceKey, predictorServiceKey)
+			expectedExplainerDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = explainerDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(actualExplainerDeployment.Spec).To(BeComparableTo(expectedExplainerDeployment.Spec))
+
+			// check predictor service
+			actualPredictorService := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualPredictorService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorServiceKey.Name,
+					Namespace: predictorServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       predictorServiceKey.Name,
+							Protocol:   "TCP",
+							Port:       80,
+							TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc." + predictorServiceKey.Name,
+					},
+				},
+			}
+			actualPredictorService.Spec.ClusterIP = ""
+			actualPredictorService.Spec.ClusterIPs = nil
+			actualPredictorService.Spec.IPFamilies = nil
+			actualPredictorService.Spec.IPFamilyPolicy = nil
+			actualPredictorService.Spec.InternalTrafficPolicy = nil
+			Expect(actualPredictorService.Spec).To(BeComparableTo(expectedPredictorService.Spec))
+
+			// check Explainer service
+			actualExplainerService := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), explainerServiceKey, actualExplainerService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedExplainerService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      explainerServiceKey.Name,
+					Namespace: explainerServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       explainerServiceKey.Name,
+							Protocol:   "TCP",
+							Port:       80,
+							TargetPort: intstr.IntOrString{Type: 0, IntVal: 8080, StrVal: ""},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc." + explainerServiceKey.Name,
+					},
+				},
+			}
+			actualExplainerService.Spec.ClusterIP = ""
+			actualExplainerService.Spec.ClusterIPs = nil
+			actualExplainerService.Spec.IPFamilies = nil
+			actualExplainerService.Spec.IPFamilyPolicy = nil
+			actualExplainerService.Spec.InternalTrafficPolicy = nil
+			Expect(actualExplainerService.Spec).To(BeComparableTo(expectedExplainerService.Spec))
+
+			// update deployment status to make isvc ready
+			updatedPredictorDeployment := actualPredictorDeployment.DeepCopy()
+			updatedPredictorDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedPredictorDeployment)).NotTo(HaveOccurred())
+			updatedExplainerDeployment := actualExplainerDeployment.DeepCopy()
+			updatedExplainerDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedExplainerDeployment)).NotTo(HaveOccurred())
+
+			// check http route
+			actualToplevelHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualToplevelHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			topLevelHost := fmt.Sprintf("%s-%s.%s", serviceKey.Name, serviceKey.Namespace, "example.com")
+			prefixUrlPath := fmt.Sprintf("/serving/%s/%s", serviceKey.Namespace, serviceKey.Name)
+			expectedToplevelHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(topLevelHost), gwapiv1.Hostname(fmt.Sprintf("%s-%s.additional.example.com", serviceKey.Name, serviceKey.Namespace)), "example.com"},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.ExplainPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(explainerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(prefixUrlPath + constants.PathBasedExplainPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(explainerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(prefixUrlPath + "/"),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualToplevelHttpRoute.Spec).To(BeComparableTo(expectedToplevelHttpRoute.Spec))
+
+			actualPredictorHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      predictorServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualPredictorHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			predictorHost := fmt.Sprintf("%s-%s.%s", predictorServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedPredictorHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(predictorHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(predictorServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("60s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHttpRoute.Spec).To(BeComparableTo(expectedPredictorHttpRoute.Spec))
+
+			actualExplainerHttpRoute := &gwapiv1.HTTPRoute{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), types.NamespacedName{
+					Name:      explainerServiceKey.Name,
+					Namespace: serviceKey.Namespace,
+				}, actualExplainerHttpRoute)
+			}, timeout, interval).Should(Succeed())
+
+			explainerHost := fmt.Sprintf("%s-%s.%s", explainerServiceKey.Name, serviceKey.Namespace, "example.com")
+			expectedExplainerHttpRoute := gwapiv1.HTTPRoute{
+				Spec: gwapiv1.HTTPRouteSpec{
+					Hostnames: []gwapiv1.Hostname{gwapiv1.Hostname(explainerHost)},
+					Rules: []gwapiv1.HTTPRouteRule{
+						{
+							Matches: []gwapiv1.HTTPRouteMatch{
+								{
+									Path: &gwapiv1.HTTPPathMatch{
+										Type:  ptr.To(gwapiv1.PathMatchRegularExpression),
+										Value: ptr.To(constants.FallbackPrefix()),
+									},
+								},
+							},
+							Filters: []gwapiv1.HTTPRouteFilter{
+								{
+									Type: gwapiv1.HTTPRouteFilterRequestHeaderModifier,
+									RequestHeaderModifier: &gwapiv1.HTTPHeaderFilter{
+										Set: []gwapiv1.HTTPHeader{
+											{
+												Name:  constants.IsvcNameHeader,
+												Value: serviceKey.Name,
+											},
+											{
+												Name:  constants.IsvcNamespaceHeader,
+												Value: serviceKey.Namespace,
+											},
+										},
+									},
+								},
+							},
+							BackendRefs: []gwapiv1.HTTPBackendRef{
+								{
+									BackendRef: gwapiv1.BackendRef{
+										BackendObjectReference: gwapiv1.BackendObjectReference{
+											Group:     (*gwapiv1.Group)(ptr.To("")),
+											Kind:      ptr.To(gwapiv1.Kind(constants.ServiceKind)),
+											Name:      gwapiv1.ObjectName(explainerServiceKey.Name),
+											Namespace: (*gwapiv1.Namespace)(ptr.To(serviceKey.Namespace)),
+											Port:      ptr.To(int32(constants.CommonDefaultHttpPort)),
+										},
+										Weight: ptr.To(int32(1)),
+									},
+								},
+							},
+							Timeouts: &gwapiv1.HTTPRouteTimeouts{
+								Request: ptr.To(gwapiv1.Duration("30s")),
+							},
+						},
+					},
+					CommonRouteSpec: gwapiv1.CommonRouteSpec{
+						ParentRefs: []gwapiv1.ParentReference{
+							{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+						},
+					},
+				},
+			}
+			Expect(actualExplainerHttpRoute.Spec).To(BeComparableTo(expectedExplainerHttpRoute.Spec))
+
+			// Mark the Ingress as accepted to make isvc ready
+			httpRouteStatus := gwapiv1.HTTPRouteStatus{
+				RouteStatus: gwapiv1.RouteStatus{
+					Parents: []gwapiv1.RouteParentStatus{
+						{
+							ParentRef: gwapiv1.ParentReference{
+								Name:      gwapiv1.ObjectName(kserveGateway.Name),
+								Kind:      ptr.To(gwapiv1.Kind(constants.GatewayKind)),
+								Group:     (*gwapiv1.Group)(&gwapiv1.GroupVersion.Group),
+								Namespace: ptr.To(gwapiv1.Namespace(kserveGateway.Namespace)),
+							},
+							ControllerName: "istio.io/gateway-controller",
+							Conditions: []metav1.Condition{
+								{
+									Type:               string(gwapiv1.ListenerConditionAccepted),
+									Status:             metav1.ConditionTrue,
+									Reason:             "Accepted",
+									Message:            "Route was valid",
+									LastTransitionTime: metav1.Now(),
+								},
+							},
+						},
+					},
+				},
+			}
+			actualPredictorHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualPredictorHttpRoute)).NotTo(HaveOccurred())
+			actualExplainerHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualExplainerHttpRoute)).NotTo(HaveOccurred())
+			actualToplevelHttpRoute.Status = httpRouteStatus
+			Expect(k8sClient.Status().Update(context.Background(), actualToplevelHttpRoute)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-foo-exp-path-default.example.com",
+				"raw-foo-exp-path-predictor-default.example.com", "8080")
+			expectedIsvcStatus.SetCondition(v1beta1.ExplainerReady, &apis.Condition{
+				Type:     v1beta1.ExplainerReady,
+				Status:   corev1.ConditionTrue,
+				Severity: apis.ConditionSeverityInfo,
+			})
+			explainer := map[v1beta1.ComponentType]v1beta1.ComponentStatusSpec{
+				v1beta1.ExplainerComponent: {
+					LatestCreatedRevision: "",
+					// Status improvement from upstream is now synced
+					URL: &apis.URL{
+						Scheme: "http",
+						Host:   "raw-foo-exp-path-explainer-default.example.com",
+					},
+				},
+			}
+			expectedIsvcStatus.Components[v1beta1.ExplainerComponent] = explainer[v1beta1.ExplainerComponent]
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check predictor HPA
+			var cpuUtilization int32 = 75
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualPredictorHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      predictorServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorHPAKey, actualPredictorHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedPredictorHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       predictorServiceKey.Name,
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               "Utilization",
+									AverageUtilization: &cpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualPredictorHPA.Spec).To(BeComparableTo(expectedPredictorHPA.Spec))
+
+			// check Explainer HPA
+			actualExplainerHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			explainerHPAKey := types.NamespacedName{
+				Name:      explainerServiceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), explainerHPAKey, actualExplainerHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedExplainerHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       explainerServiceKey.Name,
+					},
+					MinReplicas: &explainerMinReplicas,
+					MaxReplicas: explainerMaxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               "Utilization",
+									AverageUtilization: &explainerCpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &explainerStabilizationWindowSeconds,
+							SelectPolicy:               &ExplainerSelectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &ExplainerSelectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualExplainerHPA.Spec).To(BeComparableTo(expectedExplainerHPA.Spec))
+		})
+	})
+	Context("When creating inference service with raw kube predictor with gateway api disabled", func() {
+		configs := mergeJSONField(getRawKubeTestConfigs(), "ingress", map[string]interface{}{
+			"enableGatewayApi": false,
+		})
+		configs["opentelemetryCollector"] = `{
+			"scrapeInterval": "5s",
+			"metricReceiverEndpoint": "keda-otel-scaler.keda.svc:4317",
+			"metricScalerEndpoint": "keda-otel-scaler.keda.svc:4318"
+		}`
+
+		It("Should have KEDA ScaledObject created", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-1"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassKeda),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricMemory,
+											Target: v1beta1.MetricTarget{
+												Type:         v1beta1.AverageValueMetricType,
+												AverageValue: v1beta1.NewMetricQuantity("10Gi"),
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, nil, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualScaledObject := &kedav1alpha1.ScaledObject{}
+
+			predictorSObjectKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorSObjectKey, actualScaledObject)
+			}, timeout, interval).Should(Succeed())
+
+			expectedScaledobject := &kedav1alpha1.ScaledObject{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorSObjectKey.Name,
+					Namespace: predictorSObjectKey.Namespace,
+				},
+				Spec: kedav1alpha1.ScaledObjectSpec{
+					ScaleTargetRef: &kedav1alpha1.ScaleTarget{
+						Name: predictorSObjectKey.Name,
+					},
+					Triggers: []kedav1alpha1.ScaleTriggers{
+						{
+							Type: "memory",
+							Metadata: map[string]string{
+								"value": "10Gi",
+							},
+							MetricType: autoscalingv2.AverageValueMetricType,
+						},
+					},
+					MinReplicaCount: ptr.To(int32(1)),
+					MaxReplicaCount: ptr.To(int32(3)),
+				},
+			}
+			Expect(actualScaledObject.Spec).To(Equal(expectedScaledobject.Spec))
+
+			// check service
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedService := getExectedService(predictorServiceKey, serviceName)
+			actualService.Spec.ClusterIP = ""
+			actualService.Spec.ClusterIPs = nil
+			actualService.Spec.IPFamilies = nil
+			actualService.Spec.IPFamilyPolicy = nil
+			actualService.Spec.InternalTrafficPolicy = nil
+			Expect(actualService.Spec).To(Equal(expectedService.Spec))
+
+			// check isvc status
+			updatedScaledObject := actualScaledObject.DeepCopy()
+			updatedScaledObject.Status.Conditions = []kedav1alpha1.Condition{
+				{
+					Type:   kedav1alpha1.ConditionReady,
+					Status: kedav1alpha1.GetInitializedConditions().GetActiveCondition().Status,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedScaledObject)).NotTo(HaveOccurred())
+		})
+
+		It("Should have OpenTelemetry Collector created", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-3"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						constants.DeploymentMode:          string(constants.Standard),
+						constants.AutoscalerClass:         string(constants.AutoscalerClassKeda),
+						"sidecar.opentelemetry.io/inject": "true",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.PodMetricSourceType,
+										PodMetric: &v1beta1.PodMetricSource{
+											Metric: v1beta1.PodMetrics{
+												Backend:     v1beta1.OpenTelemetryBackend,
+												MetricNames: []string{"process_cpu_seconds_total"},
+												Query:       "avg(process_cpu_seconds_total)",
+											},
+											Target: v1beta1.MetricTarget{
+												Type:  v1beta1.ValueMetricType,
+												Value: v1beta1.NewMetricQuantity(""),
+											},
+										},
+									},
+								},
+							},
+						},
+
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, nil, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualOTelCollector := &otelv1beta1.OpenTelemetryCollector{}
+
+			predictorSObjectKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorSObjectKey, actualOTelCollector)
+			}, timeout, interval).Should(Succeed())
+
+			expectedOTelCollector := &otelv1beta1.OpenTelemetryCollector{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorSObjectKey.Name,
+					Namespace: predictorSObjectKey.Namespace,
+				},
+				Spec: otelv1beta1.OpenTelemetryCollectorSpec{
+					Mode: "sidecar",
+					Config: otelv1beta1.Config{
+						Receivers: otelv1beta1.AnyConfig{Object: map[string]interface{}{
+							"prometheus": map[string]interface{}{
+								"config": map[string]interface{}{
+									"scrape_configs": []interface{}{
+										map[string]interface{}{
+											"job_name":        "otel-collector",
+											"scrape_interval": "5s",
+											"static_configs": []interface{}{
+												map[string]interface{}{
+													"targets": []interface{}{"localhost:8080"},
+												},
+											},
+										},
+									},
+								},
+							},
+						}},
+						Processors: &otelv1beta1.AnyConfig{Object: map[string]interface{}{
+							"filter/metrics": map[string]interface{}{
+								"metrics": map[string]interface{}{
+									"include": map[string]interface{}{
+										"match_type":   "strict",
+										"metric_names": []interface{}{string("process_cpu_seconds_total")},
+									},
+								},
+							},
+							"resourcedetection/env": map[string]interface{}{
+								"detectors": []interface{}{string("env")},
+								"override":  bool(false),
+								"timeout":   string("2s"),
+							},
+							"transform": map[string]interface{}{
+								"metric_statements": []interface{}{map[string]interface{}{
+									"context": string("datapoint"),
+									"statements": []interface{}{
+										string("set(attributes[\"namespace\"], resource.attributes[\"k8s.namespace.name\"])"),
+										string("set(attributes[\"deployment\"], resource.attributes[\"k8s.deployment.name\"])"),
+										string("set(attributes[\"pod\"], resource.attributes[\"k8s.pod.name\"])"),
+									},
+								}},
+							},
+						}},
+						Exporters: otelv1beta1.AnyConfig{Object: map[string]interface{}{
+							"otlp": map[string]interface{}{
+								"endpoint":    "keda-otel-scaler.keda.svc:4317",
+								"compression": "none",
+								"tls": map[string]interface{}{
+									"insecure": true,
+								},
+							},
+						}},
+						Service: otelv1beta1.Service{
+							Pipelines: map[string]*otelv1beta1.Pipeline{
+								"metrics": {
+									Receivers:  []string{"prometheus"},
+									Processors: []string{"resourcedetection/env", "transform", "filter/metrics"},
+									Exporters:  []string{"otlp"},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualOTelCollector.Spec.Config).To(BeComparableTo(expectedOTelCollector.Spec.Config))
+		})
+
+		It("Should have ingress/service/deployment/hpa created", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := getServingRuntime("tf-serving-raw", "default")
+			_ = k8sClient.Create(context.TODO(), &servingRuntime)
+			defer k8sClient.Delete(context.TODO(), &servingRuntime)
+
+			serviceName := "raw-foo-no-gw"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        serviceKey.Name,
+					Namespace:   serviceKey.Namespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassHPA),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+							AutoScaling: &v1beta1.AutoScalingSpec{
+								Metrics: []v1beta1.MetricsSpec{
+									{
+										Type: v1beta1.ResourceMetricSourceType,
+										Resource: &v1beta1.ResourceMetricSource{
+											Name: v1beta1.ResourceMetricCPU,
+											Target: v1beta1.MetricTarget{
+												Type:               v1beta1.UtilizationMetricType,
+												AverageUtilization: ptr.To(int32(75)),
+											},
+										},
+									},
+								},
+							},
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
+			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(actualDeployment.Spec).To(Equal(expectedDeployment.Spec))
+
+			// check service
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorServiceKey, actualService)
+			}, timeout, interval).Should(Succeed())
+
+			expectedService := getExectedService(predictorServiceKey, serviceName)
+			actualService.Spec.ClusterIP = ""
+			actualService.Spec.ClusterIPs = nil
+			actualService.Spec.IPFamilies = nil
+			actualService.Spec.IPFamilyPolicy = nil
+			actualService.Spec.InternalTrafficPolicy = nil
+			Expect(actualService.Spec).To(Equal(expectedService.Spec))
+
+			// check isvc status
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
+
+			// check ingress
+			pathType := netv1.PathTypePrefix
+			actualIngress := &netv1.Ingress{}
+			predictorIngressKey := types.NamespacedName{
+				Name:      serviceKey.Name,
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorIngressKey, actualIngress)
+			}, timeout, interval).Should(Succeed())
+
+			expectedIngress := netv1.Ingress{
+				Spec: netv1.IngressSpec{
+					Rules: []netv1.IngressRule{
+						{
+							Host: fmt.Sprintf("%s-%s.%s", serviceName, serviceKey.Namespace, domain),
+							IngressRuleValue: netv1.IngressRuleValue{
+								HTTP: &netv1.HTTPIngressRuleValue{
+									Paths: []netv1.HTTPIngressPath{
+										{
+											Path:     "/",
+											PathType: &pathType,
+											Backend: netv1.IngressBackend{
+												Service: &netv1.IngressServiceBackend{
+													Name: serviceName + "-predictor",
+													Port: netv1.ServiceBackendPort{
+														Number: 80,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+						{
+							Host: fmt.Sprintf("%s-predictor-%s.%s", serviceName, serviceKey.Namespace, domain),
+							IngressRuleValue: netv1.IngressRuleValue{
+								HTTP: &netv1.HTTPIngressRuleValue{
+									Paths: []netv1.HTTPIngressPath{
+										{
+											Path:     "/",
+											PathType: &pathType,
+											Backend: netv1.IngressBackend{
+												Service: &netv1.IngressServiceBackend{
+													Name: serviceName + "-predictor",
+													Port: netv1.ServiceBackendPort{
+														Number: 80,
+													},
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualIngress.Spec).To(Equal(expectedIngress.Spec))
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http",
+				fmt.Sprintf("%s-predictor.%s.svc.cluster.local", serviceName, serviceKey.Namespace),
+				fmt.Sprintf("%s-predictor-%s.%s", serviceName, serviceKey.Namespace, domain),
+				"8080")
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// check HPA
+			var minReplicas int32 = 1
+			var maxReplicas int32 = 3
+			var cpuUtilization int32 = 75
+			var stabilizationWindowSeconds int32 = 0
+			selectPolicy := autoscalingv2.MaxChangePolicySelect
+			actualHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorHPAKey, actualHPA)
+			}, timeout, interval).Should(Succeed())
+
+			expectedHPA := &autoscalingv2.HorizontalPodAutoscaler{
+				Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+					ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{
+						APIVersion: "apps/v1",
+						Kind:       "Deployment",
+						Name:       constants.PredictorServiceName(serviceKey.Name),
+					},
+					MinReplicas: &minReplicas,
+					MaxReplicas: maxReplicas,
+					Metrics: []autoscalingv2.MetricSpec{
+						{
+							Type: autoscalingv2.ResourceMetricSourceType,
+							Resource: &autoscalingv2.ResourceMetricSource{
+								Name: corev1.ResourceCPU,
+								Target: autoscalingv2.MetricTarget{
+									Type:               autoscalingv2.UtilizationMetricType,
+									AverageUtilization: &cpuUtilization,
+								},
+							},
+						},
+					},
+					Behavior: &autoscalingv2.HorizontalPodAutoscalerBehavior{
+						ScaleUp: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: &stabilizationWindowSeconds,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Pods",
+									Value:         4,
+									PeriodSeconds: 15,
+								},
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+						ScaleDown: &autoscalingv2.HPAScalingRules{
+							StabilizationWindowSeconds: nil,
+							SelectPolicy:               &selectPolicy,
+							Policies: []autoscalingv2.HPAScalingPolicy{
+								{
+									Type:          "Percent",
+									Value:         100,
+									PeriodSeconds: 15,
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(actualHPA.Spec).To(Equal(expectedHPA.Spec))
+		})
+	})
+
+	Context("When creating an inferenceservice with raw kube predictor and ODH auth enabled", func() {
+		configs := map[string]string{
+			"oauthProxy":         `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			"ingress":            `{"ingressGateway": "knative-serving/knative-ingress-gateway", "ingressService": "test-destination", "localGateway": "knative-serving/knative-local-gateway", "localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"}`,
+			"storageInitializer": `{"image": "kserve/storage-initializer:latest", "memoryRequest": "100Mi", "memoryLimit": "1Gi", "cpuRequest": "100m", "cpuLimit": "1", "CaBundleConfigMapName": "", "caBundleVolumeMountPath": "/etc/ssl/custom-certs", "enableDirectPvcVolumeMount": false, "cpuModelcar": "10m", "memoryModelcar": "15Mi"}`,
+		}
+
+		It("Should have ingress/service/deployment/hpa/configMap SAR created", func() {
+			By("By creating a new InferenceService")
+			// Create configmap
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+			// Create ServingRuntime
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "tf-serving-raw",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    "kserve-container",
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(context.TODO(), servingRuntime)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), servingRuntime)
+			serviceName := "raw-auth"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+			storageUri := "s3://test/mnist/export"
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": "Standard",
+						constants.ODHKserveRawAuth:         "true",
+					},
+					Labels: map[string]string{
+						constants.NetworkVisibility: constants.ODHRouteEnabled,
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+			}, timeout).Should(Succeed())
+			var replicas int32 = 1
+			var revisionHistory int32 = 10
+			var progressDeadlineSeconds int32 = 600
+			var gracePeriod int64 = 30
+			expectedDeployment := &appsv1.Deployment{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorDeploymentKey.Name,
+					Namespace: predictorDeploymentKey.Namespace,
+				},
+				Spec: appsv1.DeploymentSpec{
+					Replicas: &replicas,
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"app": "isvc." + predictorDeploymentKey.Name,
+						},
+					},
+					Template: corev1.PodTemplateSpec{
+						ObjectMeta: metav1.ObjectMeta{
+							Name:      predictorDeploymentKey.Name,
+							Namespace: "default",
+							Labels: map[string]string{
+								"app":                                 "isvc." + predictorDeploymentKey.Name,
+								constants.KServiceComponentLabel:      constants.Predictor.String(),
+								constants.InferenceServicePodLabelKey: serviceName,
+								"serving.kserve.io/inferenceservice":  serviceName,
+								constants.NetworkVisibility:           constants.ODHRouteEnabled,
+							},
+							Annotations: map[string]string{
+								constants.StorageInitializerSourceUriInternalAnnotationKey: *isvc.Spec.Predictor.Model.StorageURI,
+								constants.ModelFormatAnnotationKey:                         "tensorflow",
+								"serving.kserve.io/deploymentMode":                         "Standard",
+								constants.ODHKserveRawAuth:                                 "true",
+								"service.beta.openshift.io/serving-cert-secret-name":       predictorDeploymentKey.Name + constants.ServingCertSecretSuffix,
+							},
+						},
+						Spec: corev1.PodSpec{
+							Containers: []corev1.Container{
+								{
+									Image: "tensorflow/serving:" +
+										*isvc.Spec.Predictor.Model.RuntimeVersion,
+									Name:    constants.InferenceServiceContainerName,
+									Command: []string{v1beta1.TensorflowEntrypointCommand},
+									Args: []string{
+										"--port=" + v1beta1.TensorflowServingGRPCPort,
+										"--rest_api_port=" + v1beta1.TensorflowServingRestPort,
+										"--model_base_path=" + constants.DefaultModelLocalMountPath,
+										"--rest_api_timeout_in_ms=60000",
+									},
+									Env: []corev1.EnvVar{
+										{
+											Name:  constants.InferenceServiceNameEnvVarKey,
+											Value: serviceName,
+										},
+									},
+									VolumeMounts: []corev1.VolumeMount{
+										{
+											Name:      "proxy-tls",
+											MountPath: "/etc/tls/private",
+										},
+									},
+									Resources: defaultResource,
+									ReadinessProbe: &corev1.Probe{
+										ProbeHandler: corev1.ProbeHandler{
+											TCPSocket: &corev1.TCPSocketAction{
+												Port: intstr.IntOrString{
+													IntVal: 8080,
+												},
+											},
+										},
+										InitialDelaySeconds: 0,
+										TimeoutSeconds:      1,
+										PeriodSeconds:       10,
+										SuccessThreshold:    1,
+										FailureThreshold:    3,
+									},
+									TerminationMessagePath:   "/dev/termination-log",
+									TerminationMessagePolicy: "File",
+									ImagePullPolicy:          "IfNotPresent",
+								},
+								kubeRbacProxyContainer(nil),
+							},
+							Volumes: proxyVolumes(
+								predictorDeploymentKey.Name+constants.ServingCertSecretSuffix,
+								fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName),
+							),
+							SchedulerName:                 "default-scheduler",
+							RestartPolicy:                 "Always",
+							TerminationGracePeriodSeconds: &gracePeriod,
+							DNSPolicy:                     "ClusterFirst",
+							SecurityContext: &corev1.PodSecurityContext{
+								SELinuxOptions:      nil,
+								WindowsOptions:      nil,
+								RunAsUser:           nil,
+								RunAsGroup:          nil,
+								RunAsNonRoot:        nil,
+								SupplementalGroups:  nil,
+								FSGroup:             nil,
+								Sysctls:             nil,
+								FSGroupChangePolicy: nil,
+								SeccompProfile:      nil,
+							},
+							// ODH override. See : https://issues.redhat.com/browse/RHOAIENG-19904
+							AutomountServiceAccountToken: ptr.To(true),
+						},
+					},
+					Strategy: appsv1.DeploymentStrategy{
+						Type: "RollingUpdate",
+						RollingUpdate: &appsv1.RollingUpdateDeployment{
+							MaxUnavailable: &intstr.IntOrString{Type: 1, IntVal: 0, StrVal: "25%"},
+							MaxSurge:       &intstr.IntOrString{Type: 1, IntVal: 0, StrVal: "25%"},
+						},
+					},
+					RevisionHistoryLimit:    &revisionHistory,
+					ProgressDeadlineSeconds: &progressDeadlineSeconds,
+				},
+			}
+
+			// Use cmpopts.SortMaps for consistent comparison that ignores map key ordering
+			Expect(actualDeployment.Spec).To(Equal(expectedDeployment.Spec),
+				cmp.Diff(expectedDeployment.Spec, actualDeployment.Spec, cmpopts.SortMaps(func(a, b string) bool { return a < b })))
+
+			// check the SAR configMap
+			actualCM := &corev1.ConfigMap{}
+			predictorCMKey := types.NamespacedName{
+				Name:      fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorCMKey, actualCM) }, timeout).
+				Should(Succeed())
+
+			expectedCM := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName),
+					Namespace: serviceKey.Namespace,
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion:         "serving.kserve.io/v1beta1",
+							Kind:               "InferenceService",
+							Name:               serviceKey.Name,
+							UID:                isvc.GetUID(),
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
+						},
+					},
+				},
+				Data: map[string]string{
+					"config-file.yaml": fmt.Sprintf(`authorization:
+  resourceAttributes:
+    namespace: "%s"
+    apiGroup: "serving.kserve.io"
+    apiVersion: "v1beta1"
+    resource: "inferenceservices"
+    name: "%s"
+    verb: "get"`, serviceKey.Namespace, serviceKey.Name),
+				},
+				Immutable: ptr.To(true),
+			}
+
+			// Compare the actual ConfigMap with expected (excluding UID which is generated)
+			Expect(actualCM.ObjectMeta.Name).To(Equal(expectedCM.Name))
+			Expect(actualCM.ObjectMeta.Namespace).To(Equal(expectedCM.Namespace))
+			Expect(actualCM.Data).To(Equal(expectedCM.Data))
+			Expect(actualCM.Immutable).To(Equal(expectedCM.Immutable))
+			Expect(actualCM.UID).NotTo(BeEmpty())
+
+			// check service
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorServiceKey, actualService) }, timeout).
+				Should(Succeed())
+
+			expectedService := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      predictorServiceKey.Name,
+					Namespace: predictorServiceKey.Namespace,
+				},
+				Spec: corev1.ServiceSpec{
+					Ports: []corev1.ServicePort{
+						{
+							Name:       "https",
+							Protocol:   "TCP",
+							Port:       8443,
+							TargetPort: intstr.IntOrString{Type: intstr.String, StrVal: "https"},
+						},
+					},
+					Type:            "ClusterIP",
+					SessionAffinity: "None",
+					Selector: map[string]string{
+						"app": "isvc." + constants.PredictorServiceName(serviceName),
+					},
+				},
+			}
+			actualService.Spec.ClusterIP = ""
+			actualService.Spec.ClusterIPs = nil
+			actualService.Spec.IPFamilies = nil
+			actualService.Spec.IPFamilyPolicy = nil
+			actualService.Spec.InternalTrafficPolicy = nil
+			Expect(actualService.Spec).To(Equal(expectedService.Spec))
+
+			route := &routev1.Route{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Labels: map[string]string{
+						"inferenceservice-name": serviceName,
+					},
+					OwnerReferences: []metav1.OwnerReference{
+						{
+							APIVersion:         "serving.kserve.io/v1beta1",
+							Kind:               "InferenceService",
+							Name:               serviceKey.Name,
+							UID:                isvc.GetUID(),
+							Controller:         ptr.To(true),
+							BlockOwnerDeletion: ptr.To(true),
+						},
+					},
+				},
+				Spec: routev1.RouteSpec{
+					Host: "raw-auth-default.example.com",
+					To: routev1.RouteTargetReference{
+						Kind:   "Service",
+						Name:   predictorServiceKey.Name,
+						Weight: ptr.To(int32(100)),
+					},
+					Port: &routev1.RoutePort{
+						TargetPort: intstr.FromInt(8443),
+					},
+					TLS: &routev1.TLSConfig{
+						Termination:                   routev1.TLSTerminationReencrypt,
+						InsecureEdgeTerminationPolicy: routev1.InsecureEdgeTerminationPolicyRedirect,
+					},
+					WildcardPolicy: routev1.WildcardPolicyNone,
+				},
+			}
+			Expect(k8sClient.Create(context.TODO(), route)).Should(Succeed())
+			route.Status = routev1.RouteStatus{
+				Ingress: []routev1.RouteIngress{
+					{
+						Host: "raw-auth-default.example.com",
+						Conditions: []routev1.RouteIngressCondition{
+							{
+								Type:   routev1.RouteAdmitted,
+								Status: corev1.ConditionTrue,
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, route)).Should(Succeed())
+
+			// check isvc status
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(context.TODO(), updatedDeployment)).NotTo(HaveOccurred())
+
+			// verify if InferenceService status is updated
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "https", "raw-auth-default.example.com",
+				"raw-auth-predictor-default.example.com", "8443")
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(context.TODO(), serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(&expectedIsvcStatus, &isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+		})
+
+		It("Should recreate configMapSAR when deleted", func() {
+			By("By creating a new InferenceService with auth enabled")
+			// Create configmap
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			// Create ServingRuntime
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "tf-serving-raw",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    "kserve-container",
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(context.TODO(), servingRuntime)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), servingRuntime)
+
+			serviceName := "raw-auth-recreate"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+			storageUri := "s3://test/mnist/export"
+			ctx := context.Background()
+
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": "RawDeployment",
+						constants.ODHKserveRawAuth:         "true",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			// Wait for the InferenceService to be created
+			inferenceService := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify the SAR configMap is created initially
+			actualCM := &corev1.ConfigMap{}
+			predictorCMKey := types.NamespacedName{
+				Name:      fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorCMKey, actualCM)
+			}, timeout, interval).Should(Succeed())
+
+			// Verify the initial content
+			expectedContent := fmt.Sprintf(`authorization:
+  resourceAttributes:
+    namespace: "%s"
+    apiGroup: "serving.kserve.io"
+    apiVersion: "v1beta1"
+    resource: "inferenceservices"
+    name: "%s"
+    verb: "get"`, serviceKey.Namespace, serviceKey.Name)
+			Expect(actualCM.Data["config-file.yaml"]).To(Equal(expectedContent))
+
+			By("Deleting the SAR configMap")
+			Expect(k8sClient.Delete(ctx, actualCM)).Should(Succeed())
+
+			// Verify configMap is deleted
+			Eventually(func() bool {
+				err := k8sClient.Get(context.TODO(), predictorCMKey, actualCM)
+				return apierr.IsNotFound(err)
+			}, timeout, interval).Should(BeTrue())
+
+			By("Triggering reconciliation by updating the InferenceService")
+			// Update the InferenceService to trigger reconciliation
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, serviceKey, inferenceService); err != nil {
+					return err
+				}
+				if inferenceService.Annotations == nil {
+					inferenceService.Annotations = make(map[string]string)
+				}
+				inferenceService.Annotations["test-reconcile"] = "trigger-recreation"
+				return k8sClient.Update(ctx, inferenceService)
+			}, timeout, interval).Should(Succeed())
+
+			By("Verifying the SAR configMap is recreated")
+			newCM := &corev1.ConfigMap{}
+			Eventually(func() error {
+				return k8sClient.Get(context.TODO(), predictorCMKey, newCM)
+			}, timeout, interval).Should(Succeed())
+
+			// Verify the recreated configMap has the correct content
+			Expect(newCM.Data["config-file.yaml"]).To(Equal(expectedContent))
+			Expect(newCM.ObjectMeta.Name).To(Equal(fmt.Sprintf("%s-%s", serviceKey.Name, constants.OauthProxySARCMName)))
+			Expect(newCM.ObjectMeta.Namespace).To(Equal(serviceKey.Namespace))
+
+			// Verify owner reference is set correctly
+			ownerFound := false
+			for _, owner := range newCM.OwnerReferences {
+				if owner.Kind == "InferenceService" && owner.Name == serviceKey.Name {
+					ownerFound = true
+					Expect(owner.Controller).To(Equal(ptr.To(true)))
+					Expect(owner.BlockOwnerDeletion).To(Equal(ptr.To(true)))
+					break
+				}
+			}
+			Expect(ownerFound).To(BeTrue(), "Owner reference should be set correctly")
+		})
+	})
+
+	Context("When an existing ISVC has oauth-proxy container", func() {
+		configs := map[string]string{
+			"oauthProxy":         `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			"ingress":            `{"ingressGateway": "knative-serving/knative-ingress-gateway", "ingressService": "test-destination", "localGateway": "knative-serving/knative-local-gateway", "localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"}`,
+			"storageInitializer": `{"image": "kserve/storage-initializer:latest", "memoryRequest": "100Mi", "memoryLimit": "1Gi", "cpuRequest": "100m", "cpuLimit": "1", "CaBundleConfigMapName": "", "caBundleVolumeMountPath": "/etc/ssl/custom-certs", "enableDirectPvcVolumeMount": false}`,
+		}
+
+		It("Should preserve oauth-proxy and set LatestDeploymentReady=False", func() {
+			By("Creating configmap and serving runtime")
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "tf-serving-oauth-test",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    "kserve-container",
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(context.TODO(), servingRuntime)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), servingRuntime)
+
+			serviceName := "oauth-preserve-test"
+			serviceKey := types.NamespacedName{Name: serviceName, Namespace: "default"}
+			storageUri := "s3://test/mnist/export"
+			ctx := context.Background()
+
+			By("Creating InferenceService with auth enabled")
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": "RawDeployment",
+						constants.ODHKserveRawAuth:         "true",
+					},
+					Labels: map[string]string{
+						constants.NetworkVisibility: constants.ODHRouteEnabled,
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			By("Waiting for deployment with kube-rbac-proxy")
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			actualDeployment := &appsv1.Deployment{}
+			Eventually(func() bool {
+				err := k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+				if err != nil {
+					return false
+				}
+				for _, c := range actualDeployment.Spec.Template.Spec.Containers {
+					if c.Name == constants.KubeRbacContainerName {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			By("Patching deployment to replace kube-rbac-proxy with oauth-proxy")
+			newContainers := make([]corev1.Container, 0, len(actualDeployment.Spec.Template.Spec.Containers))
+			for _, c := range actualDeployment.Spec.Template.Spec.Containers {
+				if c.Name == constants.KubeRbacContainerName {
+					c.Name = constants.OauthProxyContainerName
+				}
+				newContainers = append(newContainers, c)
+			}
+			actualDeployment.Spec.Template.Spec.Containers = newContainers
+			Expect(k8sClient.Update(ctx, actualDeployment)).Should(Succeed())
+
+			By("Triggering reconciliation by updating ISVC annotation")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return err
+				}
+				if isvc.Annotations == nil {
+					isvc.Annotations = make(map[string]string)
+				}
+				isvc.Annotations["test-trigger"] = "reconcile"
+				return k8sClient.Update(ctx, isvc)
+			}, timeout, interval).Should(Succeed())
+
+			By("Verifying oauth-proxy is preserved")
+			Eventually(func() bool {
+				err := k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+				if err != nil {
+					return false
+				}
+				hasOauthProxy := false
+				hasKubeRbacProxy := false
+				for _, c := range actualDeployment.Spec.Template.Spec.Containers {
+					if c.Name == constants.OauthProxyContainerName {
+						hasOauthProxy = true
+					}
+					if c.Name == constants.KubeRbacContainerName {
+						hasKubeRbacProxy = true
+					}
+				}
+				return hasOauthProxy && !hasKubeRbacProxy
+			}, timeout, interval).Should(BeTrue())
+
+			By("Verifying LatestDeploymentReady condition is False with AuthProxyPreserved reason")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return false
+				}
+				cond := isvc.Status.GetCondition(v1beta1.LatestDeploymentReady)
+				return cond != nil && cond.Status == corev1.ConditionFalse && cond.Reason == "AuthProxyPreserved"
+			}, timeout, interval).Should(BeTrue())
+		})
+	})
+
+	Context("When kube-rbac-proxy image changes in config", func() {
+		It("Should not update deployment and set LatestDeploymentReady=False", func() {
+			originalImage := "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3"
+			newImage := "quay.io/opendatahub/odh-kube-auth-proxy@sha256:newimagesha256"
+
+			configs := map[string]string{
+				"oauthProxy":         fmt.Sprintf(`{"image": "%s", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`, originalImage),
+				"ingress":            `{"ingressGateway": "knative-serving/knative-ingress-gateway", "ingressService": "test-destination", "localGateway": "knative-serving/knative-local-gateway", "localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"}`,
+				"storageInitializer": `{"image": "kserve/storage-initializer:latest", "memoryRequest": "100Mi", "memoryLimit": "1Gi", "cpuRequest": "100m", "cpuLimit": "1", "CaBundleConfigMapName": "", "caBundleVolumeMountPath": "/etc/ssl/custom-certs", "enableDirectPvcVolumeMount": false}`,
+			}
+
+			By("Creating configmap and serving runtime")
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "tf-serving-image-change-test",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    "kserve-container",
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(context.TODO(), servingRuntime)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), servingRuntime)
+
+			serviceName := "image-change-test"
+			serviceKey := types.NamespacedName{Name: serviceName, Namespace: "default"}
+			storageUri := "s3://test/mnist/export"
+			ctx := context.Background()
+
+			By("Creating InferenceService with auth enabled")
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": "RawDeployment",
+						constants.ODHKserveRawAuth:         "true",
+					},
+					Labels: map[string]string{
+						constants.NetworkVisibility: constants.ODHRouteEnabled,
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			By("Waiting for deployment with kube-rbac-proxy")
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			actualDeployment := &appsv1.Deployment{}
+			Eventually(func() bool {
+				err := k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+				if err != nil {
+					return false
+				}
+				for _, c := range actualDeployment.Spec.Template.Spec.Containers {
+					if c.Name == constants.KubeRbacContainerName && c.Image == originalImage {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			By("Updating configmap with new image")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace}, configMap); err != nil {
+					return err
+				}
+				configMap.Data["oauthProxy"] = fmt.Sprintf(`{"image": "%s", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`, newImage)
+				return k8sClient.Update(ctx, configMap)
+			}, timeout, interval).Should(Succeed())
+
+			By("Triggering reconciliation by updating ISVC annotation")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return err
+				}
+				if isvc.Annotations == nil {
+					isvc.Annotations = make(map[string]string)
+				}
+				isvc.Annotations["test-trigger"] = "image-change"
+				return k8sClient.Update(ctx, isvc)
+			}, timeout, interval).Should(Succeed())
+
+			By("Verifying deployment still has original image")
+			Consistently(func() bool {
+				err := k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+				if err != nil {
+					return false
+				}
+				for _, c := range actualDeployment.Spec.Template.Spec.Containers {
+					if c.Name == constants.KubeRbacContainerName {
+						return c.Image == originalImage
+					}
+				}
+				return false
+			}, "5s", interval).Should(BeTrue())
+
+			By("Verifying LatestDeploymentReady condition is False with AuthProxyPreserved reason")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return false
+				}
+				cond := isvc.Status.GetCondition(v1beta1.LatestDeploymentReady)
+				return cond != nil && cond.Status == corev1.ConditionFalse && cond.Reason == "AuthProxyPreserved"
+			}, timeout, interval).Should(BeTrue())
+		})
+	})
+
+	Context("When kube-rbac-proxy image is updated to match config", func() {
+		It("Should clear LatestDeploymentReady AuthProxyPreserved condition after deployment image matches config", func() {
+			originalImage := "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3"
+			newImage := "quay.io/opendatahub/odh-kube-auth-proxy@sha256:aabbccddee112233"
+
+			configs := map[string]string{
+				"oauthProxy":         fmt.Sprintf(`{"image": "%s", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`, originalImage),
+				"ingress":            `{"ingressGateway": "knative-serving/knative-ingress-gateway", "ingressService": "test-destination", "localGateway": "knative-serving/knative-local-gateway", "localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"}`,
+				"storageInitializer": `{"image": "kserve/storage-initializer:latest", "memoryRequest": "100Mi", "memoryLimit": "1Gi", "cpuRequest": "100m", "cpuLimit": "1", "CaBundleConfigMapName": "", "caBundleVolumeMountPath": "/etc/ssl/custom-certs", "enableDirectPvcVolumeMount": false}`,
+			}
+
+			By("Creating configmap and serving runtime")
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "tf-serving-clear-condition-test",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    "kserve-container",
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(context.TODO(), servingRuntime)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), servingRuntime)
+
+			serviceName := "clear-condition-test"
+			serviceKey := types.NamespacedName{Name: serviceName, Namespace: "default"}
+			storageUri := "s3://test/mnist/export"
+			ctx := context.Background()
+
+			By("Creating InferenceService with auth enabled")
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": "RawDeployment",
+						constants.ODHKserveRawAuth:         "true",
+					},
+					Labels: map[string]string{
+						constants.NetworkVisibility: constants.ODHRouteEnabled,
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			By("Waiting for deployment with kube-rbac-proxy using original image")
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			actualDeployment := &appsv1.Deployment{}
+			Eventually(func() bool {
+				err := k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+				if err != nil {
+					return false
+				}
+				for _, c := range actualDeployment.Spec.Template.Spec.Containers {
+					if c.Name == constants.KubeRbacContainerName && c.Image == originalImage {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			By("Updating configmap with new image to create mismatch")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace}, configMap); err != nil {
+					return err
+				}
+				configMap.Data["oauthProxy"] = fmt.Sprintf(`{"image": "%s", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`, newImage)
+				return k8sClient.Update(ctx, configMap)
+			}, timeout, interval).Should(Succeed())
+
+			By("Triggering reconciliation to produce AuthProxyPreserved condition")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return err
+				}
+				if isvc.Annotations == nil {
+					isvc.Annotations = make(map[string]string)
+				}
+				isvc.Annotations["test-trigger"] = "mismatch"
+				return k8sClient.Update(ctx, isvc)
+			}, timeout, interval).Should(Succeed())
+
+			By("Verifying LatestDeploymentReady is False with AuthProxyPreserved")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return false
+				}
+				cond := isvc.Status.GetCondition(v1beta1.LatestDeploymentReady)
+				return cond != nil && cond.Status == corev1.ConditionFalse && cond.Reason == "AuthProxyPreserved"
+			}, timeout, interval).Should(BeTrue())
+
+			By("Patching deployment kube-rbac-proxy container to use the new config image")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment); err != nil {
+					return err
+				}
+				for i, c := range actualDeployment.Spec.Template.Spec.Containers {
+					if c.Name == constants.KubeRbacContainerName {
+						actualDeployment.Spec.Template.Spec.Containers[i].Image = newImage
+						break
+					}
+				}
+				return k8sClient.Update(ctx, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			By("Triggering reconciliation after image match is restored")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return err
+				}
+				isvc.Annotations["test-trigger"] = "image-match-restored"
+				return k8sClient.Update(ctx, isvc)
+			}, timeout, interval).Should(Succeed())
+
+			By("Verifying LatestDeploymentReady AuthProxyPreserved condition is cleared")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return false
+				}
+				cond := isvc.Status.GetCondition(v1beta1.LatestDeploymentReady)
+				return cond == nil || cond.Reason != "AuthProxyPreserved"
+			}, timeout, interval).Should(BeTrue())
+		})
+	})
+
+	Context("When upgrading operator with existing ISVC using legacy SAR volume name", func() {
+		configs := map[string]string{
+			"oauthProxy":         `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			"ingress":            `{"ingressGateway": "knative-serving/knative-ingress-gateway", "ingressService": "test-destination", "localGateway": "knative-serving/knative-local-gateway", "localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"}`,
+			"storageInitializer": `{"image": "kserve/storage-initializer:latest", "memoryRequest": "100Mi", "memoryLimit": "1Gi", "cpuRequest": "100m", "cpuLimit": "1", "CaBundleConfigMapName": "", "caBundleVolumeMountPath": "/etc/ssl/custom-certs", "enableDirectPvcVolumeMount": false}`,
+		}
+
+		It("Should preserve the legacy volume name and not trigger a rollout", func() {
+			By("Creating configmap and serving runtime")
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "tf-serving-legacy-vol-test",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    "kserve-container",
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(context.TODO(), servingRuntime)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), servingRuntime)
+
+			serviceName := "legacy-vol-test"
+			serviceKey := types.NamespacedName{Name: serviceName, Namespace: "default"}
+			storageUri := "s3://test/mnist/export"
+			ctx := context.Background()
+
+			By("Creating InferenceService with auth enabled")
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode": "RawDeployment",
+						constants.ODHKserveRawAuth:         "true",
+					},
+					Labels: map[string]string{
+						constants.NetworkVisibility: constants.ODHRouteEnabled,
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			By("Waiting for deployment with kube-rbac-proxy and static volume name")
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			actualDeployment := &appsv1.Deployment{}
+			Eventually(func() bool {
+				err := k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment)
+				if err != nil {
+					return false
+				}
+				for _, c := range actualDeployment.Spec.Template.Spec.Containers {
+					if c.Name == constants.KubeRbacContainerName {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify the new deployment uses the static volume name
+			staticVolFound := false
+			for _, v := range actualDeployment.Spec.Template.Spec.Volumes {
+				if v.Name == constants.OauthProxySARCMName {
+					staticVolFound = true
+					break
+				}
+			}
+			Expect(staticVolFound).To(BeTrue(), "new deployment should use static volume name")
+
+			By("Simulating legacy state: patching deployment to use legacy volume name")
+			legacyVolumeName := fmt.Sprintf("%s-%s", serviceName, constants.OauthProxySARCMName)
+
+			// Rename the SAR volume to the legacy name
+			for i, v := range actualDeployment.Spec.Template.Spec.Volumes {
+				if v.Name == constants.OauthProxySARCMName {
+					actualDeployment.Spec.Template.Spec.Volumes[i].Name = legacyVolumeName
+					break
+				}
+			}
+			// Update volume mounts on kube-rbac-proxy container
+			for i, c := range actualDeployment.Spec.Template.Spec.Containers {
+				if c.Name == constants.KubeRbacContainerName {
+					for j, vm := range c.VolumeMounts {
+						if vm.Name == constants.OauthProxySARCMName {
+							actualDeployment.Spec.Template.Spec.Containers[i].VolumeMounts[j].Name = legacyVolumeName
+							break
+						}
+					}
+					break
+				}
+			}
+			Expect(k8sClient.Update(ctx, actualDeployment)).Should(Succeed())
+
+			By("Waiting for reconciliation to settle after legacy patch")
+			// The legacy patch may trigger an in-flight reconcile. Wait until the
+			// generation stabilizes (no further spec mutations) before snapshotting.
+			var stableGeneration int64
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment); err != nil {
+					return false
+				}
+				// Check the legacy volume name survived reconciliation
+				for _, v := range actualDeployment.Spec.Template.Spec.Volumes {
+					if v.Name == legacyVolumeName {
+						stableGeneration = actualDeployment.Generation
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "legacy volume name should survive initial reconciliation")
+
+			// Confirm the generation is stable (no more in-flight changes).
+			Consistently(func() int64 {
+				if err := k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment); err != nil {
+					return -1
+				}
+				return actualDeployment.Generation
+			}, "3s", interval).Should(Equal(stableGeneration), "generation should stabilize before snapshot")
+
+			By("Capturing pod template and generation after reconciliation settles")
+			Expect(k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment)).Should(Succeed())
+			snapshotTemplate := actualDeployment.Spec.Template.DeepCopy()
+
+			By("Triggering reconciliation by updating ISVC annotation")
+			Eventually(func() error {
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return err
+				}
+				if isvc.Annotations == nil {
+					isvc.Annotations = make(map[string]string)
+				}
+				isvc.Annotations["test-trigger"] = "upgrade-legacy-vol"
+				return k8sClient.Update(ctx, isvc)
+			}, timeout, interval).Should(Succeed())
+
+			By("Asserting that reconciliation leaves the pod template spec untouched")
+			// The reconciler propagates ISVC annotations to the pod template metadata,
+			// which is expected and does NOT cause a pod rollout. We compare only
+			// Spec.Template.Spec to verify no container/volume changes occur.
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			Consistently(func() string {
+				if err := k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment); err != nil {
+					return fmt.Sprintf("get error: %v", err)
+				}
+				if diff := cmp.Diff(snapshotTemplate.Spec, actualDeployment.Spec.Template.Spec); diff != "" {
+					return "pod template spec diff (-want +got):\n" + diff
+				}
+				return ""
+			}, "5s", interval).Should(BeEmpty())
+		})
+	})
+
+	Context("When creating inference service with raw kube predictor with workerSpec", func() {
+		var (
+			serviceKey types.NamespacedName
+			storageUri string
+			isvc       *v1beta1.InferenceService
+		)
+
+		isvcNamespace := constants.KServeNamespace
+		actualDefaultDeployment := &appsv1.Deployment{}
+		actualWorkerDeployment := &appsv1.Deployment{}
+
+		BeforeEach(func() {
+			ctx := context.Background()
+			storageUri = "pvc://llama-3-8b-pvc/hf/8b_instruction_tuned"
+
+			// Create a ConfigMap
+			configs := getRawKubeTestConfigs()
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, configMap) })
+
+			// Create a ServingRuntime
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "huggingface-server-multinode",
+					Namespace: isvcNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "huggingface",
+							Version:    ptr.To("2"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  constants.InferenceServiceContainerName,
+								Image: "kserve/huggingfaceserver:latest-gpu",
+								Command: []string{
+									"bash",
+									"-c",
+									"python3 -m huggingfaceserver --model_name=${MODEL_NAME} --model_dir=${MODEL} --tensor-parallel-size=${TENSOR_PARALLEL_SIZE} --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}",
+								},
+								Args: []string{
+									"--model_name={{.Name}}",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					WorkerSpec: &v1alpha1.WorkerSpec{
+						PipelineParallelSize: ptr.To(2),
+						TensorParallelSize:   ptr.To(1),
+						ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+							Containers: []corev1.Container{
+								{
+									Name:  constants.WorkerContainerName,
+									Image: "kserve/huggingfaceserver:latest-gpu",
+									Command: []string{
+										"bash",
+										"-c",
+										"ray start --address=$RAY_HEAD_ADDRESS --block",
+									},
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).NotTo(HaveOccurred())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, servingRuntime)
+			})
+		})
+		It("Should have services/deployments for head/worker without an autoscaler when workerSpec is set in isvc", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-1"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, isvc)
+			})
+
+			// Verify inferenceService is created
+			inferenceService := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, serviceKey, inferenceService) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if predictor deployment (default deployment) is created
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment is created.
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify head deployments environment variables
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.PipelineParallelSizeEnvName, "2")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.TensorParallelSizeEnvName, "1")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.RayNodeCountEnvName, "2")
+
+			// Verify worker deployments environment variables
+			verifyEnvKeyValueDeployments(actualWorkerDeployment, constants.RayNodeCountEnvName, "2")
+
+			// Verify gpu resources for head/worker nodes
+			verifyGPUResourceSizeDeployment(actualDefaultDeployment, actualWorkerDeployment, "1", "1", constants.NvidiaGPUResourceType, constants.NvidiaGPUResourceType)
+
+			// Verify worker node replicas
+			Expect(actualWorkerDeployment.Spec.Replicas).Should(Equal(ptr.To(int32(1))))
+
+			// Check Services
+			actualService := &corev1.Service{}
+			headServiceName := constants.GetHeadServiceName(isvcName+"-predictor", "1")
+			defaultServiceName := isvcName + "-predictor"
+			expectedHeadServiceName := types.NamespacedName{Name: headServiceName, Namespace: isvcNamespace}
+			expectedDefaultServiceName := types.NamespacedName{Name: defaultServiceName, Namespace: isvcNamespace}
+
+			// Verify if head service is created
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, expectedHeadServiceName, actualService); err != nil {
+					return false
+				}
+				return true
+			}, timeout, interval).Should(BeTrue())
+
+			Expect(actualService.Spec.ClusterIP).Should(Equal("None"))
+			Expect(actualService.Spec.PublishNotReadyAddresses).Should(BeTrue())
+
+			// Verify if predictor service (default service) is created
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, expectedDefaultServiceName, actualService); err != nil {
+					return false
+				}
+				return true
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify there if the default autoscaler(HPA) is not created.
+			actualHPA := &autoscalingv2.HorizontalPodAutoscaler{}
+			predictorHPAKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(isvcName),
+				Namespace: isvcNamespace,
+			}
+
+			Eventually(func() error {
+				err := k8sClient.Get(context.TODO(), predictorHPAKey, actualHPA)
+				if err != nil && apierr.IsNotFound(err) {
+					return nil
+				}
+				return fmt.Errorf("expected IsNotFound error, but got %w", err)
+			}, timeout, interval).Should(Succeed())
+		})
+		It("Should use WorkerSpec.PipelineParallelSize value in isvc when it is set", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("By creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-4"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+			// Create a infereceService
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{
+							PipelineParallelSize: ptr.To(5),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, isvc)
+			})
+
+			// Verify inferenceService is created
+			inferenceService := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, serviceKey, inferenceService) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if predictor deployment (default deployment) is created
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment is created.
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify head deployments details
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.PipelineParallelSizeEnvName, "5")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.TensorParallelSizeEnvName, "1")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.RayNodeCountEnvName, "5")
+
+			// Verify worker deployments details
+			verifyEnvKeyValueDeployments(actualWorkerDeployment, constants.RayNodeCountEnvName, "5")
+
+			// Verify gpu resources for head/worker nodes
+			verifyGPUResourceSizeDeployment(actualDefaultDeployment, actualWorkerDeployment, "1", "1", constants.NvidiaGPUResourceType, constants.NvidiaGPUResourceType)
+
+			// Verify worker node replicas
+			Expect(actualWorkerDeployment.Spec.Replicas).Should(Equal(ptr.To(int32(4))))
+		})
+		It("Should use WorkerSpec.TensorParallelSize value in isvc when it is set", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-5"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			// Create a infereceService
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{
+							TensorParallelSize: ptr.To(16),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, isvc)
+			})
+
+			// Verify if predictor deployment (default deployment) is created
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment is created.
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify head deployments environment variables
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.PipelineParallelSizeEnvName, "2")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.TensorParallelSizeEnvName, "16")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.RayNodeCountEnvName, "32")
+
+			// Verify worker deployments environment variables
+			verifyEnvKeyValueDeployments(actualWorkerDeployment, constants.RayNodeCountEnvName, "32")
+
+			// Verify gpu resources for head/worker nodes
+			verifyGPUResourceSizeDeployment(actualDefaultDeployment, actualWorkerDeployment, "1", "1", constants.NvidiaGPUResourceType, constants.NvidiaGPUResourceType)
+
+			// Verify worker node replicas
+			Expect(actualWorkerDeployment.Spec.Replicas).Should(Equal(ptr.To(int32(31))))
+		})
+		It("Should use head container GPU resource value in isvc when it is set", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-5-1"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			// Create a infereceService
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+								Container: corev1.Container{
+									Name:  constants.InferenceServiceContainerName,
+									Image: "kserve/huggingfaceserver:latest-gpu",
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("2"),
+										},
+										Requests: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("2"),
+										},
+									},
+								},
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{
+							TensorParallelSize: ptr.To(4),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, isvc)
+			})
+
+			// Verify if predictor deployment (default deployment) is created
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment is created.
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify head deployments environment variables
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.PipelineParallelSizeEnvName, "2")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.TensorParallelSizeEnvName, "4")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.RayNodeCountEnvName, "7")
+
+			// Verify worker deployments environment variables
+			verifyEnvKeyValueDeployments(actualWorkerDeployment, constants.RayNodeCountEnvName, "7")
+
+			// Verify gpu resources for head/worker nodes
+			verifyGPUResourceSizeDeployment(actualDefaultDeployment, actualWorkerDeployment, "2", "1", constants.IntelGPUResourceType, constants.NvidiaGPUResourceType)
+
+			// Verify worker node replicas
+			Expect(actualWorkerDeployment.Spec.Replicas).Should(Equal(ptr.To(int32(6))))
+		})
+		It("Should use worker container GPU resource value in isvc when it is set", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-5-2"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			// Create a infereceService
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{
+							TensorParallelSize: ptr.To(4),
+							PodSpec: v1beta1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  constants.WorkerContainerName,
+										Image: "kserve/huggingfaceserver:latest-gpu",
+										Resources: corev1.ResourceRequirements{
+											Limits: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("2"),
+											},
+											Requests: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("2"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, isvc)
+			})
+
+			// Verify if predictor deployment (default deployment) is created
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment is created.
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify head deployments environment variables
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.PipelineParallelSizeEnvName, "2")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.TensorParallelSizeEnvName, "4")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.RayNodeCountEnvName, "4")
+
+			// Verify worker deployments environment variables
+			verifyEnvKeyValueDeployments(actualWorkerDeployment, constants.RayNodeCountEnvName, "4")
+
+			// Verify gpu resources for head/worker nodes
+			verifyGPUResourceSizeDeployment(actualDefaultDeployment, actualWorkerDeployment, "2", "2", constants.NvidiaGPUResourceType, constants.IntelGPUResourceType)
+
+			// Verify worker node replicas
+			Expect(actualWorkerDeployment.Spec.Replicas).Should(Equal(ptr.To(int32(3))))
+		})
+		It("Should run head node only, worker node replicas should be set 0 when head node gpu count is equal to total required gpu", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-5-3"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			// Create a infereceService
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+								Container: corev1.Container{
+									Name:  constants.InferenceServiceContainerName,
+									Image: "kserve/huggingfaceserver:latest-gpu",
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("8"),
+										},
+										Requests: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("8"),
+										},
+									},
+								},
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{
+							TensorParallelSize: ptr.To(4),
+							PodSpec: v1beta1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  constants.WorkerContainerName,
+										Image: "kserve/huggingfaceserver:latest-gpu",
+										Resources: corev1.ResourceRequirements{
+											Limits: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("2"),
+											},
+											Requests: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("2"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, isvc)
+			})
+
+			// Verify if predictor deployment (default deployment) is created
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment is created.
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify head deployments environment variables
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.PipelineParallelSizeEnvName, "2")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.TensorParallelSizeEnvName, "4")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.RayNodeCountEnvName, "1")
+
+			// Verify worker deployments environment variables
+			verifyEnvKeyValueDeployments(actualWorkerDeployment, constants.RayNodeCountEnvName, "1")
+
+			// Verify gpu resources for head/worker nodes
+			verifyGPUResourceSizeDeployment(actualDefaultDeployment, actualWorkerDeployment, "8", "0", constants.IntelGPUResourceType, constants.IntelGPUResourceType)
+
+			// Verify worker node replicas
+			Expect(actualWorkerDeployment.Spec.Replicas).Should(Equal(ptr.To(int32(0))))
+		})
+		It("Should run head node only, worker node replicas should be set 0 when worker node gpu count is equal to total required gpu", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-5-4"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			// Create a infereceService
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+								Container: corev1.Container{
+									Name:  constants.InferenceServiceContainerName,
+									Image: "kserve/huggingfaceserver:latest-gpu",
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("2"),
+										},
+										Requests: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("2"),
+										},
+									},
+								},
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{
+							TensorParallelSize: ptr.To(4),
+							PodSpec: v1beta1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  constants.WorkerContainerName,
+										Image: "kserve/huggingfaceserver:latest-gpu",
+										Resources: corev1.ResourceRequirements{
+											Limits: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("8"),
+											},
+											Requests: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("8"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() {
+				_ = k8sClient.Delete(ctx, isvc)
+			})
+
+			// Verify if predictor deployment (default deployment) is created
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment is created.
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify head deployments environment variables
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.PipelineParallelSizeEnvName, "2")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.TensorParallelSizeEnvName, "4")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.RayNodeCountEnvName, "1")
+
+			// Verify worker deployments environment variables
+			verifyEnvKeyValueDeployments(actualWorkerDeployment, constants.RayNodeCountEnvName, "1")
+
+			// Verify gpu resources for head/worker nodes
+			verifyGPUResourceSizeDeployment(actualDefaultDeployment, actualWorkerDeployment, "8", "0", constants.IntelGPUResourceType, constants.IntelGPUResourceType)
+
+			// Verify worker node replicas
+			Expect(actualWorkerDeployment.Spec.Replicas).Should(Equal(ptr.To(int32(0))))
+		})
+		It("Should return error if total required gpu count is less than what it should be assigned with head/worker", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-5-5"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			// Create a infereceService
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+								Container: corev1.Container{
+									Name:  constants.InferenceServiceContainerName,
+									Image: "kserve/huggingfaceserver:latest-gpu",
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("2"),
+										},
+										Requests: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("2"),
+										},
+									},
+								},
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{
+							PipelineParallelSize: ptr.To(1),
+							TensorParallelSize:   ptr.To(7),
+							PodSpec: v1beta1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  constants.WorkerContainerName,
+										Image: "kserve/huggingfaceserver:latest-gpu",
+										Resources: corev1.ResourceRequirements{
+											Limits: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("4"),
+											},
+											Requests: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("4"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, isvc) })
+
+			updatedIsvc := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, serviceKey, updatedIsvc); err == nil {
+					for _, condition := range updatedIsvc.Status.Status.Conditions {
+						if condition.Type == v1beta1.PredictorReady &&
+							condition.Reason == v1beta1.InvalidGPUAllocation &&
+							condition.Message == fmt.Sprintf(components.ErrRayClusterInsufficientGPUs, 7, 2, 4) {
+							return true
+						}
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if predictor deployment (default deployment) is not created
+			Consistently(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment)
+			}, fastTimeout, interval).ShouldNot(Succeed())
+
+			// Verify if worker node deployment is not created.
+			Consistently(func() error {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment)
+			}, fastTimeout, interval).ShouldNot(Succeed())
+		})
+
+		It("Should deploy even if it assigns more GPUs than the total required GPU resource count.", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-5-6"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			// Create a infereceService
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+								Container: corev1.Container{
+									Name:  constants.InferenceServiceContainerName,
+									Image: "kserve/huggingfaceserver:latest-gpu",
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("4"),
+										},
+										Requests: corev1.ResourceList{
+											constants.IntelGPUResourceType: resource.MustParse("4"),
+										},
+									},
+								},
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{
+							TensorParallelSize: ptr.To(16),
+							PodSpec: v1beta1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Name:  constants.WorkerContainerName,
+										Image: "kserve/huggingfaceserver:latest-gpu",
+										Resources: corev1.ResourceRequirements{
+											Limits: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("3"),
+											},
+											Requests: corev1.ResourceList{
+												constants.IntelGPUResourceType: resource.MustParse("3"),
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, isvc) })
+
+			// Verify if predictor deployment (default deployment) is created
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment is created.
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify head deployments environment variables
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.PipelineParallelSizeEnvName, "2")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.TensorParallelSizeEnvName, "16")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.RayNodeCountEnvName, "11")
+
+			// Verify worker deployments environment variables
+			verifyEnvKeyValueDeployments(actualWorkerDeployment, constants.RayNodeCountEnvName, "11")
+
+			// Verify gpu resources for head/worker nodes
+			verifyGPUResourceSizeDeployment(actualDefaultDeployment, actualWorkerDeployment, "4", "3", constants.IntelGPUResourceType, constants.IntelGPUResourceType)
+
+			// Verify worker node replicas
+			Expect(actualWorkerDeployment.Spec.Replicas).Should(Equal(ptr.To(int32(10))))
+		})
+		It("Should not set nil to replicas when multinode isvc(none autoscaler) is updated", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			By("creating a new InferenceService")
+			isvcName := "raw-huggingface-multinode-6"
+			predictorDeploymentName := constants.PredictorServiceName(isvcName)
+			workerDeploymentName := constants.PredictorWorkerServiceName(isvcName)
+			serviceKey = types.NamespacedName{Name: isvcName, Namespace: isvcNamespace}
+
+			// Create a infereceService
+			isvc = &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        isvcName,
+					Namespace:   isvcNamespace,
+					Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "huggingface",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: &storageUri,
+							},
+						},
+						WorkerSpec: &v1beta1.WorkerSpec{
+							PipelineParallelSize: ptr.To(3),
+						},
+					},
+				},
+			}
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			DeferCleanup(func() { _ = k8sClient.Delete(ctx, isvc) })
+
+			// Verify if predictor deployment (default deployment) is created
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      predictorDeploymentName,
+					Namespace: isvcNamespace,
+				}, actualDefaultDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment is created.
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, types.NamespacedName{
+					Name:      workerDeploymentName,
+					Namespace: isvcNamespace,
+				}, actualWorkerDeployment) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify head deployments environment variables
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.PipelineParallelSizeEnvName, "3")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.TensorParallelSizeEnvName, "1")
+			verifyEnvKeyValueDeployments(actualDefaultDeployment, constants.RayNodeCountEnvName, "3")
+
+			// Verify worker deployments environment variables
+			verifyEnvKeyValueDeployments(actualWorkerDeployment, constants.RayNodeCountEnvName, "3")
+
+			// Verify gpu resources for head/worker nodes
+			verifyGPUResourceSizeDeployment(actualDefaultDeployment, actualWorkerDeployment, "1", "1", constants.NvidiaGPUResourceType, constants.NvidiaGPUResourceType)
+
+			// Verify worker Node replicas
+			Expect(actualWorkerDeployment.Spec.Replicas).Should(Equal(ptr.To(int32(2))))
+
+			// Update a infereceService
+			By("updating the InferenceService")
+			updatedIsvc := &v1beta1.InferenceService{}
+			_ = k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvcNamespace}, updatedIsvc)
+			// Add label to isvc to create a new rs
+			if updatedIsvc.Labels == nil {
+				updatedIsvc.Labels = make(map[string]string)
+			}
+			updatedIsvc.Labels["newLabel"] = "test"
+
+			err := k8sClient.Update(ctx, updatedIsvc)
+			Expect(err).ShouldNot(HaveOccurred(), "Failed to update InferenceService with new label")
+
+			// Verify if predictor deployment (default deployment) has replicas
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: predictorDeploymentName, Namespace: isvcNamespace}, actualDefaultDeployment); err == nil {
+					return actualDefaultDeployment.Spec.Replicas != nil && *actualDefaultDeployment.Spec.Replicas == 1
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+
+			// Verify if worker node deployment has replicas
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, types.NamespacedName{Name: workerDeploymentName, Namespace: isvcNamespace}, actualWorkerDeployment); err == nil {
+					return actualWorkerDeployment.Spec.Replicas != nil && *actualWorkerDeployment.Spec.Replicas == 2
+				}
+				return false
+			}, timeout, interval).Should(BeTrue())
+		})
+	})
+
+	It("Should only have the ImagePullSecrets that are specified in the InferenceService", func() {
+		By("Updating an InferenceService with a new ImagePullSecret and checking the deployment")
+		configMap := &corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      constants.InferenceServiceConfigMapName,
+				Namespace: constants.KServeNamespace,
+			},
+			Data: configs,
+		}
+		Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+		defer k8sClient.Delete(context.TODO(), configMap)
+
+		servingRuntime := &v1alpha1.ServingRuntime{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "vllm-runtime",
+				Namespace: constants.KServeNamespace,
+			},
+			Spec: v1alpha1.ServingRuntimeSpec{
+				SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+					{
+						AutoSelect: ptr.To(true),
+						Name:       "vLLM",
+					},
+				},
+				ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:    constants.InferenceServiceContainerName,
+							Image:   "kserve/vllm:latest",
+							Command: []string{"bash", "-c"},
+							Args: []string{
+								"python2 -m vllm --model_name=${MODEL_NAME} --model_dir=${MODEL} --tensor-parallel-size=${TENSOR_PARALLEL_SIZE} --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}",
+							},
+							Resources: defaultResource,
+						},
+					},
+				},
+				Disabled: ptr.To(false),
+			},
+		}
+
+		Expect(k8sClient.Create(context.TODO(), servingRuntime)).NotTo(HaveOccurred())
+		defer k8sClient.Delete(context.TODO(), servingRuntime)
+		serviceName := "modelcar-raw-deployment"
+		expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: constants.KServeNamespace}}
+		serviceKey := expectedRequest.NamespacedName
+		storageUri := "oci://test/mnist/export"
+		ctx := context.Background()
+		isvc := &v1beta1.InferenceService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      serviceKey.Name,
+				Namespace: serviceKey.Namespace,
+				Annotations: map[string]string{
+					"serving.kserve.io/deploymentMode":              "Standard",
+					"serving.kserve.io/autoscalerClass":             "hpa",
+					"serving.kserve.io/metrics":                     "cpu",
+					"serving.kserve.io/targetUtilizationPercentage": "75",
+				},
+			},
+			Spec: v1beta1.InferenceServiceSpec{
+				Predictor: v1beta1.PredictorSpec{
+					ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+						MinReplicas: ptr.To(int32(1)),
+						MaxReplicas: 2,
+					},
+					PodSpec: v1beta1.PodSpec{
+						ImagePullSecrets: []corev1.LocalObjectReference{
+							{Name: "isvc-image-pull-secret"},
+						},
+					},
+					Model: &v1beta1.ModelSpec{
+						ModelFormat: v1beta1.ModelFormat{
+							Name: "vLLM",
+						},
+						PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+							StorageURI:     &storageUri,
+							RuntimeVersion: ptr.To("0.14.0"),
+							Container: corev1.Container{
+								Name: constants.InferenceServiceContainerName,
+								Resources: corev1.ResourceRequirements{
+									Limits: corev1.ResourceList{
+										constants.NvidiaGPUResourceType: resource.MustParse("1"),
+									},
+									Requests: corev1.ResourceList{
+										constants.NvidiaGPUResourceType: resource.MustParse("1"),
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+		Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+		defer k8sClient.Delete(ctx, isvc)
+
+		inferenceService := &v1beta1.InferenceService{}
+
+		Eventually(func() bool {
+			return k8sClient.Get(ctx, serviceKey, inferenceService) == nil
+		}, timeout, interval).Should(BeTrue())
+
+		actualDeployment := &appsv1.Deployment{}
+		predictorDeploymentKey := types.NamespacedName{
+			Name:      constants.PredictorServiceName(serviceKey.Name),
+			Namespace: serviceKey.Namespace,
+		}
+		Eventually(func() error { return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment) }, timeout, interval).
+			Should(Succeed())
+
+		Expect(actualDeployment.Spec.Template.Spec.ImagePullSecrets).To(HaveLen(1))
+		Expect(actualDeployment.Spec.Template.Spec.ImagePullSecrets[0].Name).To(Equal("isvc-image-pull-secret"))
+
+		Expect(k8sClient.Get(ctx, serviceKey, inferenceService)).Should(Succeed())
+		updateForInferenceService := inferenceService.DeepCopy()
+		updateForInferenceService.Spec.Predictor.ImagePullSecrets = []corev1.LocalObjectReference{
+			{Name: "new-image-pull-secret"},
+		}
+		expectedImagePullSecrets := updateForInferenceService.Spec.Predictor.ImagePullSecrets
+		Eventually(func() error {
+			return k8sClient.Update(ctx, updateForInferenceService)
+		}, timeout, interval).Should(Succeed())
+
+		updatedDeployment := &appsv1.Deployment{}
+		Eventually(func() (bool, error) {
+			if err := k8sClient.Get(ctx, predictorDeploymentKey, updatedDeployment); err != nil {
+				return false, err
+			}
+			if len(updatedDeployment.Spec.Template.Spec.ImagePullSecrets) != 1 {
+				return false, nil
+			}
+			return reflect.DeepEqual(updatedDeployment.Spec.Template.Spec.ImagePullSecrets, expectedImagePullSecrets), nil
+		}, timeout, interval).Should(BeTrue())
+	})
+
+	Context("When creating inference service with headless service (ServiceClusterIPNone)", func() {
+		It("Should include port 8080 in status.address.url", func() {
+			By("By creating a new InferenceService with headless service enabled")
+			ctx := context.Background()
+
+			// Create configmap with serviceClusterIPNone enabled
+			configs := map[string]string{
+				"ingress": `{
+					"ingressGateway": "knative-serving/knative-ingress-gateway",
+					"localGateway": "knative-serving/knative-local-gateway",
+					"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
+				}`,
+				"storageInitializer": `{
+					"image": "kserve/storage-initializer:latest",
+					"memoryRequest": "100Mi",
+					"memoryLimit": "1Gi",
+					"cpuRequest": "100m",
+					"cpuLimit": "1",
+					"caBundleConfigMapName": "",
+					"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+					"cpuModelcar": "10m",
+					"memoryModelcar": "15Mi"
+				}`,
+				"service":    `{"serviceClusterIPNone": true}`,
+				"oauthProxy": `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			}
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap)
+
+			// Create ServingRuntime
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "tf-serving-raw",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    "kserve-container",
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8080",
+									"--model_base_path=/mnt/models",
+									"--rest_api_timeout_in_ms=60000",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+
+			serviceName := "raw-headless-port"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+			storageUri := "s3://test/mnist/export"
+
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						constants.DeploymentMode: string(constants.Standard),
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Wait for deployment to be created
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			// Wait for service to be created and verify it's headless
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorServiceKey, actualService)
+			}, timeout, interval).Should(Succeed())
+
+			// Verify service is headless (ClusterIP: None)
+			Expect(actualService.Spec.ClusterIP).To(Equal(corev1.ClusterIPNone),
+				"Service should be headless (ClusterIP: None) when serviceClusterIPNone is enabled")
+
+			// Update deployment status to trigger status reconciliation
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, updatedDeployment)).NotTo(HaveOccurred())
+
+			// Verify status.address.url includes port 8080
+			expectedIsvcStatus := getExpectedIsvcStatusODH(serviceKey, "http", "raw-headless-port-predictor.default.svc.cluster.local",
+				"raw-headless-port-predictor-default.example.com", "8080")
+			Eventually(func() string {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return err.Error()
+				}
+				return cmp.Diff(expectedIsvcStatus, isvc.Status, cmpopts.IgnoreTypes(apis.VolatileTime{}))
+			}, timeout, interval).Should(BeEmpty())
+
+			// Double-check the address URL contains :8080
+			Eventually(func() bool {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return false
+				}
+				if isvc.Status.Address == nil || isvc.Status.Address.URL == nil {
+					return false
+				}
+				expectedHost := serviceKey.Name + "-predictor." + serviceKey.Namespace + ".svc.cluster.local:8080"
+				return isvc.Status.Address.URL.Host == expectedHost
+			}, timeout, interval).Should(BeTrue(),
+				"status.address.url should include :8080 for headless service")
+		})
+	})
+
+	Context("When creating inference service with headless service and custom container port", func() {
+		It("Should include the actual container port in status.address.url instead of the default 8080", func() {
+			By("By creating a ServingRuntime with rest_port=8888 and headless service enabled")
+			ctx := context.Background()
+
+			configs := map[string]string{
+				"ingress": `{
+					"ingressGateway": "knative-serving/knative-ingress-gateway",
+					"localGateway": "knative-serving/knative-local-gateway",
+					"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
+				}`,
+				"storageInitializer": `{
+					"image": "kserve/storage-initializer:latest",
+					"memoryRequest": "100Mi",
+					"memoryLimit": "1Gi",
+					"cpuRequest": "100m",
+					"cpuLimit": "1",
+					"caBundleConfigMapName": "",
+					"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+					"cpuModelcar": "10m",
+					"memoryModelcar": "15Mi"
+				}`,
+				"service":    `{"serviceClusterIPNone": true}`,
+				"oauthProxy": `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			}
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap)
+
+			// Create a ServingRuntime with a non-default port (8888), similar to OVMS
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "ovms-like-runtime",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "tensorflow",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "tensorflow/serving:1.14.0",
+								Command: []string{"/usr/bin/tensorflow_model_server"},
+								Args: []string{
+									"--port=9000",
+									"--rest_api_port=8888",
+									"--model_base_path=/mnt/models",
+								},
+								Ports: []corev1.ContainerPort{
+									{
+										ContainerPort: 8888,
+										Protocol:      corev1.ProtocolTCP,
+									},
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+
+			serviceName := "raw-headless-custom-port"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+			storageUri := "s3://test/mnist/export"
+
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						constants.DeploymentMode: string(constants.Standard),
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+						},
+						Tensorflow: &v1beta1.TFServingSpec{
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("1.14.0"),
+								Container: corev1.Container{
+									Name:      constants.InferenceServiceContainerName,
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+			Eventually(func() bool {
+				err := k8sClient.Get(ctx, serviceKey, inferenceService)
+				return err == nil
+			}, timeout, interval).Should(BeTrue())
+
+			// Wait for deployment to be created
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			// Wait for service to be created and verify it's headless
+			actualService := &corev1.Service{}
+			predictorServiceKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorServiceKey, actualService)
+			}, timeout, interval).Should(Succeed())
+
+			Expect(actualService.Spec.ClusterIP).To(Equal(corev1.ClusterIPNone),
+				"Service should be headless (ClusterIP: None)")
+
+			// Verify the service has the correct target port from the ServingRuntime
+			Expect(actualService.Spec.Ports).NotTo(BeEmpty())
+			Expect(actualService.Spec.Ports[0].TargetPort.IntValue()).To(Equal(8888),
+				"Service target port should match the container port from ServingRuntime")
+
+			// Update deployment status to trigger status reconciliation
+			updatedDeployment := actualDeployment.DeepCopy()
+			updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+				{
+					Type:   appsv1.DeploymentAvailable,
+					Status: corev1.ConditionTrue,
+				},
+			}
+			Expect(k8sClient.Status().Update(ctx, updatedDeployment)).NotTo(HaveOccurred())
+
+			// Verify status.address.url includes the actual container port (8888), not the default (8080)
+			Eventually(func() bool {
+				isvc := &v1beta1.InferenceService{}
+				if err := k8sClient.Get(ctx, serviceKey, isvc); err != nil {
+					return false
+				}
+				if isvc.Status.Address == nil || isvc.Status.Address.URL == nil {
+					return false
+				}
+				expectedHost := serviceKey.Name + "-predictor." + serviceKey.Namespace + ".svc.cluster.local:8888"
+				return isvc.Status.Address.URL.Host == expectedHost
+			}, timeout, interval).Should(BeTrue(),
+				"status.address.url should include :8888 for headless service with custom container port")
+		})
+	})
+
+	Context("When creating inference service with custom http_port that overrides the runtime default", func() {
+		It("Should deduplicate the --http_port arg and set the readiness probe to the ISVC port", func() {
+			ctx := context.Background()
+
+			configs := map[string]string{
+				"oauthProxy": `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+				"ingress": `{
+					"ingressGateway": "knative-serving/knative-ingress-gateway",
+					"localGateway": "knative-serving/knative-local-gateway",
+					"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local"
+				}`,
+				"storageInitializer": `{
+					"image": "kserve/storage-initializer:latest",
+					"memoryRequest": "100Mi",
+					"memoryLimit": "1Gi",
+					"cpuRequest": "100m",
+					"cpuLimit": "1",
+					"caBundleConfigMapName": "",
+					"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+					"cpuModelcar": "10m",
+					"memoryModelcar": "15Mi"
+				}`,
+			}
+			configMap := createInferenceServiceConfigMap(configs)
+			Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(ctx, configMap)
+
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "sklearn-runtime-custom-port",
+					Namespace: "default",
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							Name:       "sklearn",
+							Version:    ptr.To("1"),
+							AutoSelect: ptr.To(true),
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:  constants.InferenceServiceContainerName,
+								Image: "kserve/sklearnserver:latest",
+								Args: []string{
+									"--model_name={{.Name}}",
+									"--model_dir=/mnt/models",
+									"--http_port=8080",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+			Expect(k8sClient.Create(ctx, servingRuntime)).Should(Succeed())
+			defer k8sClient.Delete(ctx, servingRuntime)
+
+			serviceName := "raw-custom-http-port"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: "default"}}
+			serviceKey := expectedRequest.NamespacedName
+
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						constants.DeploymentMode: string(constants.Standard),
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 3,
+							Batcher: &v1beta1.Batcher{
+								MaxBatchSize: ptr.To(32),
+								MaxLatency:   ptr.To(5000),
+							},
+						},
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "sklearn",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI: ptr.To("s3://test/sklearn/model"),
+								Container: corev1.Container{
+									Name: constants.InferenceServiceContainerName,
+									Args: []string{"--http_port=5000"},
+									Ports: []corev1.ContainerPort{
+										{
+											ContainerPort: 5000,
+											Protocol:      corev1.ProtocolTCP,
+										},
+									},
+									Resources: defaultResource,
+								},
+							},
+						},
+					},
+				},
+			}
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment)
+			}, timeout, interval).Should(Succeed())
+
+			var kserveContainer *corev1.Container
+			for i := range actualDeployment.Spec.Template.Spec.Containers {
+				if actualDeployment.Spec.Template.Spec.Containers[i].Name == constants.InferenceServiceContainerName {
+					kserveContainer = &actualDeployment.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			Expect(kserveContainer).NotTo(BeNil(), "kserve-container should exist in the deployment")
+
+			// Verify --http_port appears exactly once with the ISVC value (5000), not the runtime default (8080)
+			httpPortCount := 0
+			for _, arg := range kserveContainer.Args {
+				if len(arg) >= len("--http_port") && arg[:len("--http_port")] == "--http_port" {
+					httpPortCount++
+				}
+			}
+			Expect(httpPortCount).To(Equal(1), "--http_port should appear exactly once in container args: %v", kserveContainer.Args)
+
+			foundPort := false
+			for _, arg := range kserveContainer.Args {
+				if arg == "--http_port=5000" {
+					foundPort = true
+					break
+				}
+			}
+			Expect(foundPort).To(BeTrue(), "--http_port=5000 should be in container args: %v", kserveContainer.Args)
+
+			// Verify the readiness probe targets port 5000
+			Expect(kserveContainer.ReadinessProbe).NotTo(BeNil(), "readiness probe should be set")
+			Expect(kserveContainer.ReadinessProbe.TCPSocket).NotTo(BeNil(), "readiness probe should use TCPSocket")
+			Expect(kserveContainer.ReadinessProbe.TCPSocket.Port.IntValue()).To(Equal(5000),
+				"readiness probe should target port 5000, not the runtime default 8080")
+		})
+	})
+
+	Context("When creating an inference service with modelcar and raw deployment", func() {
+		configs := map[string]string{
+			"ingress": `{
+				"enableGatewayApi": true,
+				"kserveIngressGateway": "kserve/kserve-ingress-gateway",
+				"ingressGateway": "knative-serving/knative-ingress-gateway",
+				"localGateway": "knative-serving/knative-local-gateway",
+				"localGatewayService": "knative-local-gateway.istio-system.svc.cluster.local",
+				"additionalIngressDomains": ["additional.example.com"]
+			}`,
+			"oauthProxy": `{"image": "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3", "memoryRequest": "64Mi", "memoryLimit": "128Mi", "cpuRequest": "100m", "cpuLimit": "200m"}`,
+			"storageInitializer": `{
+				"image" : "kserve/storage-initializer:latest",
+				"memoryRequest": "100Mi",
+				"memoryLimit": "1Gi",
+				"cpuRequest": "100m",
+				"cpuLimit": "1",
+				"CaBundleConfigMapName": "",
+				"caBundleVolumeMountPath": "/etc/ssl/custom-certs",
+				"enableDirectPvcVolumeMount": false,
+				"cpuModelcar": "10m",
+				"memoryModelcar": "15Mi"
+			}`,
+		}
+
+		It("Should only have the ImagePullSecrets that are specified in the InferenceService", func() {
+			By("Updating an InferenceService with a new ImagePullSecret and checking the deployment")
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: configs,
+			}
+			Expect(k8sClient.Create(context.TODO(), configMap)).NotTo(HaveOccurred())
+			defer k8sClient.Delete(context.TODO(), configMap)
+
+			servingRuntime := &v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "vllm-runtime",
+					Namespace: constants.KServeNamespace,
+				},
+				Spec: v1alpha1.ServingRuntimeSpec{
+					SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+						{
+							AutoSelect: ptr.To(true),
+							Name:       "vLLM",
+						},
+					},
+					ServingRuntimePodSpec: v1alpha1.ServingRuntimePodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:    constants.InferenceServiceContainerName,
+								Image:   "kserve/vllm:latest",
+								Command: []string{"bash", "-c"},
+								Args: []string{
+									"python2 -m vllm --model_name=${MODEL_NAME} --model_dir=${MODEL} --tensor-parallel-size=${TENSOR_PARALLEL_SIZE} --pipeline-parallel-size=${PIPELINE_PARALLEL_SIZE}",
+								},
+								Resources: defaultResource,
+							},
+						},
+					},
+					Disabled: ptr.To(false),
+				},
+			}
+
+			Expect(k8sClient.Create(context.TODO(), servingRuntime)).To(Succeed())
+			defer func() { _ = k8sClient.Delete(context.TODO(), servingRuntime) }()
+			serviceName := "modelcar-raw-deploy-pullsecret"
+			expectedRequest := reconcile.Request{NamespacedName: types.NamespacedName{Name: serviceName, Namespace: constants.KServeNamespace}}
+			serviceKey := expectedRequest.NamespacedName
+			storageUri := "oci://test/mnist/export"
+			ctx := context.Background()
+			isvc := &v1beta1.InferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      serviceKey.Name,
+					Namespace: serviceKey.Namespace,
+					Annotations: map[string]string{
+						"serving.kserve.io/deploymentMode":              "Standard",
+						"serving.kserve.io/autoscalerClass":             "hpa",
+						"serving.kserve.io/metrics":                     "cpu",
+						"serving.kserve.io/targetUtilizationPercentage": "75",
+					},
+				},
+				Spec: v1beta1.InferenceServiceSpec{
+					Predictor: v1beta1.PredictorSpec{
+						ComponentExtensionSpec: v1beta1.ComponentExtensionSpec{
+							MinReplicas: ptr.To(int32(1)),
+							MaxReplicas: 2,
+						},
+						PodSpec: v1beta1.PodSpec{
+							ImagePullSecrets: []corev1.LocalObjectReference{
+								{Name: "isvc-image-pull-secret"},
+							},
+						},
+						Model: &v1beta1.ModelSpec{
+							ModelFormat: v1beta1.ModelFormat{
+								Name: "vLLM",
+							},
+							PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{
+								StorageURI:     &storageUri,
+								RuntimeVersion: ptr.To("0.14.0"),
+								Container: corev1.Container{
+									Name: constants.InferenceServiceContainerName,
+									Resources: corev1.ResourceRequirements{
+										Limits: corev1.ResourceList{
+											constants.NvidiaGPUResourceType: resource.MustParse("1"),
+										},
+										Requests: corev1.ResourceList{
+											constants.NvidiaGPUResourceType: resource.MustParse("1"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}
+
+			isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+			Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+			defer k8sClient.Delete(ctx, isvc)
+
+			inferenceService := &v1beta1.InferenceService{}
+
+			Eventually(func() bool {
+				return k8sClient.Get(ctx, serviceKey, inferenceService) == nil
+			}, timeout, interval).Should(BeTrue())
+
+			actualDeployment := &appsv1.Deployment{}
+			predictorDeploymentKey := types.NamespacedName{
+				Name:      constants.PredictorServiceName(serviceKey.Name),
+				Namespace: serviceKey.Namespace,
+			}
+			Eventually(func() error { return k8sClient.Get(context.TODO(), predictorDeploymentKey, actualDeployment) }, timeout, interval).
+				Should(Succeed())
+
+			Expect(actualDeployment.Spec.Template.Spec.ImagePullSecrets).To(HaveLen(1))
+			Expect(actualDeployment.Spec.Template.Spec.ImagePullSecrets[0].Name).To(Equal("isvc-image-pull-secret"))
+
+			Expect(k8sClient.Get(ctx, serviceKey, inferenceService)).Should(Succeed())
+			updateForInferenceService := inferenceService.DeepCopy()
+			updateForInferenceService.Spec.Predictor.ImagePullSecrets = []corev1.LocalObjectReference{
+				{Name: "new-image-pull-secret"},
+			}
+			expectedImagePullSecrets := updateForInferenceService.Spec.Predictor.ImagePullSecrets
+			Eventually(func() error {
+				return k8sClient.Update(ctx, updateForInferenceService)
+			}, timeout, interval).Should(Succeed())
+
+			updatedDeployment := &appsv1.Deployment{}
+			Eventually(func() (bool, error) {
+				if err := k8sClient.Get(ctx, predictorDeploymentKey, updatedDeployment); err != nil {
+					return false, err
+				}
+				if len(updatedDeployment.Spec.Template.Spec.ImagePullSecrets) != 1 {
+					return false, nil
+				}
+				return reflect.DeepEqual(updatedDeployment.Spec.Template.Spec.ImagePullSecrets, expectedImagePullSecrets), nil
+			}, timeout, interval).Should(BeTrue())
+		})
+	})
+})
+
+// TestDeploymentReplicaFailurePropagatedToIsvcStatus is an integration test that covers
+// the combined fix for Bug 1 and Bug 2 from issue #5113.
+//
+// Bug 1: Without InitializeConditions on early paths the ISVC status could be completely
+// empty. After the fix the status section must always contain at least the "Ready"
+// condition once the first reconciliation cycle completes.
+//
+// Bug 2: Previously, DeploymentReconciler.Reconcile returned the in-memory desired
+// deployment (no .Status.Conditions) instead of the server-side existing deployment.
+// As a result, a ReplicaFailure condition (e.g. from an admission webhook denying pod
+// creation) was silently lost.  After the fix the ISVC PredictorReady condition must
+// carry the reason and message from the deployment's ReplicaFailure condition.
+var _ = Context("When a Standard-mode predictor deployment develops a ReplicaFailure", func() {
+	It("should surface the failure reason in the InferenceService PredictorReady condition", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+
+		By("setting up configmap and serving runtime")
+		configs := getRawKubeTestConfigs()
+		configMap := createInferenceServiceConfigMap(configs)
+		Expect(k8sClient.Create(ctx, configMap)).NotTo(HaveOccurred())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, configMap) })
+
+		servingRuntime := getServingRuntime("tf-serving-raw", "default")
+		Expect(k8sClient.Create(ctx, &servingRuntime)).To(Or(Succeed(), MatchError(ContainSubstring("already exists"))))
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, &servingRuntime) })
+
+		By("creating the InferenceService")
+		serviceName := "raw-replica-failure-test"
+		serviceKey := types.NamespacedName{Name: serviceName, Namespace: "default"}
+
+		isvc := &v1beta1.InferenceService{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:        serviceKey.Name,
+				Namespace:   serviceKey.Namespace,
+				Annotations: getDefaultAnnotations(constants.AutoscalerClassNone),
+			},
+			Spec: v1beta1.InferenceServiceSpec{
+				Predictor: v1beta1.PredictorSpec{
+					Tensorflow: &v1beta1.TFServingSpec{
+						PredictorExtensionSpec: getCommonPredictorExtensionSpec(),
+					},
+				},
+			},
+		}
+		isvc.DefaultInferenceService(nil, nil, &v1beta1.SecurityConfig{AutoMountServiceAccountToken: false}, nil, nil)
+		Expect(k8sClient.Create(ctx, isvc)).Should(Succeed())
+		DeferCleanup(func() { _ = k8sClient.Delete(ctx, isvc) })
+
+		By("waiting for the controller to create the predictor deployment")
+		predictorDeploymentKey := types.NamespacedName{
+			Name:      constants.PredictorServiceName(serviceKey.Name),
+			Namespace: serviceKey.Namespace,
+		}
+		actualDeployment := &appsv1.Deployment{}
+		Eventually(func() error {
+			return k8sClient.Get(ctx, predictorDeploymentKey, actualDeployment)
+		}, timeout, interval).Should(Succeed())
+
+		By("patching the deployment status with a ReplicaFailure condition (simulating webhook denial)")
+		replicaFailureMsg := `admission webhook "pod-policy.example.com" denied the request: identity "my-identity" not found`
+		updatedDeployment := actualDeployment.DeepCopy()
+		updatedDeployment.Status.Conditions = []appsv1.DeploymentCondition{
+			{
+				Type:    appsv1.DeploymentReplicaFailure,
+				Status:  corev1.ConditionTrue,
+				Reason:  "FailedCreate",
+				Message: replicaFailureMsg,
+			},
+			{
+				Type:    appsv1.DeploymentAvailable,
+				Status:  corev1.ConditionFalse,
+				Reason:  "MinimumReplicasUnavailable",
+				Message: "Deployment does not have minimum availability.",
+			},
+		}
+		Expect(k8sClient.Status().Update(ctx, updatedDeployment)).NotTo(HaveOccurred())
+
+		By("verifying the ISVC PredictorReady condition reflects ReplicaFailure (Bug 2 fix)")
+		updatedIsvc := &v1beta1.InferenceService{}
+		Eventually(func() bool {
+			if err := k8sClient.Get(ctx, serviceKey, updatedIsvc); err != nil {
+				return false
+			}
+			cond := updatedIsvc.Status.GetCondition(v1beta1.PredictorReady)
+			return cond != nil &&
+				cond.IsFalse() &&
+				cond.Reason == "FailedCreate" &&
+				cond.Message == replicaFailureMsg
+		}, timeout, interval).Should(BeTrue(),
+			"PredictorReady condition should be False with FailedCreate reason from ReplicaFailure")
+
+		By("verifying the ISVC status section is never completely empty (Bug 1 fix)")
+		// The overall Ready condition must exist regardless of deployment state.
+		Expect(updatedIsvc.Status.GetCondition(apis.ConditionReady)).NotTo(BeNil(),
+			"ConditionReady must be present: status section should not be empty after reconciliation")
+	})
+})
+
+func verifyEnvKeyValueDeployments(actualDefaultDeployment *appsv1.Deployment, envKey string, expectedEnvValue string) {
+	// default deployment
+	if envValue, exists := utils.GetEnvVarValue(actualDefaultDeployment.Spec.Template.Spec.Containers[0].Env, envKey); exists {
+		Expect(envValue).Should(Equal(expectedEnvValue))
+	} else {
+		Fail(envKey + " environment variable is not set")
+	}
+}
+
+func verifyGPUResourceSizeDeployment(actualDefaultDeployment *appsv1.Deployment, actualWorkerDeployment *appsv1.Deployment,
+	targetHeadGPUResourceSize, targetWorkerGPUResourceSize string,
+	headGpuResourceType corev1.ResourceName,
+	workerGpuResourceType corev1.ResourceName,
+) {
+	headGpuResourceQuantity := resource.MustParse(targetHeadGPUResourceSize)
+	workerGpuResourceQuantity := resource.MustParse(targetWorkerGPUResourceSize)
+
+	// head node deployment
+	Expect(actualDefaultDeployment.Spec.Template.Spec.Containers[0].Resources.Limits[headGpuResourceType]).Should(Equal(headGpuResourceQuantity))
+	Expect(actualDefaultDeployment.Spec.Template.Spec.Containers[0].Resources.Requests[headGpuResourceType]).Should(Equal(headGpuResourceQuantity))
+
+	// worker node deployment
+	Expect(actualWorkerDeployment.Spec.Template.Spec.Containers[0].Resources.Limits[workerGpuResourceType]).Should(Equal(workerGpuResourceQuantity))
+	Expect(actualWorkerDeployment.Spec.Template.Spec.Containers[0].Resources.Requests[workerGpuResourceType]).Should(Equal(workerGpuResourceQuantity))
+}

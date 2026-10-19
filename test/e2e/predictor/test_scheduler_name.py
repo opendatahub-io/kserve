@@ -13,29 +13,31 @@
 # limitations under the License.
 
 
-from timeout_sampler import TimeoutExpiredError, TimeoutSampler
-import pytest
 import logging
-from kubernetes import client
 
-from kubernetes.client import V1ResourceRequirements
-from kserve import KServeClient
-from kserve import constants
-from kserve import V1beta1PredictorSpec
-from kserve import V1beta1InferenceServiceSpec
-from kserve import V1beta1InferenceService
+import pytest
+from kserve import (
+    KServeClient,
+    V1beta1InferenceService,
+    V1beta1InferenceServiceSpec,
+    V1beta1PredictorSpec,
+    constants,
+)
 from kserve.models.v1beta1_sk_learn_spec import V1beta1SKLearnSpec
-
-from ..common.utils import KSERVE_TEST_NAMESPACE
+from kubernetes import client
+from kubernetes.client import V1ResourceRequirements
+from timeout_sampler import TimeoutExpiredError, TimeoutSampler
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def get_pods(kserve_client: KServeClient, service_name: str) -> list[client.V1Pod]:
+def get_pods(
+    kserve_client: KServeClient, service_name: str, namespace: str
+) -> list[client.V1Pod]:
     pods = kserve_client.core_api.list_namespaced_pod(
-        KSERVE_TEST_NAMESPACE,
+        namespace,
         label_selector=f"serving.kserve.io/inferenceservice={service_name}",
     )
     return pods.items
@@ -43,7 +45,7 @@ def get_pods(kserve_client: KServeClient, service_name: str) -> list[client.V1Po
 
 @pytest.mark.kserve_on_openshift
 @pytest.mark.asyncio(scope="session")
-async def test_scheduler_name(kserve_client, rest_v1_client):
+async def test_scheduler_name(kserve_client, rest_v1_client, test_namespace):
     scheduler_name = "kserve-scheduler"
     service_name = "isvc-sklearn-scheduler"
     logger.info("Creating InferenceService %s", service_name)
@@ -65,7 +67,7 @@ async def test_scheduler_name(kserve_client, rest_v1_client):
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=test_namespace,
             annotations={
                 "serving.kserve.io/autoscalerClass": "none"  # Adding autoscaler annotation
             },
@@ -74,7 +76,7 @@ async def test_scheduler_name(kserve_client, rest_v1_client):
     )
 
     kserve_client.create(isvc)
-    isvc = kserve_client.get(service_name, KSERVE_TEST_NAMESPACE)
+    isvc = kserve_client.get(service_name, test_namespace)
 
     assert isvc["spec"]["predictor"]["schedulerName"] == scheduler_name, (
         f"Expected scheduler name '{scheduler_name}', got {isvc['spec']['predictor'].get('schedulerName')}"
@@ -84,18 +86,18 @@ async def test_scheduler_name(kserve_client, rest_v1_client):
         for pods in TimeoutSampler(
             wait_timeout=30,
             sleep=2,
-            func=lambda: get_pods(kserve_client, service_name),
+            func=lambda: get_pods(kserve_client, service_name, test_namespace),
         ):
             if len(pods) > 0:
                 break
 
-        pods = get_pods(kserve_client, service_name)
+        pods = get_pods(kserve_client, service_name, test_namespace)
         for pod in pods:
             assert pod.spec.scheduler_name == scheduler_name, (
                 f"Pod {pod.metadata.name} scheduler name {pod.spec.scheduler_name} "
                 f"does not match expected value '{scheduler_name}'"
             )
-        kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+        kserve_client.delete(service_name, test_namespace)
     except TimeoutExpiredError as e:
         logger.error("Timeout waiting for pods to be created")
         raise e

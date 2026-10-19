@@ -32,11 +32,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager/signals"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	localmodelnodecontroller "github.com/kserve/kserve/pkg/controller/v1alpha1/localmodelnode"
+	kservemetrics "github.com/kserve/kserve/pkg/metrics"
+	"github.com/kserve/kserve/pkg/oteljson"
 	kservescheme "github.com/kserve/kserve/pkg/scheme"
-	kservetls "github.com/kserve/kserve/pkg/tls"
 )
 
 var setupLog = ctrl.Log.WithName("setup")
@@ -48,7 +48,6 @@ const (
 // Options defines the program configurable options that may be passed on the command line.
 type Options struct {
 	metricsAddr          string
-	webhookPort          int
 	enableLeaderElection bool
 	probeAddr            string
 	metricsSecure        bool
@@ -56,16 +55,17 @@ type Options struct {
 	tlsMinVersion        string
 	tlsCipherSuites      string
 	zapOpts              zap.Options
+	logFormat            oteljson.Format
 }
 
 // DefaultOptions returns the default values for the program options.
 func DefaultOptions() Options {
 	return Options{
 		metricsAddr:          ":8080",
-		webhookPort:          9443,
 		enableLeaderElection: false,
 		probeAddr:            ":8081",
 		zapOpts:              zap.Options{},
+		logFormat:            oteljson.FormatZap,
 	}
 }
 
@@ -76,17 +76,21 @@ func GetOptions() Options {
 	flag.BoolVar(&opts.enableLeaderElection, "leader-elect", opts.enableLeaderElection,
 		"Enable leader election for kserve controller manager. "+
 			"Enabling this will ensure there is only one active kserve controller manager.")
-	flag.BoolVar(&opts.metricsSecure, "metrics-secure", opts.metricsSecure, "Whether to serve metrics via HTTPS.")
+	flag.BoolVar(&opts.metricsSecure, "metrics-secure", opts.metricsSecure, "Serve metrics over HTTPS with Kubernetes authentication and authorization.")
 	flag.StringVar(&opts.metricsCertPath, "metrics-cert-path", opts.metricsCertPath, "Directory containing tls.crt and tls.key for the metrics server. If empty, self-signed certificates are generated.")
 	flag.StringVar(&opts.tlsMinVersion, "tls-min-version", opts.tlsMinVersion, "Minimum TLS version (VersionTLS12, VersionTLS13). Defaults to VersionTLS12.")
 	flag.StringVar(&opts.tlsCipherSuites, "tls-cipher-suites", opts.tlsCipherSuites, "Comma-separated list of TLS cipher suites (Go names). If empty, Go defaults are used.")
 	opts.zapOpts.BindFlags(flag.CommandLine)
+	oteljson.BindFlags(flag.CommandLine, &opts.logFormat)
 	flag.Parse()
 	return opts
 }
 
 func main() {
 	options := GetOptions()
+	if options.logFormat == oteljson.FormatOTelJSON {
+		oteljson.Apply(&options.zapOpts, "kserve-localmodelnode-controller", os.Stdout)
+	}
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&options.zapOpts)))
 
 	// Get a config to talk to the apiserver
@@ -104,7 +108,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	tlsResult, err := kservetls.Resolve(context.Background(), cfg, options.tlsMinVersion, options.tlsCipherSuites)
+	tlsOpts, err := resolveTLS(context.Background(), cfg, options.tlsMinVersion, options.tlsCipherSuites)
 	if err != nil {
 		setupLog.Error(err, "unable to resolve TLS configuration")
 		os.Exit(1)
@@ -112,24 +116,22 @@ func main() {
 
 	// Create a new Cmd to provide shared dependencies and start components
 	setupLog.Info("Setting up manager")
-	metricsServerOptions := metricsserver.Options{
+	metricsServerOptions, err := kservemetrics.ConfigureServerOptions(metricsserver.Options{
 		BindAddress:   options.metricsAddr,
 		SecureServing: options.metricsSecure,
-		TLSOpts:       tlsResult,
+		CertDir:       options.metricsCertPath,
+		TLSOpts:       tlsOpts,
+	})
+	if err != nil {
+		setupLog.Error(err, "unable to configure metrics server")
+		os.Exit(1)
 	}
 	if options.metricsSecure {
 		metricsServerOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 	}
-	if options.metricsCertPath != "" {
-		metricsServerOptions.CertDir = options.metricsCertPath
-	}
 
 	mgr, err := manager.New(cfg, manager.Options{
-		Metrics: metricsServerOptions,
-		WebhookServer: webhook.NewServer(webhook.Options{
-			Port:    options.webhookPort,
-			TLSOpts: tlsResult,
-		}),
+		Metrics:                metricsServerOptions,
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
 		HealthProbeBindAddress: options.probeAddr,
@@ -146,6 +148,10 @@ func main() {
 		setupLog.Error(err, "unable to add controller APIs to scheme")
 		os.Exit(1)
 	}
+	if err := kservescheme.AddDistroAPIs(mgr.GetScheme()); err != nil {
+		setupLog.Error(err, "unable to add distro APIs to scheme")
+		os.Exit(1)
+	}
 
 	// Setup LocalModelNode controller
 	localModelNodeEventBroadcaster := record.NewBroadcaster()
@@ -153,6 +159,7 @@ func main() {
 	localModelNodeEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
 	reconciler := &localmodelnodecontroller.LocalModelNodeReconciler{
 		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
 		Clientset: clientSet,
 		Log:       ctrl.Log.WithName("v1alpha1Controllers").WithName("LocalModelNode"),
 		Scheme:    mgr.GetScheme(),
@@ -165,7 +172,11 @@ func main() {
 
 	// Start the Cmd
 	setupLog.Info("Starting the Cmd.")
-	if err := mgr.Start(signals.SetupSignalHandler()); err != nil {
+	startCtx, err := setupDistroStartup(signals.SetupSignalHandler(), mgr)
+	if err != nil {
+		setupLog.Error(err, "Failed to set up distro startup; profile changes will not trigger a restart")
+	}
+	if err := mgr.Start(startCtx); err != nil {
 		setupLog.Error(err, "unable to run the manager")
 		os.Exit(1)
 	}

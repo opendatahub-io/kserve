@@ -92,25 +92,11 @@ fi
 
 # LLMISvc autoscaling infrastructure (KEDA path only):
 #   1. User Workload Monitoring (provides Prometheus + Thanos Querier)
-#   2. WVA controller (computes desired replicas from saturation metrics)
-#   3. KEDA ClusterTriggerAuthentication (bearer token auth for Thanos)
+#   2. KEDA ClusterTriggerAuthentication (bearer token auth for Thanos)
 #
 # deploy.cma.sh (KEDA/CMA operator) is already called by deploy.kserve-manual.sh.
-# The autoscaling-wva-controller-config in inferenceservice-config is already set
-# by the ODH overlay (config/overlays/odh/patches/inferenceservice-config-patch.yaml).
 if [[ "${1:-}" =~ "autoscaling_keda" ]]; then
   echo "Setting up KEDA autoscaling infrastructure for LLMISVC..."
-
-  if [[ -n "${KSERVE_MODULE_CONTROLLER_IMAGE:-}" ]]; then
-    # kserve-module deploys WVA via Kserve CR patch
-    oc patch kserve/default-kserve --type=merge \
-      -p '{"spec":{"wva":{"managementState":"Managed"}}}'
-    oc wait kserve/default-kserve \
-      --for=jsonpath='{.status.conditions[?(@.type=="Ready")].status}'=True \
-      --timeout=300s
-  else
-    "${SCRIPT_DIR}/infra/deploy.wva.sh"
-  fi
 
   "${SCRIPT_DIR}/infra/deploy.keda-thanos-auth.sh"
 
@@ -119,12 +105,7 @@ if [[ "${1:-}" =~ "autoscaling_keda" ]]; then
   wait_for_pod_ready "${KSERVE_NAMESPACE}" "control-plane=llmisvc-controller-manager" 300s
 
   echo "Running KEDA autoscaling pipeline health check..."
-  if [[ -n "${KSERVE_MODULE_CONTROLLER_IMAGE:-}" ]]; then
-    KSERVE_NAMESPACE="${KSERVE_NAMESPACE}" WVA_NAMESPACE="${KSERVE_NAMESPACE}" \
-      "${SCRIPT_DIR}/infra/verify-autoscaling-health.sh"
-  else
-    KSERVE_NAMESPACE="${KSERVE_NAMESPACE}" "${SCRIPT_DIR}/infra/verify-autoscaling-health.sh"
-  fi
+  KSERVE_NAMESPACE="${KSERVE_NAMESPACE}" "${SCRIPT_DIR}/infra/verify-autoscaling-health.sh"
   echo "KEDA autoscaling infrastructure ready"
 fi
 
@@ -142,31 +123,7 @@ case "${OPERATOR_TYPE}" in
         --platform ocp \
         --skip-deps \
         --image "${KSERVE_MODULE_CONTROLLER_IMAGE}"
-
-      # Override operand images on kserve-module controller via RELATED_IMAGE_* env vars
-      _env_overrides=()
-      [[ -n "${KSERVE_CONTROLLER_IMAGE:-}" ]] && \
-        _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_CONTROLLER_IMAGE=${KSERVE_CONTROLLER_IMAGE}")
-      [[ -n "${LLMISVC_CONTROLLER_IMAGE:-}" ]] && \
-        _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_LLMISVC_CONTROLLER_IMAGE=${LLMISVC_CONTROLLER_IMAGE}")
-      [[ -n "${KSERVE_AGENT_IMAGE:-}" ]] && \
-        _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_AGENT_IMAGE=${KSERVE_AGENT_IMAGE}")
-      [[ -n "${KSERVE_ROUTER_IMAGE:-}" ]] && \
-        _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_ROUTER_IMAGE=${KSERVE_ROUTER_IMAGE}")
-      [[ -n "${STORAGE_INITIALIZER_IMAGE:-}" ]] && \
-        _env_overrides+=("RELATED_IMAGE_ODH_KSERVE_STORAGE_INITIALIZER_IMAGE=${STORAGE_INITIALIZER_IMAGE}")
-
-      _env_overrides+=("APPLICATIONS_NAMESPACE=${KSERVE_NAMESPACE}")
-
-      if [[ ${#_env_overrides[@]} -gt 0 ]]; then
-        echo "Overriding operand images on kserve-module-controller-manager..."
-        oc set env deployment/kserve-module-controller-manager \
-          "${_env_overrides[@]}" \
-          -n "${KSERVE_NAMESPACE}"
-        oc rollout status deployment/kserve-module-controller-manager \
-          -n "${KSERVE_NAMESPACE}" --timeout=120s
-      fi
-
+      
       # Create Kserve CR to trigger reconciliation (deploys operands + ConfigMap)
       echo "Creating Kserve CR..."
       oc apply -f - <<'KSERVE_CR'
@@ -176,6 +133,7 @@ metadata:
   name: default-kserve
 spec:
   managementState: Managed
+  rawDeploymentServiceConfig: Headed
 KSERVE_CR
       sleep 5
       echo "Waiting for Kserve CR to become Ready..."

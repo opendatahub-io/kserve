@@ -51,6 +51,12 @@ func WithWVAManagementState(state common.ManagementState) KserveOption {
 	}
 }
 
+func WithModelExpressManagementState(state common.ManagementState) KserveOption {
+	return func(k *platformv1alpha1.Kserve) {
+		k.Spec.ModelExpress.ManagementState = state
+	}
+}
+
 func WithEnableLLMInferenceServiceTLS(val *bool) KserveOption {
 	return func(k *platformv1alpha1.Kserve) {
 		k.Spec.EnableLLMInferenceServiceTLS = val
@@ -66,6 +72,12 @@ func WithEnableLLMInferenceServiceConsoleDashboards(val *bool) KserveOption {
 func WithModelRegistryManagementState(state common.ManagementState) KserveOption {
 	return func(k *platformv1alpha1.Kserve) {
 		k.Spec.ModelRegistry.ManagementState = state
+	}
+}
+
+func WithAuditLoggingProfile(profile platformv1alpha1.AuditProfile) KserveOption {
+	return func(k *platformv1alpha1.Kserve) {
+		k.Spec.AuditLoggingProfile = profile
 	}
 }
 

@@ -10,6 +10,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
+	nodev1 "k8s.io/api/node/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -18,6 +19,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -37,23 +39,114 @@ var dependencyCRDSuffixes = []string{
 }
 
 var dependencyCRDNames = map[string]bool{
-	"leaderworkersets.operator.openshift.io": true,
-	"subscriptions.operators.coreos.com":     true,
-	"persesdashboards.perses.dev":            true,
+	"clusterextensions.olm.operatorframework.io": true,
+	"leaderworkersets.operator.openshift.io":     true,
+	"subscriptions.operators.coreos.com":         true,
+	"persesdashboards.perses.dev":                true,
 }
 
-var watchedSubscriptions = map[string]bool{
+var watchedOperatorPackages = map[string]bool{
 	rhclSubscription:        true,
 	certManagerSubscription: true,
 	lwsSubscription:         true,
 	cmaSubscription:         true,
 }
 
+func isWatchedSubscription(obj client.Object) bool {
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return false
+	}
+
+	packageName, found, err := unstructured.NestedString(u.Object, "spec", "name")
+	return err == nil && found && watchedOperatorPackages[packageName]
+}
+
+func isWatchedClusterExtension(obj client.Object) bool {
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return false
+	}
+
+	sourceType, found, err := unstructured.NestedString(u.Object, "spec", "source", "sourceType")
+	if err != nil || !found || sourceType != "Catalog" {
+		return false
+	}
+	packageName, found, err := unstructured.NestedString(u.Object, "spec", "source", "catalog", "packageName")
+	return err == nil && found && watchedOperatorPackages[packageName]
+}
+
 type dynamicWatch struct {
-	groupKind  schema.GroupKind
-	gvk        schema.GroupVersionKind
+	groupKind schema.GroupKind
+	gvk       schema.GroupVersionKind
+	// crdName overrides the regular-plural derivation for CRDs such as
+	// TelemetryPolicy, whose plural is not <kind>s.
+	crdName    string
 	filterFn   func(*unstructured.Unstructured) bool
-	registered bool
+	predicates []predicate.Predicate
+	// selfInstalled marks a watch whose CRD this module installs itself. Such a
+	// CRD is guaranteed to exist after the reconcile that installs it, so its
+	// watch registration is gated (reconcile requeues until registered) rather
+	// than best-effort. External/optional CRDs (selfInstalled false) register
+	// only if already present and never hold up the happy path.
+	selfInstalled bool
+	registered    bool
+}
+
+// buildDynamicWatches returns the watches attached lazily once their backing CRD
+// exists. Kept separate from SetupWithManager so tests can assert the wiring
+// (selfInstalled flags, CRD names) without a manager.
+func (r *KserveModuleReconciler) buildDynamicWatches() []*dynamicWatch {
+	return []*dynamicWatch{
+		{
+			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSetOperator"},
+			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"},
+		},
+		{
+			groupKind:     schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
+			gvk:           localModelNodeGroupGVK,
+			selfInstalled: true,
+		},
+		{
+			// Presets are deliberately out of the ownerRef chain (see
+			// unownedGroupKinds), so nothing recreates them when they are deleted.
+			// Watching them turns that into a normal reconcile. Scoped to the
+			// applications namespace: a reconcile renders and applies everything,
+			// so copies a user made elsewhere must not trigger one.
+			groupKind:     llmISVCConfigGVK.GroupKind(),
+			gvk:           llmISVCConfigGVK,
+			selfInstalled: true,
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return isShippedPreset(u, r.getApplicationsNamespace())
+			},
+		},
+		{
+			// Monitoring is optional, so its watch never blocks startup when the CRD is absent.
+			groupKind:  schema.GroupKind{Group: monitoringAPIGroup, Kind: monitoringKind},
+			gvk:        monitoringGVK,
+			predicates: []predicate.Predicate{predicate.GenerationChangedPredicate{}},
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return u.GetName() == monitoringCRName
+			},
+		},
+		{
+			// RHCL owns this optional API. Watching it lets KServe repair drift in
+			// its policy, and the CRD watch below causes this watch to be registered
+			// automatically when RHCL 1.5.1 becomes available later.
+			groupKind: telemetryPolicyGVK.GroupKind(),
+			gvk:       telemetryPolicyGVK,
+			crdName:   telemetryPolicyGVKName,
+			predicates: []predicate.Predicate{predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.LabelChangedPredicate{},
+				predicate.AnnotationChangedPredicate{},
+			)},
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return u.GetName() == telemetryPolicyName ||
+					u.GetLabels()[telemetryPolicyComponentLabel] == telemetryPolicyComponentValue
+			},
+		},
+	}
 }
 
 func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -62,6 +155,18 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 
 	r.cache = mgr.GetCache()
+	// Uncached reader for CRD existence checks: a CRD this module installs itself
+	// is not yet in the cached client's store during the reconcile that installs
+	// it, so registerDynamicWatches must read through to the API server to see it.
+	r.apiReader = mgr.GetAPIReader()
+
+	// Register dynamic watches up front so their CRD names can be fed to the CRD
+	// watch predicate below. When a CRD this module installs itself (e.g.
+	// serving.kserve.io) is created, that enqueues a reconcile and lets
+	// registerDynamicWatches attach the watch. Without it, watch registration
+	// races startup and, once the reconciler reaches steady state (no requeue),
+	// never retries -- leaving deleted presets unrecreated.
+	r.dynamicWatches = r.buildDynamicWatches()
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&platformv1alpha1.Kserve{}).
@@ -83,7 +188,7 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		WatchesMetadata(
 			&apiextensionsv1.CustomResourceDefinition{},
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
-			builder.WithPredicates(crdNamePredicate()),
+			builder.WithPredicates(r.crdWatchPredicate()),
 		).
 		Watches(&corev1.ConfigMap{},
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
@@ -93,13 +198,34 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			})),
 		).
 		// Watch Nodes so that newly added or relabeled nodes trigger
-		// reconciliation of labelModelCacheNodes.
+		// reconciliation of labelModelCacheNodes, and so a node gaining or losing an
+		// accelerator in status.allocatable re-renders hardware-aware presets.
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
 			builder.WithPredicates(predicate.Or(
 				predicate.GenerationChangedPredicate{},
 				predicate.LabelChangedPredicate{},
+				nodeAllocatableChangedPredicate(),
 			)),
+		).
+		Watches(&nodev1.RuntimeClass{}, handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
+				return hasRuntimeClassPrefix(o.GetName(), cocoRuntimeClassPrefixes)
+			})),
 		)
+
+	// Dynamic Resource Allocation ResourceSlices are a built-in API (resource.k8s.io) whose
+	// served version varies by cluster version (v1beta1/v1beta2/v1). Discover the served GVK
+	// via the RESTMapper; when present, watch it so an accelerator appearing/disappearing via
+	// DRA re-renders hardware-aware presets, and record the GVK for the read side to list.
+	draGK := schema.GroupKind{Group: "resource.k8s.io", Kind: "ResourceSlice"}
+	if mapping, err := mgr.GetRESTMapper().RESTMapping(draGK); err == nil {
+		r.draResourceSliceGVK = mapping.GroupVersionKind
+		sliceObj := &unstructured.Unstructured{}
+		sliceObj.SetGroupVersionKind(mapping.GroupVersionKind)
+		b.Watches(sliceObj, handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}),
+		)
+	}
 
 	// SecurityContextConstraints CRD is always present on OpenShift (OLM); never on XKS.
 	sccGK := schema.GroupKind{Group: "security.openshift.io", Kind: "SecurityContextConstraints"}
@@ -115,47 +241,32 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		subObj.SetGroupVersionKind(schema.GroupVersionKind{Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription"})
 		b.Watches(subObj,
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
-			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-				u, ok := o.(*unstructured.Unstructured)
-				if !ok {
-					return false
-				}
-				return watchedSubscriptions[u.GetName()]
-			})),
+			builder.WithPredicates(predicate.NewPredicateFuncs(isWatchedSubscription)),
 		)
 	}
 
-	r.dynamicWatches = []*dynamicWatch{
-		{
-			groupKind: schema.GroupKind{Group: "operator.openshift.io", Kind: "LeaderWorkerSetOperator"},
-			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"},
-		},
-		{
-			groupKind: schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
-			gvk:       localModelNodeGroupGVK,
-		},
+	// ClusterExtension CRD is present when OLMv1 is installed. Watch catalog
+	// package requests because the resource name is not the package identity.
+	clusterExtensionGK := schema.GroupKind{Group: "olm.operatorframework.io", Kind: "ClusterExtension"}
+	if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), clusterExtensionGK); err == nil {
+		clusterExtensionObj := &unstructured.Unstructured{}
+		clusterExtensionObj.SetGroupVersionKind(schema.GroupVersionKind{
+			Group: "olm.operatorframework.io", Version: "v1", Kind: "ClusterExtension",
+		})
+		b.Watches(clusterExtensionObj,
+			handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.NewPredicateFuncs(isWatchedClusterExtension)),
+		)
 	}
 
 	for _, dw := range r.dynamicWatches {
-		if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), dw.groupKind); err != nil {
+		if err := r.dynamicWatchCRDExists(context.Background(), mgr.GetAPIReader(), dw); err != nil {
 			continue
 		}
 		obj := &unstructured.Unstructured{}
 		obj.SetGroupVersionKind(dw.gvk)
-		if dw.filterFn != nil {
-			b.Watches(obj,
-				handler.EnqueueRequestsFromMapFunc(mapToKserve),
-				builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-					u, ok := o.(*unstructured.Unstructured)
-					if !ok {
-						return false
-					}
-					return dw.filterFn(u)
-				})),
-			)
-		} else {
-			b.Watches(obj, handler.EnqueueRequestsFromMapFunc(mapToKserve))
-		}
+		b.Watches(obj, handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(dynamicWatchPredicates(dw)...))
 		dw.registered = true
 	}
 
@@ -177,45 +288,74 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return nil
 }
 
-func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) {
+// registerDynamicWatches attaches a watch for each dynamicWatch whose backing
+// CRD exists and is Established. It returns true when a self-installed watch is
+// still pending registration, so the caller can requeue and retry: without that
+// the watch would never register once the happy path stops requeuing
+// (RHOAIENG-88471). External/optional CRDs that are simply absent do not mark
+// work pending.
+func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) bool {
 	r.dynamicWatchMu.Lock()
 	defer r.dynamicWatchMu.Unlock()
 
 	if r.controller == nil {
-		return
+		return false
 	}
 
+	reader := r.apiReader
+	if reader == nil {
+		reader = r.Client
+	}
+
+	var pending bool
 	for _, dw := range r.dynamicWatches {
 		if dw.registered {
 			continue
 		}
 
-		if err := cluster.CustomResourceDefinitionExists(ctx, r.Client, dw.groupKind); err != nil {
+		// Read through to the API server: a just-installed CRD is not yet in the
+		// cached client's store, so a cached check would miss it and the watch
+		// would never register.
+		if err := r.dynamicWatchCRDExists(ctx, reader, dw); err != nil {
+			// A self-installed CRD is guaranteed to exist once installed; if the
+			// check does not see it yet (not Established, cache lag), keep the
+			// caller requeuing until it does. An absent external CRD is expected.
+			if dw.selfInstalled {
+				pending = true
+			}
 			continue
 		}
 
 		obj := &unstructured.Unstructured{}
 		obj.SetGroupVersionKind(dw.gvk)
 
-		var preds []predicate.Predicate
-		if dw.filterFn != nil {
-			preds = append(preds, predicate.NewPredicateFuncs(func(o client.Object) bool {
-				u, ok := o.(*unstructured.Unstructured)
-				if !ok {
-					return false
-				}
-				return dw.filterFn(u)
-			}))
-		}
-
-		if err := r.controller.Watch(source.Kind[client.Object](r.cache, obj, handler.EnqueueRequestsFromMapFunc(mapToKserve), preds...)); err != nil {
+		if err := r.controller.Watch(source.Kind[client.Object](r.cache, obj, handler.EnqueueRequestsFromMapFunc(mapToKserve), dynamicWatchPredicates(dw)...)); err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "failed to register dynamic watch", "gvk", dw.gvk)
+			if dw.selfInstalled {
+				pending = true
+			}
 			continue
 		}
 
 		dw.registered = true
 		ctrl.LoggerFrom(ctx).Info("registered dynamic watch", "gvk", dw.gvk)
 	}
+
+	return pending
+}
+
+func dynamicWatchPredicates(dw *dynamicWatch) []predicate.Predicate {
+	preds := append([]predicate.Predicate(nil), dw.predicates...)
+	if dw.filterFn != nil {
+		preds = append(preds, predicate.NewPredicateFuncs(func(o client.Object) bool {
+			u, ok := o.(*unstructured.Unstructured)
+			if !ok {
+				return false
+			}
+			return dw.filterFn(u)
+		}))
+	}
+	return preds
 }
 
 func mapToKserve(_ context.Context, _ client.Object) []ctrl.Request {
@@ -224,10 +364,45 @@ func mapToKserve(_ context.Context, _ client.Object) []ctrl.Request {
 	}}
 }
 
-func crdNamePredicate() predicate.Predicate {
+// nodeAllocatableChangedPredicate fires on node updates where resource names or quantities
+// in status.allocatable change (e.g. a GPU device plugin registering nvidia.com/gpu), which
+// the generation- and label-based predicates do not observe. Create and delete events
+// default to firing, matching GenerationChangedPredicate.
+func nodeAllocatableChangedPredicate() predicate.Predicate {
+	return predicate.Funcs{
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			oldNode, ok := e.ObjectOld.(*corev1.Node)
+			if !ok {
+				return false
+			}
+			newNode, ok := e.ObjectNew.(*corev1.Node)
+			if !ok {
+				return false
+			}
+			return !allocatableNamesEqual(oldNode.Status.Allocatable, newNode.Status.Allocatable)
+		},
+	}
+}
+
+// allocatableNamesEqual reports whether two ResourceLists expose the same resource names and
+// quantities.
+func allocatableNamesEqual(a, b corev1.ResourceList) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for name := range a {
+		quantity, ok := b[name]
+		if !ok || quantity.Cmp(a[name]) != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func crdNamePredicate(extraNames map[string]bool) predicate.Predicate {
 	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
 		name := obj.GetName()
-		if dependencyCRDNames[name] {
+		if dependencyCRDNames[name] || extraNames[name] {
 			return true
 		}
 		for _, suffix := range dependencyCRDSuffixes {
@@ -237,4 +412,53 @@ func crdNamePredicate() predicate.Predicate {
 		}
 		return false
 	})
+}
+
+// crdWatchPredicate builds the predicate for the CustomResourceDefinition watch.
+// It must match both this module's dependency CRDs and the CRDs backing its own
+// dynamic watches, so that installing a serving.kserve.io CRD this module ships
+// itself enqueues a reconcile (RHOAIENG-88471). Feeding it crdNamePredicate(nil)
+// reintroduces that bug: self-installed CRDs would be filtered out and the
+// preset self-heal watch would never register.
+func (r *KserveModuleReconciler) crdWatchPredicate() predicate.Predicate {
+	return crdNamePredicate(r.dynamicWatchCRDNames())
+}
+
+// dynamicWatchCRDNames returns the CRD resource names (e.g.
+// "llminferenceserviceconfigs.serving.kserve.io") backing every dynamic watch,
+// so that creation of a CRD this module installs itself enqueues a reconcile and
+// registerDynamicWatches can attach the watch. The name derivation mirrors
+// cluster.CustomResourceDefinitionExists so the predicate and the existence
+// check always agree.
+func (r *KserveModuleReconciler) dynamicWatchCRDNames() map[string]bool {
+	names := make(map[string]bool, len(r.dynamicWatches))
+	for _, dw := range r.dynamicWatches {
+		name := dw.crdName
+		if name == "" {
+			name = crdResourceName(dw.groupKind)
+		}
+		names[name] = true
+	}
+	return names
+}
+
+func (r *KserveModuleReconciler) dynamicWatchCRDExists(ctx context.Context, reader client.Reader, dw *dynamicWatch) error {
+	if dw.crdName == "" {
+		return cluster.CustomResourceDefinitionExists(ctx, reader, dw.groupKind)
+	}
+
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := reader.Get(ctx, client.ObjectKey{Name: dw.crdName}, crd); err != nil {
+		return err
+	}
+	for _, condition := range crd.Status.Conditions {
+		if condition.Type == apiextensionsv1.Established && condition.Status == apiextensionsv1.ConditionTrue {
+			return nil
+		}
+	}
+	return fmt.Errorf("CRD %s is not established", dw.crdName)
+}
+
+func crdResourceName(gk schema.GroupKind) string {
+	return strings.ToLower(fmt.Sprintf("%ss.%s", gk.Kind, gk.Group))
 }

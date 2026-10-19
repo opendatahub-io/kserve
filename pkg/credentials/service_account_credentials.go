@@ -36,6 +36,7 @@ import (
 	"github.com/kserve/kserve/pkg/credentials/hdfs"
 	"github.com/kserve/kserve/pkg/credentials/hf"
 	"github.com/kserve/kserve/pkg/credentials/https"
+	"github.com/kserve/kserve/pkg/credentials/ms"
 	"github.com/kserve/kserve/pkg/credentials/s3"
 	"github.com/kserve/kserve/pkg/utils"
 )
@@ -248,9 +249,9 @@ func (c *CredentialBuilder) MountSecretCredential(ctx context.Context, secretNam
 }
 
 // CreateStorageSpecSecretEnvsWithSecretFallback resolves storage credentials for local model
-// download jobs. It first looks up storageKey inside the storage-config secret (upstream
-// KServe behavior). When that entry is missing, it falls back to treating storageKey as a
-// standalone secret name with S3/GCS/HF annotations.
+// download jobs. It first looks up storageKey inside the storage-config secret. When that
+// entry is missing, it falls back to treating storageKey as a standalone secret name with
+// S3/GCS/HF annotations (the same path used by InferenceService storage-initializer injection).
 func (c *CredentialBuilder) CreateStorageSpecSecretEnvsWithSecretFallback(
 	ctx context.Context, namespace string, annotations map[string]string, storageKey string,
 	overrideParams map[string]string, container *corev1.Container, volumes *[]corev1.Volume,
@@ -393,6 +394,10 @@ func (c *CredentialBuilder) mountSecretCredential(ctx context.Context, secretNam
 	} else if _, ok := secret.Data[hf.HFTokenKey]; ok {
 		log.Info("Setting secret envs for huggingface", "HfSecret", secret.Name)
 		envs := hf.BuildSecretEnvs(secret)
+		container.Env = append(container.Env, envs...)
+	} else if _, ok := secret.Data[ms.MSTokenKey]; ok {
+		log.Info("Setting secret envs for modelscope", "MsSecret", secret.Name)
+		envs := ms.BuildSecretEnvs(secret)
 		container.Env = append(container.Env, envs...)
 	} else {
 		log.V(5).Info("Skipping unsupported secret", "Secret", secret.Name)

@@ -15,9 +15,8 @@
 # Create the ClusterTriggerAuthentication that allows KEDA ScaledObjects
 # to query Thanos Querier using bearer-token authentication.
 #
-# The LLMISVC controller references this auth by name
-# ("ai-inference-keda-thanos") via the autoscaling-wva-controller-config
-# in inferenceservice-config.
+# The LLMISVC controller and user-defined ScaledObjects reference this
+# auth by name ("ai-inference-keda-thanos").
 
 set -euo pipefail
 

@@ -20,13 +20,14 @@ INFERENCE_POOL_GROUP = os.environ.get(
 )
 
 
-def make_router_gateway(name, namespace):
+def make_router_gateway(name, namespace, annotations=None):
     return {
         "apiVersion": "gateway.networking.k8s.io/v1",
         "kind": "Gateway",
         "metadata": {
             "name": name,
             "namespace": namespace,
+            "annotations": annotations or {},
         },
         "spec": {
             "gatewayClassName": GATEWAY_CLASS_NAME,

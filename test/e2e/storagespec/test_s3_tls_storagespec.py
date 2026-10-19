@@ -25,31 +25,30 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Any, Optional
 import json
 import os
 import time
 from base64 import b64decode, b64encode
 from contextlib import contextmanager
-from kubernetes import client
+from typing import Any, Optional
+
+import pytest
 from kserve import (
-    constants,
     KServeClient,
     V1beta1InferenceService,
     V1beta1InferenceServiceSpec,
     V1beta1PredictorSpec,
     V1beta1SKLearnSpec,
     V1beta1StorageSpec,
+    constants,
 )
+from kubernetes import client
 from kubernetes.client import V1ResourceRequirements
-import pytest
 
 from ..common.utils import (
     KSERVE_NAMESPACE,
-    KSERVE_TEST_NAMESPACE,
     wait_for_resource_deletion,
 )
-
 
 ssl_error = "[SSL: CERTIFICATE_VERIFY_FAILED] certificate verify failed"
 
@@ -79,6 +78,7 @@ def kserve_client():
 
 def create_isvc_resource(
     name: str,
+    namespace: str,
     storage_key: str,
 ) -> V1beta1InferenceService:
     predictor = V1beta1PredictorSpec(
@@ -100,7 +100,7 @@ def create_isvc_resource(
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=name,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=namespace,
             labels={
                 constants.KSERVE_LABEL_NETWORKING_VISIBILITY: constants.KSERVE_LABEL_NETWORKING_VISIBILITY_EXPOSED,
             },
@@ -115,14 +115,15 @@ def managed_isvc(
     isvc: V1beta1InferenceService,
 ):
     service_name = isvc.metadata.name
+    namespace = isvc.metadata.namespace
     kserve_client.create(isvc)
     yield service_name
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
+    kserve_client.delete(service_name, namespace)
     wait_for_resource_deletion(
         read_func=lambda: kserve_client.api_instance.get_namespaced_custom_object(
             constants.KSERVE_GROUP,
             constants.KSERVE_V1BETA1_VERSION,
-            KSERVE_TEST_NAMESPACE,
+            namespace,
             constants.KSERVE_PLURAL_INFERENCESERVICE,
             service_name,
         ),
@@ -134,7 +135,7 @@ def managed_storage_config_key(
     kserve_client: KServeClient,
     storage_key: str,
     storage_config: dict[str, Any],
-    namespace: str = KSERVE_TEST_NAMESPACE,
+    namespace: str,
 ):
     secret_name = "storage-config"
     encoded_value = b64encode(json.dumps(storage_config).encode()).decode()
@@ -159,22 +160,25 @@ ODH_TRUSTED_CA_BUNDLE_CONFIGMAP_NAME = "odh-trusted-ca-bundle"
 
 
 @pytest.fixture(scope="module")
-def odh_trusted_ca_bundle_configmap(kserve_client):
+def odh_trusted_ca_bundle_configmap(kserve_client, test_namespace_session):
     """Ensure the odh-trusted-ca-bundle configmap exists.
 
     The configmap is pre-created by setup-ci-namespace.sh to avoid race
     conditions when pytest-xdist distributes tests across multiple workers.
+    Use the session-scoped namespace because this fixture is module-scoped;
+    the function-scoped test_namespace fixture refers to the same namespace.
     Namespace teardown handles cleanup.
     """
     try:
         kserve_client.core_api.read_namespaced_config_map(
-            name=ODH_TRUSTED_CA_BUNDLE_CONFIGMAP_NAME, namespace=KSERVE_TEST_NAMESPACE
+            name=ODH_TRUSTED_CA_BUNDLE_CONFIGMAP_NAME,
+            namespace=test_namespace_session,
         )
     except client.ApiException as e:
         if e.status == 404:
             # Fallback: create the configmap if the setup script didn't
             kserve_client.core_api.create_namespaced_config_map(
-                namespace=KSERVE_TEST_NAMESPACE,
+                namespace=test_namespace_session,
                 body=client.V1ConfigMap(
                     api_version="v1",
                     kind="ConfigMap",
@@ -190,7 +194,7 @@ def odh_trusted_ca_bundle_configmap(kserve_client):
 
 
 @contextmanager
-def managed_ca_bundle_key(kserve_client: KServeClient, data_key: str):
+def managed_ca_bundle_key(kserve_client: KServeClient, data_key: str, namespace: str):
     """Add a CA bundle key to the odh-trusted-ca-bundle configmap, remove on cleanup."""
     seaweedfs_tls_custom_certs = kserve_client.core_api.read_namespaced_secret(
         "seaweedfs-tls-custom", KSERVE_NAMESPACE
@@ -199,7 +203,7 @@ def managed_ca_bundle_key(kserve_client: KServeClient, data_key: str):
     # Patch to ADD the key (preserves other keys)
     kserve_client.core_api.patch_namespaced_config_map(
         ODH_TRUSTED_CA_BUNDLE_CONFIGMAP_NAME,
-        namespace=KSERVE_TEST_NAMESPACE,
+        namespace=namespace,
         body={"data": {data_key: cert_data}},
     )
     try:
@@ -208,28 +212,30 @@ def managed_ca_bundle_key(kserve_client: KServeClient, data_key: str):
         # Patch to REMOVE only our key using JSON Patch
         kserve_client.core_api.patch_namespaced_config_map(
             ODH_TRUSTED_CA_BUNDLE_CONFIGMAP_NAME,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=namespace,
             body=[{"op": "remove", "path": f"/data/{data_key}"}],
         )
 
 
 @pytest.mark.kserve_on_openshift
 def test_s3_tls_global_custom_cert_storagespec_kserve(
-    kserve_client, odh_trusted_ca_bundle_configmap
+    kserve_client, odh_trusted_ca_bundle_configmap, test_namespace
 ):
     # Validate that the model is successfully loaded when the global custom cert is valid
     pass_storage_config = create_storage_config_json(
         "seaweedfs-tls-custom-service", "odh-kserve-custom-ca-bundle"
     )
     pass_service_name = "isvc-sklearn-s3-tls-global-pass"
-    pass_isvc = create_isvc_resource(pass_service_name, "localTLSS3Global")
-    with managed_ca_bundle_key(kserve_client, "ca-bundle.crt"):
+    pass_isvc = create_isvc_resource(
+        pass_service_name, test_namespace, "localTLSS3Global"
+    )
+    with managed_ca_bundle_key(kserve_client, "ca-bundle.crt", test_namespace):
         with managed_storage_config_key(
-            kserve_client, "localTLSS3Global", pass_storage_config
+            kserve_client, "localTLSS3Global", pass_storage_config, test_namespace
         ):
             with managed_isvc(kserve_client, pass_isvc):
                 check_model_status(
-                    kserve_client, pass_service_name, KSERVE_TEST_NAMESPACE, "UpToDate"
+                    kserve_client, pass_service_name, test_namespace, "UpToDate"
                 )
 
     # Validate that the model fails to load when the cabundle_configmap is not referenced in the storage config
@@ -237,15 +243,17 @@ def test_s3_tls_global_custom_cert_storagespec_kserve(
         "seaweedfs-tls-custom-service", None
     )
     fail_service_name = "isvc-sklearn-s3-tls-global-fail"
-    fail_isvc = create_isvc_resource(fail_service_name, "localTLSS3Global")
+    fail_isvc = create_isvc_resource(
+        fail_service_name, test_namespace, "localTLSS3Global"
+    )
     with managed_storage_config_key(
-        kserve_client, "localTLSS3Global", fail_storage_config
+        kserve_client, "localTLSS3Global", fail_storage_config, test_namespace
     ):
         with managed_isvc(kserve_client, fail_isvc):
             check_model_status(
                 kserve_client,
                 fail_service_name,
-                KSERVE_TEST_NAMESPACE,
+                test_namespace,
                 "BlockedByFailedLoad",
                 ssl_error,
             )
@@ -253,21 +261,23 @@ def test_s3_tls_global_custom_cert_storagespec_kserve(
 
 @pytest.mark.kserve_on_openshift
 def test_s3_tls_custom_cert_storagespec_kserve(
-    kserve_client, odh_trusted_ca_bundle_configmap
+    kserve_client, odh_trusted_ca_bundle_configmap, test_namespace
 ):
     # Validate that the model is successfully loaded when the custom cert is valid
     pass_storage_config = create_storage_config_json(
         "seaweedfs-tls-custom-service", "odh-kserve-custom-ca-bundle"
     )
     pass_service_name = "isvc-sklearn-s3-tls-custom-pass"
-    pass_isvc = create_isvc_resource(pass_service_name, "localTLSS3Custom")
-    with managed_ca_bundle_key(kserve_client, "odh-ca-bundle.crt"):
+    pass_isvc = create_isvc_resource(
+        pass_service_name, test_namespace, "localTLSS3Custom"
+    )
+    with managed_ca_bundle_key(kserve_client, "odh-ca-bundle.crt", test_namespace):
         with managed_storage_config_key(
-            kserve_client, "localTLSS3Custom", pass_storage_config
+            kserve_client, "localTLSS3Custom", pass_storage_config, test_namespace
         ):
             with managed_isvc(kserve_client, pass_isvc):
                 check_model_status(
-                    kserve_client, pass_service_name, KSERVE_TEST_NAMESPACE, "UpToDate"
+                    kserve_client, pass_service_name, test_namespace, "UpToDate"
                 )
 
     # Validate that the model fails to load when the cabundle_configmap is not referenced in the storage config
@@ -275,34 +285,38 @@ def test_s3_tls_custom_cert_storagespec_kserve(
         "seaweedfs-tls-custom-service", None
     )
     fail_service_name = "isvc-sklearn-s3-tls-custom-fail"
-    fail_isvc = create_isvc_resource(fail_service_name, "localTLSS3Custom")
+    fail_isvc = create_isvc_resource(
+        fail_service_name, test_namespace, "localTLSS3Custom"
+    )
     with managed_storage_config_key(
-        kserve_client, "localTLSS3Custom", fail_storage_config
+        kserve_client, "localTLSS3Custom", fail_storage_config, test_namespace
     ):
         with managed_isvc(kserve_client, fail_isvc):
             check_model_status(
                 kserve_client,
                 fail_service_name,
-                KSERVE_TEST_NAMESPACE,
+                test_namespace,
                 "BlockedByFailedLoad",
                 ssl_error,
             )
 
 
 @pytest.mark.kserve_on_openshift
-def test_s3_tls_serving_cert_storagespec_kserve(kserve_client):
+def test_s3_tls_serving_cert_storagespec_kserve(kserve_client, test_namespace):
     # Validate that the model is successfully loaded when the serving cert is valid
     pass_storage_config = create_storage_config_json(
         "seaweedfs-tls-serving-service", "odh-kserve-custom-ca-bundle"
     )
     pass_service_name = "isvc-sklearn-s3-tls-serving-pass"
-    pass_isvc = create_isvc_resource(pass_service_name, storage_key="localTLSS3Serving")
+    pass_isvc = create_isvc_resource(
+        pass_service_name, test_namespace, storage_key="localTLSS3Serving"
+    )
     with managed_storage_config_key(
-        kserve_client, "localTLSS3Serving", pass_storage_config
+        kserve_client, "localTLSS3Serving", pass_storage_config, test_namespace
     ):
         with managed_isvc(kserve_client, pass_isvc):
             check_model_status(
-                kserve_client, pass_service_name, KSERVE_TEST_NAMESPACE, "UpToDate"
+                kserve_client, pass_service_name, test_namespace, "UpToDate"
             )
 
     # Validate that the model fails to load when the serving cert is not referenced in the storage config
@@ -310,15 +324,17 @@ def test_s3_tls_serving_cert_storagespec_kserve(kserve_client):
         "seaweedfs-tls-serving-service", None
     )
     fail_service_name = "isvc-sklearn-s3-tls-serving-fail"
-    fail_isvc = create_isvc_resource(fail_service_name, storage_key="localTLSS3Serving")
+    fail_isvc = create_isvc_resource(
+        fail_service_name, test_namespace, storage_key="localTLSS3Serving"
+    )
     with managed_storage_config_key(
-        kserve_client, "localTLSS3Serving", fail_storage_config
+        kserve_client, "localTLSS3Serving", fail_storage_config, test_namespace
     ):
         with managed_isvc(kserve_client, fail_isvc):
             check_model_status(
                 kserve_client,
                 fail_service_name,
-                KSERVE_TEST_NAMESPACE,
+                test_namespace,
                 "BlockedByFailedLoad",
                 ssl_error,
             )

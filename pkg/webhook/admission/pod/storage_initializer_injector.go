@@ -27,7 +27,6 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/resource"
 	k8stypes "k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/ptr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +35,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/credentials"
+	"github.com/kserve/kserve/pkg/credentials/hf"
 	"github.com/kserve/kserve/pkg/credentials/s3"
 	"github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/utils"
@@ -507,11 +507,12 @@ func CommonStorageInitialization(ctx context.Context, params *StorageInitializer
 
 			// Create shared volume mount for non-PVC storage URIs
 			storageMountParams := utils.StorageMountParams{
-				MountPath:  nonPVCMountPath,
-				SubPath:    "",
-				VolumeName: utils.GetVolumeNameFromPath(nonPVCMountPath),
-				PVCName:    "",
-				ReadOnly:   params.IsReadOnly,
+				MountPath:           nonPVCMountPath,
+				SubPath:             "",
+				VolumeName:          utils.GetVolumeNameFromPath(nonPVCMountPath),
+				PVCName:             "",
+				ReadOnly:            params.IsReadOnly,
+				DefaultVolumeSource: params.Config.ModelVolumeSource,
 			}
 
 			// Apply volume mount to all relevant containers
@@ -526,11 +527,12 @@ func CommonStorageInitialization(ctx context.Context, params *StorageInitializer
 		storageURI := params.StorageURIs[0]
 
 		storageMountParams := utils.StorageMountParams{
-			MountPath:  constants.DefaultModelLocalMountPath,
-			SubPath:    "",
-			VolumeName: constants.StorageInitializerVolumeName,
-			PVCName:    "",
-			ReadOnly:   params.IsReadOnly,
+			MountPath:           constants.DefaultModelLocalMountPath,
+			SubPath:             "",
+			VolumeName:          constants.StorageInitializerVolumeName,
+			PVCName:             "",
+			ReadOnly:            params.IsReadOnly,
+			DefaultVolumeSource: params.Config.ModelVolumeSource,
 		}
 
 		mountContainerNames = append(mountContainerNames, userContainer.Name)
@@ -703,9 +705,77 @@ func CommonStorageInitialization(ctx context.Context, params *StorageInitializer
 
 		// Apply confidential model serving configuration if enabled via annotations
 		applyConfidentialConfig(initContainer, params.IsvcAnnotations)
+
+		// InferenceService env is applied to the serving container. hf:// downloads
+		// run here, so copy auth variables the initializer does not already have.
+		propagateStorageAuthEnvVars(params.StorageURIs, params.PodSpec, initContainer)
 	}
 
 	return nil
+}
+
+// storageAuthEnvNames are equivalent Hugging Face authentication variables read
+// by the storage-initializer, in the same priority order used by huggingface_hub.
+// ClusterStorageContainer and service-account credential injection take precedence
+// when either name is already present on the init container.
+var storageAuthEnvNames = []string{
+	hf.HFTokenKey,
+	"HUGGING_FACE_HUB_TOKEN",
+}
+
+// storageAuthEnvSources is the order serving containers are searched.
+// The predictor container is where InferenceService env is set.
+var storageAuthEnvSources = []string{
+	constants.InferenceServiceContainerName,
+	constants.WorkerContainerName,
+	constants.TransformerContainerName,
+}
+
+// propagateStorageAuthEnvVars copies one Hugging Face credential from serving
+// containers onto the storage-initializer when an hf:// source needs it.
+// ValueFrom (including secretKeyRef) is preserved. An existing credential on
+// the init container is left unchanged, including one using the legacy alias.
+func propagateStorageAuthEnvVars(storageURIs []v1beta1.StorageUri, podSpec *corev1.PodSpec, initContainer *corev1.Container) {
+	if podSpec == nil || initContainer == nil {
+		return
+	}
+
+	hasHuggingFaceURI := false
+	for _, storageURI := range storageURIs {
+		if strings.HasPrefix(storageURI.Uri, constants.HfURIPrefix) {
+			hasHuggingFaceURI = true
+			break
+		}
+	}
+	if !hasHuggingFaceURI || hasStorageAuthEnvVar(initContainer.Env) {
+		return
+	}
+
+	for _, containerName := range storageAuthEnvSources {
+		source := utils.GetContainerWithName(podSpec, containerName)
+		if source == nil {
+			continue
+		}
+		for _, authEnvName := range storageAuthEnvNames {
+			for i := range source.Env {
+				if source.Env[i].Name == authEnvName {
+					initContainer.Env = append(initContainer.Env, *source.Env[i].DeepCopy())
+					return
+				}
+			}
+		}
+	}
+}
+
+func hasStorageAuthEnvVar(envVars []corev1.EnvVar) bool {
+	for _, envVar := range envVars {
+		for _, authEnvName := range storageAuthEnvNames {
+			if envVar.Name == authEnvName {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // applyConfidentialConfig injects environment variables for confidential model
@@ -795,108 +865,11 @@ func (mi *StorageInitializerInjector) InjectStorageInitializer(ctx context.Conte
 		IsLegacyURI:          true,
 	}
 
-	// First create the storage initialization (volumes and init containers)
 	if err := CommonStorageInitialization(ctx, storageInitializerParams); err != nil {
 		return err
 	}
 
-	// Then inject OVMS auto-versioning init container if annotation is present
-	return mi.InjectOVMSAutoVersioning(pod)
-}
-
-// InjectOVMSAutoVersioning injects an init container to reorganize model files
-// into OVMS-compatible versioned directory structure when the storage.kserve.io/ovms-auto-versioning
-// annotation is present. This is required because OVMS expects models in versioned directories
-// like /mnt/models/1/, /mnt/models/2/, etc.
-func (mi *StorageInitializerInjector) InjectOVMSAutoVersioning(pod *corev1.Pod) error {
-	// Check if OVMS auto-versioning annotation is present
-	versionString, ok := pod.Annotations[constants.OVMSAutoVersioningAnnotationKey]
-	if !ok {
-		return nil
-	}
-
-	// Validate the version is a positive integer
-	version, err := strconv.Atoi(versionString)
-	if err != nil || version <= 0 {
-		return fmt.Errorf("invalid OVMS auto-versioning annotation value '%s': must be a positive integer", versionString)
-	}
-
-	// Don't inject if OVMS versioning container already exists
-	for _, container := range pod.Spec.InitContainers {
-		if container.Name == constants.OVMSVersioningContainerName {
-			return nil
-		}
-	}
-
-	// Get the OVMS versioning image from config
-	ovmsImage, err := getOVMSVersioningImage(mi.openshiftConfig)
-	if err != nil {
-		return fmt.Errorf("failed to get OVMS versioning image: %w", err)
-	}
-
-	// Create the OVMS versioning init container
-	ovmsVersioningContainer := corev1.Container{
-		Name:    constants.OVMSVersioningContainerName,
-		Image:   ovmsImage,
-		Command: []string{"/bin/sh"},
-		Args: []string{
-			"-c",
-			fmt.Sprintf(`
-# OVMS Auto-Versioning Script
-# This script reorganizes model files to match OVMS expected directory structure
-
-MODEL_DIR="%s"
-VERSION="%s"
-VERSIONED_DIR="${MODEL_DIR}/${VERSION}"
-
-echo "Starting OVMS auto-versioning: organizing models for version ${VERSION}"
-
-# Check if model directory exists and has content
-if [ ! -d "${MODEL_DIR}" ] || [ -z "$(ls -A ${MODEL_DIR} 2>/dev/null)" ]; then
-  echo "No models found in ${MODEL_DIR}, skipping versioning"
-  exit 0
-fi
-
-# Check if versioned directory already exists
-if [ -d "${VERSIONED_DIR}" ]; then
-  echo "Version directory ${VERSIONED_DIR} already exists, skipping reorganization"
-  exit 0
-fi
-
-echo "Creating versioned directory: ${VERSIONED_DIR}"
-mkdir -p "${VERSIONED_DIR}"
-
-# Move all files and directories to the versioned directory by ignoring itself
-mv "${MODEL_DIR}"/* "${VERSIONED_DIR}/" 2>/dev/null || true
-
-echo "Successfully organized models into versioned directory structure"
-echo "Models are now available at: ${VERSIONED_DIR}"
-echo "Running ls -la ${VERSIONED_DIR}"
-ls -la ${VERSIONED_DIR}
-`, constants.DefaultModelLocalMountPath, versionString),
-		},
-		VolumeMounts: []corev1.VolumeMount{
-			{
-				Name:      constants.StorageInitializerVolumeName,
-				MountPath: constants.DefaultModelLocalMountPath,
-				ReadOnly:  false,
-			},
-		},
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("50m"),
-				corev1.ResourceMemory: resource.MustParse("64Mi"),
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("128Mi"),
-			},
-		},
-	}
-
-	// Add the OVMS versioning init container to the pod
-	pod.Spec.InitContainers = append(pod.Spec.InitContainers, ovmsVersioningContainer)
-	return nil
+	return mi.postInjectStorageInitializer(pod)
 }
 
 // SetIstioCniSecurityContext determines if Istio is installed in using the CNI plugin. If so,

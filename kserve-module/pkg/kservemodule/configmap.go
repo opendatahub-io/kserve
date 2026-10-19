@@ -17,7 +17,6 @@ import (
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
-
 var (
 	errResourceNotFound = errors.New("resource not found")
 	configMapGVK        = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}
@@ -26,12 +25,22 @@ var (
 )
 
 func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *platformv1alpha1.Kserve) ([]unstructured.Unstructured, error) {
+	// defaultCleanup renders with a nil CR because it only needs names and kinds
+	// to delete by. There is no spec to read from, and nothing to customize.
+	if kserve == nil {
+		return resources, nil
+	}
+
 	cmIdx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
 	if err != nil {
 		if errors.Is(err, errResourceNotFound) {
 			return resources, nil
 		}
 		return nil, err
+	}
+
+	if !isWVAEnabled(kserve) && cm.Data != nil {
+		delete(cm.Data, autoscalingWVAControllerConfigKey)
 	}
 
 	if err := updateInferenceCM(cm, kserve); err != nil {
@@ -83,6 +92,17 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		return err
 	}
 
+	if confidential := kserve.Spec.ConfidentialContainers; confidential != nil {
+		if err := updateCMJSONKey(cm, "confidentialBareMetal", func(data map[string]any) {
+			if confidential.LUKSResourceID != "" {
+				data["luksResourceId"] = confidential.LUKSResourceID
+			}
+			data["initData"] = confidential.InitData
+		}); err != nil {
+			return err
+		}
+	}
+
 	oauthProxy := kserve.Spec.OAuthProxy
 	if oauthProxy != nil && oauthProxy.Resources != nil {
 		if err := updateCMJSONKey(cm, oauthProxyConfigKeyName, func(data map[string]any) {
@@ -107,6 +127,30 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 	if err := updateCMJSONKey(cm, localModelConfigKeyName, func(data map[string]any) {
 		data["enabled"] = modelCacheEnabled
 		data["jobNamespace"] = cm.Namespace
+	}); err != nil {
+		return err
+	}
+
+	profile := kserve.Spec.AuditLoggingProfile
+	if profile == "" {
+		profile = platformv1alpha1.AuditProfileRemoved
+	}
+	var internalProfile string
+	switch profile {
+	case platformv1alpha1.AuditProfileRemoved:
+		internalProfile = "none"
+	case platformv1alpha1.AuditProfileMetadata:
+		internalProfile = "metadata"
+	default:
+		return fmt.Errorf("audit logging profile must be one of %q or %q, got %q",
+			platformv1alpha1.AuditProfileRemoved,
+			platformv1alpha1.AuditProfileMetadata,
+			profile,
+		)
+	}
+	if err := updateCMJSONKey(cm, openshiftConfigKeyName, func(data map[string]any) {
+		data["auditLoggingProfile"] = internalProfile
+		delete(data, "enableAuditLogging")
 	}); err != nil {
 		return err
 	}

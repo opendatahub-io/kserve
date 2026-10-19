@@ -125,6 +125,30 @@ MODEL_ROUTING_ADDRESS_SUFFIX = "-model-routing"
 MODEL_ROUTING_HEADER = "X-Gateway-Model-Name"
 
 
+def publisher_model(namespace: str, model: str) -> str:
+    """The fully-qualified model identity the gateway matches on, and the form
+    the X-Gateway-Model-Name header carries. Mirrors publisherModel in the Go
+    integration tests."""
+    return f"publishers/{namespace}/models/{model}"
+
+
+def get_managed_httproutes(kserve_client, service_name, namespace):
+    """List the HTTPRoutes a given LLMInferenceService owns. Selecting by label
+    rather than by generated route name keeps callers working if the naming
+    scheme changes, and returns every managed route rather than one."""
+    routes = kserve_client.api_instance.list_namespaced_custom_object(
+        "gateway.networking.k8s.io",
+        "v1",
+        namespace,
+        "httproutes",
+        label_selector=(
+            f"app.kubernetes.io/name={service_name},"
+            "app.kubernetes.io/part-of=llminferenceservice"
+        ),
+    )
+    return routes.get("items", [])
+
+
 @log_execution
 def get_model_routing_url(
     kserve_client: KServeClient, llm_isvc: V1alpha1LLMInferenceService
@@ -198,6 +222,9 @@ class TestCase:
 
     __test__ = False  # So pytest will not try to execute it.
     base_refs: List[str]
+    # Unstamped names of shipped configs resolved from the system namespace;
+    # their actual names are referenced as-is rather than cloned like base_refs.
+    system_base_refs: List[str] = field(default_factory=list)
     prompt: Optional[str] = None
     service_name: Optional[str] = None
     endpoint: str = "/v1/completions"

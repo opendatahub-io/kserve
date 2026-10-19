@@ -23,6 +23,8 @@ from conftest import (
     PVC_NAME,
     LMNG_NAME,
     LMNG_RESOURCE,
+    LOCALMODEL_CONTROLLER_DEPLOYMENT,
+    LOCALMODEL_AGENT_DAEMONSET,
     TIMEOUT_120S,
 )
 
@@ -87,12 +89,50 @@ class TestModelCacheEnable:
             f"localModel.jobNamespace should be '{NAMESPACE}', got {cfg.get('jobNamespace')}"
         )
 
-        # Verify ModelCacheReady condition
-        cr = get_cr(kubectl)
-        conditions = {c["type"]: c for c in cr.get("status", {}).get("conditions", [])}
-        assert "ModelCacheReady" in conditions, "ModelCacheReady condition should exist"
-        assert conditions["ModelCacheReady"]["status"] == "True", (
-            f"ModelCacheReady should be True, got {conditions['ModelCacheReady']['status']}"
+        # Workload startup can change readiness after the fixture returns.
+        # Wait for status to converge, keeping persistent failures fatal.
+        def assert_model_cache_ready():
+            cr = get_cr(kubectl)
+            assert generation_matches(cr), "ModelCache generation not reconciled"
+            conditions = {
+                c["type"]: c for c in cr.get("status", {}).get("conditions", [])
+            }
+            assert "ModelCacheReady" in conditions, (
+                "ModelCacheReady condition should exist"
+            )
+            assert conditions["ModelCacheReady"]["status"] == "True", (
+                f"ModelCacheReady should be True, got {conditions['ModelCacheReady']['status']}"
+            )
+
+        wait_for(assert_model_cache_ready, timeout=TIMEOUT_120S, interval=5)
+
+        # Localmodel workloads must be healthy. CrashLoopBackOff from missing
+        # kserve-tls-distro-rolebinding subjects fails these checks on OpenShift.
+        assert resource_exists(
+            kubectl, "deployment", LOCALMODEL_CONTROLLER_DEPLOYMENT, namespace=NAMESPACE
+        ), f"Deployment {LOCALMODEL_CONTROLLER_DEPLOYMENT} should exist"
+        avail = get_jsonpath(
+            kubectl,
+            "deployment",
+            LOCALMODEL_CONTROLLER_DEPLOYMENT,
+            "{.status.availableReplicas}",
+            namespace=NAMESPACE,
+        )
+        assert avail and int(avail) >= 1, (
+            f"{LOCALMODEL_CONTROLLER_DEPLOYMENT} availableReplicas should be >= 1, got '{avail}'"
+        )
+        assert resource_exists(
+            kubectl, "daemonset", LOCALMODEL_AGENT_DAEMONSET, namespace=NAMESPACE
+        ), f"DaemonSet {LOCALMODEL_AGENT_DAEMONSET} should exist"
+        ready = get_jsonpath(
+            kubectl,
+            "daemonset",
+            LOCALMODEL_AGENT_DAEMONSET,
+            "{.status.numberReady}",
+            namespace=NAMESPACE,
+        )
+        assert ready and int(ready) >= 1, (
+            f"{LOCALMODEL_AGENT_DAEMONSET} numberReady should be >= 1, got '{ready}'"
         )
 
 

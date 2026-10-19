@@ -17,7 +17,6 @@ limitations under the License.
 package tls
 
 import (
-	"context"
 	"crypto/tls"
 	"strings"
 	"testing"
@@ -156,7 +155,7 @@ func TestResolve(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := Resolve(context.Background(), nil, tt.minVersion, tt.cipherSuites)
+			tlsOpts, err := Resolve(tt.minVersion, tt.cipherSuites)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("Resolve() expected error containing %q, got nil", tt.errContains)
@@ -169,11 +168,11 @@ func TestResolve(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Resolve() unexpected error: %v", err)
 			}
-			if len(result) != 1 {
-				t.Fatalf("Resolve() returned %d TLSOpts, want 1", len(result))
+			if len(tlsOpts) != 1 {
+				t.Fatalf("Resolve() returned %d TLSOpts, want 1", len(tlsOpts))
 			}
 			cfg := &tls.Config{} //nolint:gosec // intentionally empty to test TLS opts
-			result[0](cfg)
+			tlsOpts[0](cfg)
 			if cfg.MinVersion != tt.wantMinVersion {
 				t.Errorf("MinVersion = %d, want %d", cfg.MinVersion, tt.wantMinVersion)
 			}

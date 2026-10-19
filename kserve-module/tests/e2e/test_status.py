@@ -6,14 +6,26 @@ SSA re-applies desired state before the readiness check runs, making it
 impossible to simulate in E2E.
 """
 
-import pytest
+import json
+import sys
 
+import pytest
 from conftest import (
-    MODEL_CONTROLLER_DEPLOYMENT,
-    get_cr,
+    LLMISVC_CONFIG_RESOURCE,
+    LLMISVC_DEPLOYMENT,
+    NAMESPACE,
+    PLATFORM_VERSION_CM,
+    TIMEOUT_120S,
     get_conditions,
-    operand_deployments,
+    get_cr,
+    get_jsonpath,
+    run,
+    wait_for,
 )
+
+# Env var name is specific to the platform-version transition test; kept local
+# rather than in conftest until another test needs it.
+LLMISVC_CONFIG_PREFIX_ENV = "LLM_INFERENCE_SERVICE_CONFIG_PREFIX"
 
 
 def _release_version(releases, name):
@@ -24,11 +36,56 @@ def _release_version(releases, name):
     return None
 
 
+def _version_prefix(version):
+    """Mirror reconciler getVersionPrefix: 2.20.0 -> v2-20-0."""
+    return "v" + version.replace(".", "-")
+
+
+def _expected_llmisvc_config_prefix(kubectl, platform_version):
+    """Mirror the reconciler's platform version fallback order."""
+    if not platform_version:
+        annotations = get_cr(kubectl).get("metadata", {}).get("annotations", {})
+        platform_version = annotations.get("platform.opendatahub.io/version", "0.0.0")
+    return f"{_version_prefix(platform_version)}-kserve-"
+
+
+def _set_platform_version(kubectl, version):
+    """Patch data.platformVersion on the odh-kserve-config ConfigMap."""
+    patch = json.dumps({"data": {"platformVersion": version}})
+    run(
+        [
+            kubectl,
+            "patch",
+            "configmap",
+            PLATFORM_VERSION_CM,
+            "-n",
+            NAMESPACE,
+            "--type",
+            "merge",
+            "-p",
+            patch,
+        ]
+    )
+
+
+def _llmisvc_config_prefixes(kubectl):
+    """Return config prefixes currently set on the LLMISVC containers."""
+    out = get_jsonpath(
+        kubectl, "deployment", LLMISVC_DEPLOYMENT,
+        "{.spec.template.spec.containers[*]"
+        f".env[?(@.name=='{LLMISVC_CONFIG_PREFIX_ENV}')].value}}",
+        namespace=NAMESPACE,
+    )
+    return out.split()
+
+
 @pytest.mark.sanity
 class TestStatusConditions:
     """Status condition reporting on a shared CR."""
 
-    def test_happy_path_all_conditions(self, kubectl, cluster_info, apply_kserve_cr):
+    def test_happy_path_all_conditions(
+        self, kubectl, cluster_info, apply_kserve_cr_with_external_dependencies
+    ):
         """All conditions report correctly after successful reconcile."""
         conditions = get_conditions(kubectl)
 
@@ -41,20 +98,23 @@ class TestStatusConditions:
         assert conditions["Degraded"]["status"] == "False"
         assert conditions["Degraded"]["reason"] == "NoDegradation"
 
-        if cluster_info.is_openshift:
-            assert conditions["ModelControllerReady"]["status"] == "True"
-            assert conditions["ModelControllerReady"]["reason"] == "AllDeploymentsAvailable"
+        assert conditions["ModelControllerReady"]["status"] == "True"
+        assert conditions["ModelControllerReady"]["reason"] == "AllDeploymentsAvailable"
 
         cr = get_cr(kubectl)
         assert cr["status"]["phase"] == "Ready"
         assert cr["status"]["observedGeneration"] == cr["metadata"]["generation"]
 
-    def test_releases_include_platform_version(self, kubectl, ensure_platform_configmap):
+    def test_releases_include_platform_version(
+        self, kubectl, ensure_platform_configmap
+    ):
         """status.releases includes a platform entry from the odh-kserve-config ConfigMap."""
         cr = get_cr(kubectl)
         releases = cr.get("status", {}).get("releases", [])
         release_names = {r["name"] for r in releases}
-        assert "platform" in release_names, f"expected 'platform' in releases, got {release_names}"
+        assert "platform" in release_names, (
+            f"expected 'platform' in releases, got {release_names}"
+        )
 
         platform = next(r for r in releases if r["name"] == "platform")
         assert platform["version"] != "", "platform version should not be empty"
@@ -64,8 +124,9 @@ class TestStatusConditions:
     ):
         """Real component_metadata lands on the CR (envtest only sees the fallback).
 
-        Asserts KServe (always) and, where omc is deployed, one runtime it contributes
-        (MLServer) as proof its metadata was loaded.
+        Asserts KServe (always) and, on OpenShift, one runtime omc contributes
+        (MLServer) as proof its metadata was loaded. On XKS omc is deployed but
+        does not install those runtimes, so they are excluded from status.releases.
         """
         cr = get_cr(kubectl)
         releases = cr.get("status", {}).get("releases", [])
@@ -75,8 +136,174 @@ class TestStatusConditions:
         assert kserve_version is not None, f"expected 'KServe' in releases, got {names}"
         assert kserve_version != "", "KServe version should not be empty"
 
-        # Gate on omc being deployed, not on OpenShift — omc runs on XKS too (PR #1798).
-        if MODEL_CONTROLLER_DEPLOYMENT in operand_deployments(cluster_info.is_openshift):
-            mlserver_version = _release_version(releases, "MLServer")
+        # omc runtime metadata (MLServer, OVMS, ...) is loaded only on OpenShift.
+        # On XKS omc runs but installs no runtimes, so they are dropped from
+        # status.releases (see setReleaseStatus).
+        mlserver_version = _release_version(releases, "MLServer")
+        if cluster_info.is_openshift:
             assert mlserver_version is not None, f"expected 'MLServer' in releases, got {names}"
             assert mlserver_version != "", "MLServer version should not be empty"
+        else:
+            assert mlserver_version is None, f"MLServer should be excluded on XKS, got {names}"
+
+
+# Upgrade path under test: baseline A, then bump to B, asserting propagation
+# after each step so the transition itself is exercised, not just an end state.
+_VERSION_A = "2.19.0"
+_VERSION_B = "2.20.0"
+
+
+def _set_and_assert_propagated(kubectl, version):
+    """Patch platformVersion and wait until it reaches the release and the env."""
+    expected_env = f"{_version_prefix(version)}-kserve-"
+
+    # The ConfigMap is watched (no generation predicate), so a data change
+    # triggers reconcile on its own.
+    _set_platform_version(kubectl, version)
+
+    def assert_release_updated():
+        releases = get_cr(kubectl).get("status", {}).get("releases", [])
+        assert _release_version(releases, "platform") == version, (
+            f"platform release version not {version}"
+        )
+
+    wait_for(assert_release_updated, timeout=TIMEOUT_120S, interval=5)
+
+    def assert_env_updated():
+        # The env is written to every container, and the real container
+        # name is not known here, so filter on the env name only.
+        vals = _llmisvc_config_prefixes(kubectl)
+        assert vals, f"{LLMISVC_CONFIG_PREFIX_ENV} not set on {LLMISVC_DEPLOYMENT}"
+        assert all(v == expected_env for v in vals), (
+            f"expected all {LLMISVC_CONFIG_PREFIX_ENV}={expected_env}, got {vals}"
+        )
+
+    wait_for(assert_env_updated, timeout=TIMEOUT_120S, interval=5)
+
+    def assert_presets_versioned():
+        # Well-known presets are renamed to <prefix>-<name> on a version change,
+        # so a new prefix means new preset objects appear. (Stale-prefix presets
+        # are not pruned, so we only assert the new prefix is present.)
+        name_prefix = f"{_version_prefix(version)}-"
+        result = run(
+            [
+                kubectl,
+                "get",
+                LLMISVC_CONFIG_RESOURCE,
+                "-n",
+                NAMESPACE,
+                "-o",
+                "jsonpath={.items[*].metadata.name}",
+            ]
+        )
+        names = result.stdout.split()
+        assert any(n.startswith(name_prefix) for n in names), (
+            f"no {LLMISVC_CONFIG_RESOURCE} with prefix {name_prefix}, got {names}"
+        )
+
+    wait_for(assert_presets_versioned, timeout=TIMEOUT_120S, interval=5)
+
+
+def _wait_for_llmisvc_rollout(kubectl):
+    """Wait for the LLMISVC webhook deployment after changing its env."""
+    run(
+        [
+            kubectl,
+            "rollout",
+            "status",
+            f"deployment/{LLMISVC_DEPLOYMENT}",
+            "-n",
+            NAMESPACE,
+            f"--timeout={TIMEOUT_120S}s",
+        ],
+        timeout=TIMEOUT_120S + 10,
+    )
+
+
+def _wait_for_llmisvc_restore(kubectl, expected_prefix):
+    """Wait for the restored env to reach the Deployment before its rollout."""
+
+    def assert_env_restored():
+        prefixes = _llmisvc_config_prefixes(kubectl)
+        assert prefixes and all(prefix == expected_prefix for prefix in prefixes), (
+            f"expected restored {LLMISVC_CONFIG_PREFIX_ENV}={expected_prefix}, "
+            f"got {prefixes}"
+        )
+
+    wait_for(assert_env_restored, timeout=TIMEOUT_120S, interval=5)
+    _wait_for_llmisvc_rollout(kubectl)
+
+
+@pytest.mark.parametrize(
+    ("platform_version", "annotations", "expected"),
+    [
+        (
+            "2.20.0",
+            {"platform.opendatahub.io/version": "99.0.0"},
+            "v2-20-0-kserve-",
+        ),
+        (
+            "",
+            {"platform.opendatahub.io/version": "99.0.0"},
+            "v99-0-0-kserve-",
+        ),
+        ("", {}, "v0-0-0-kserve-"),
+    ],
+)
+def test_expected_llmisvc_config_prefix_follows_reconciler_precedence(
+    monkeypatch, platform_version, annotations, expected
+):
+    monkeypatch.setattr(
+        "test_status.get_cr",
+        lambda _: {"metadata": {"annotations": annotations}},
+    )
+
+    assert _expected_llmisvc_config_prefix("kubectl", platform_version) == expected
+
+
+@pytest.mark.sanity
+class TestPlatformVersionTransition:
+    """A platformVersion change propagates to status.releases and the llmisvc env.
+
+    The orchestrator reads status.releases to detect the module version and pick
+    an upgrade mode, so a stuck platform version breaks upgrade orchestration.
+    """
+
+    def test_platform_version_change_propagates(
+        self, kubectl, ensure_platform_configmap
+    ):
+        """A platformVersion upgrade (2.19.0 -> 2.20.0) propagates to the release and env."""
+        original = get_jsonpath(
+            kubectl,
+            "configmap",
+            PLATFORM_VERSION_CM,
+            "{.data.platformVersion}",
+            namespace=NAMESPACE,
+        )
+        original_prefix = _expected_llmisvc_config_prefix(kubectl, original)
+        try:
+            # Set baseline A, then upgrade to B. A->B is the real transition;
+            # step A is a no-op if the cluster already holds A.
+            _set_and_assert_propagated(kubectl, _VERSION_A)
+            _set_and_assert_propagated(kubectl, _VERSION_B)
+        finally:
+            active_exception = sys.exc_info()[1]
+            try:
+                # Restore the pre-test value; if there was none, remove the key
+                # rather than leaving an empty version behind.
+                if original:
+                    _set_platform_version(kubectl, original)
+                else:
+                    run([
+                        kubectl, "patch", "configmap", PLATFORM_VERSION_CM,
+                        "-n", NAMESPACE, "--type", "merge", "-p",
+                        json.dumps({"data": {"platformVersion": None}}),
+                    ])
+                _wait_for_llmisvc_restore(kubectl, original_prefix)
+            except Exception as cleanup_error:
+                if active_exception is None:
+                    raise
+                print(
+                    f"Platform version test cleanup failed: {cleanup_error}",
+                    file=sys.stderr,
+                )

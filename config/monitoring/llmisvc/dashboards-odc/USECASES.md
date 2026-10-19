@@ -58,7 +58,7 @@ If all are green, the cluster is healthy. Move on.
 |---|---|---|
 | CH: LLMInferenceServices | 1 | `cluster:usage:resources:sum{resource="llminferenceservices.serving.kserve.io"} or vector(0)` |
 | CH: LLMInferenceServiceConfigs | 2 | `cluster:usage:resources:sum{resource="llminferenceserviceconfigs.serving.kserve.io"} or vector(0)` |
-| CH: Ready Pods | 4 | `sum(inference_pool_ready_pods{namespace=~"$namespace"}) or vector(0)` |
+| CH: Ready Pods | 4 | `sum(llm_d_epp_ready_endpoints{namespace=~"$namespace"}) or vector(0)` |
 
 **SLI Summary (serving health):**
 
@@ -145,8 +145,8 @@ The **Queue Time vs Inference Time P95** panel directly answers this:
 |---|---|---|
 | MP: Queue Time vs Inference Time (P95) | 131 | Queue: `histogram_quantile(0.95, sum(rate(vllm:request_queue_time_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le))` |
 | | | Inference: `histogram_quantile(0.95, sum(rate(vllm:request_inference_time_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le))` |
-| MP: Scheduler Queue Depth | 132 | `inference_pool_average_queue_size{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}` |
-| | | `inference_pool_per_pod_queue_size{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}` |
+| MP: Scheduler Queue Depth | 132 | `llm_d_epp_average_queue_size{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}` |
+| | | `llm_d_epp_per_endpoint_queue_size{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}` |
 
 The **Latency: Scheduler vs Engine** row provides a complementary view:
 
@@ -154,7 +154,7 @@ The **Latency: Scheduler vs Engine** row provides a complementary view:
 |---|---|---|
 | MP: TTFT P99: Scheduler vs Engine | 141 | Scheduler: `histogram_quantile(0.99, sum(rate(llm_d_epp_request_ttft_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le, model_name))` |
 | | | Engine: `histogram_quantile(0.99, sum(rate(vllm:time_to_first_token_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le))` |
-| MP: TPOT P99: Scheduler vs Engine | 142 | Scheduler: `histogram_quantile(0.99, sum(rate(inference_objective_normalized_time_per_output_token_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le, model_name))` |
+| MP: TPOT P99: Scheduler vs Engine | 142 | Scheduler: `histogram_quantile(0.99, sum(rate(llm_d_epp_request_ntpot_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le, model_name))` |
 | | | Engine: `histogram_quantile(0.99, sum(rate(vllm:time_per_output_token_seconds_bucket{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (le))` |
 
 The delta between Scheduler (E2E) and Engine (vLLM) reveals scheduling/routing overhead.
@@ -294,7 +294,7 @@ Then drill into functional area attribution:
 | FD: vLLM Request Outcomes | 2 | Aborted: `sum(rate(vllm:request_success_total{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace",finished_reason="abort"}[5m]))` |
 | | | Stop: `sum(rate(vllm:request_success_total{...,finished_reason="stop"}[5m]))` |
 | | | Length: `sum(rate(vllm:request_success_total{...,finished_reason="length"}[5m]))` |
-| FD: Scheduler Errors by Error Code | 12 | `sum by (error_code) (rate(inference_objective_request_error_total{namespace=~"$namespace"}[5m]))` |
+| FD: Scheduler Errors by Error Code | 12 | `sum by (error_code) (rate(llm_d_epp_request_error_total{namespace=~"$namespace"}[5m]))` |
 
 **Functional Area Attribution:**
 
@@ -344,7 +344,7 @@ For scheduler-side verification: Failure & Diagnostics → **Prefix Indexer Size
 | MP: Prefix Cache Hit Rate | 121 | `100 * (sum(rate(vllm:prefix_cache_hits_total{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) / (sum(rate(vllm:prefix_cache_queries_total{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) > 0))` |
 | MP: Preemptions Rate | 122 | `sum(rate(vllm:num_preemptions_total{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) by (llm_isvc_component)` |
 | FD: Prefix Cache Hit Rate | 8 | `100 * (sum(rate(vllm:prefix_cache_hits_total{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) / (sum(rate(vllm:prefix_cache_queries_total{llm_isvc_name=~"$llm_isvc_name",namespace=~"$namespace"}[5m])) > 0))` |
-| FD: Prefix Indexer Size | 9 | `inference_extension_prefix_indexer_size{namespace=~"$namespace"}` |
+| FD: Prefix Indexer Size | 9 | `llm_d_epp_prefix_indexer_size{namespace=~"$namespace"}` |
 
 ---
 
@@ -383,10 +383,10 @@ For scheduler-side verification: Failure & Diagnostics → **Prefix Indexer Size
 
 | Panel | ID | Query |
 |---|---|---|
-| FD: Scheduling Attempt Success Rate | 13 | `sum by (status) (rate(inference_extension_scheduler_attempts_total{namespace=~"$namespace"}[5m]))` |
-| FD: EPP Scheduling Latency P99 | 14 | `histogram_quantile(0.99, sum by (le) (rate(inference_extension_scheduler_e2e_duration_seconds_bucket{namespace=~"$namespace"}[5m])))` |
-| FD: Plugin Processing Latency P99 | 15 | `histogram_quantile(0.99, sum by (le, plugin_type) (rate(inference_extension_plugin_duration_seconds_bucket{namespace=~"$namespace"}[5m])))` |
-| FD: Flow Control Queue Duration P99 | 16 | `histogram_quantile(0.99, sum by (le) (rate(inference_extension_flow_control_request_queue_duration_seconds_bucket{namespace=~"$namespace"}[5m])))` |
+| FD: Scheduling Attempt Success Rate | 13 | `sum by (status) (rate(llm_d_epp_scheduler_attempts_total{namespace=~"$namespace"}[5m]))` |
+| FD: EPP Scheduling Latency P99 | 14 | `histogram_quantile(0.99, sum by (le) (rate(llm_d_epp_scheduler_e2e_duration_seconds_bucket{namespace=~"$namespace"}[5m])))` |
+| FD: Plugin Processing Latency P99 | 15 | `histogram_quantile(0.99, sum by (le, plugin_type) (rate(llm_d_epp_plugin_duration_seconds_bucket{namespace=~"$namespace"}[5m])))` |
+| FD: Flow Control Queue Duration P99 | 16 | `histogram_quantile(0.99, sum by (le) (rate(llm_d_epp_flow_control_request_queue_duration_seconds_bucket{namespace=~"$namespace"}[5m])))` |
 
 ---
 
@@ -453,7 +453,7 @@ Shows seconds since last metric scrape per model server. Warning at 60s, critica
 
 **Dashboard**: Cluster Health Overview → SLO & Scheduler Signals row
 
-- **SLO Violations** — tracks `inference_objective_request_slo_violation_total` against configured objectives
+- **SLO Violations** — tracks `llm_d_epp_request_slo_violation_total` against configured objectives
 - **Scheduler Error Rate by Model** — errors at the scheduling layer (distinct from vLLM-level errors)
 - **Pool Saturation** — how close the pool is to capacity limits
 
@@ -461,11 +461,11 @@ Shows seconds since last metric scrape per model server. Warning at 60s, critica
 
 | Panel | ID | Query |
 |---|---|---|
-| CH: SLO Violations by Type | 13 | `sum by(model_name, type) (rate(inference_objective_request_slo_violation_total{namespace=~"$namespace"}[5m]))` |
-| CH: Scheduler Error Rate by Model | 14 | `100 * (sum by(model_name) (rate(inference_objective_request_error_total{namespace=~"$namespace"}[5m])) / (sum by(model_name) (rate(inference_objective_request_total{namespace=~"$namespace"}[5m])) > 0))` |
-| CH: Running Requests by Model (Scheduler) | 15 | `sum by(model_name) (inference_objective_running_requests{namespace=~"$namespace"})` |
-| CH: Pool Saturation (Flow Control) | 16 | `inference_extension_flow_control_pool_saturation{namespace=~"$namespace"}` |
-| CH: Scheduler Request Rate by Model | 17 | `sum by(model_name, target_model_name) (rate(inference_objective_request_total{namespace=~"$namespace"}[5m]))` |
+| CH: SLO Violations by Type | 13 | `sum by(model_name, type) (rate(llm_d_epp_request_slo_violation_total{namespace=~"$namespace"}[5m]))` |
+| CH: Scheduler Error Rate by Model | 14 | `100 * (sum by(model_name) (rate(llm_d_epp_request_error_total{namespace=~"$namespace"}[5m])) / (sum by(model_name) (rate(llm_d_epp_request_total{namespace=~"$namespace"}[5m])) > 0))` |
+| CH: Running Requests by Model (Scheduler) | 15 | `sum by(model_name) (llm_d_epp_request_running{namespace=~"$namespace"})` |
+| CH: Pool Saturation (Flow Control) | 16 | `llm_d_epp_flow_control_pool_saturation{namespace=~"$namespace",stage="effective"}` |
+| CH: Scheduler Request Rate by Model | 17 | `sum by(model_name, target_model_name) (rate(llm_d_epp_request_total{namespace=~"$namespace"}[5m]))` |
 
 The `model_name` label is the model name from the client request (the `model` field in the OpenAI API request). `target_model_name` is the model the request was actually routed to after InferenceModel rewrite rules.
 
