@@ -608,6 +608,7 @@ type mockClientForAuthProxyDetection struct {
 	kclient.Client
 	existingDeployment      *appsv1.Deployment
 	deploymentNotFound      bool
+	deploymentPatches       int
 	inferenceServiceGets    int
 	patchedInferenceService *v1beta1.InferenceService
 }
@@ -1125,6 +1126,90 @@ func TestPreservedKubeRbacProxyUpdatesUpstreamForLogger(t *testing.T) {
 	}
 	require.NotNil(t, proxy)
 	assert.Contains(t, proxy.Args, "--upstream=http://localhost:9081")
+}
+
+func TestDeploymentReconcilerUnchangedTopologyDoesNotPatchDeployment(t *testing.T) {
+	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      constants.InferenceServiceConfigMapName,
+			Namespace: constants.KServeNamespace,
+		},
+		Data: map[string]string{oauthProxyISVCConfigKey: oauthProxyConfig},
+	})
+
+	componentMeta := metav1.ObjectMeta{
+		Name:      "test-predictor",
+		Namespace: "test-ns",
+		Annotations: map[string]string{
+			constants.ODHKserveRawAuth: "true",
+		},
+		Labels: map[string]string{
+			constants.InferenceServicePodLabelKey: "test-isvc",
+		},
+	}
+	componentExt := &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}}
+	podSpec := &corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Name:  constants.InferenceServiceContainerName,
+				Image: "test-image",
+				Ports: []corev1.ContainerPort{{ContainerPort: 8888}},
+			},
+		},
+	}
+	ctx := isvcutils.WithInferenceServiceReconcile(t.Context())
+
+	initialClient := &mockClientForAuthProxyDetection{deploymentNotFound: true}
+	initialReconciler, err := NewDeploymentReconciler(
+		ctx,
+		initialClient,
+		clientset,
+		nil,
+		componentMeta,
+		metav1.ObjectMeta{},
+		componentExt,
+		podSpec,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, initialReconciler.DeploymentList, 1)
+	initialDeployment := initialReconciler.DeploymentList[0].DeepCopy()
+	var initialProxy *corev1.Container
+	for i := range initialDeployment.Spec.Template.Spec.Containers {
+		container := &initialDeployment.Spec.Template.Spec.Containers[i]
+		if container.Name == constants.KubeRbacContainerName || container.Name == constants.OauthProxyContainerName {
+			initialProxy = container
+			break
+		}
+	}
+	require.NotNil(t, initialProxy)
+	assert.Contains(t, initialProxy.Args, "--upstream=http://localhost:9081")
+
+	reconcileClient := &mockClientForAuthProxyDetection{existingDeployment: initialDeployment}
+	reconciler, err := NewDeploymentReconciler(
+		ctx,
+		reconcileClient,
+		clientset,
+		nil,
+		componentMeta,
+		metav1.ObjectMeta{},
+		componentExt,
+		podSpec,
+		nil,
+		nil,
+	)
+	require.NoError(t, err)
+	require.Len(t, reconciler.DeploymentList, 1)
+
+	assert.Equal(t, initialDeployment.Spec, reconciler.DeploymentList[0].Spec)
+
+	reconciledDeployments, err := reconciler.Reconcile(ctx)
+	require.NoError(t, err)
+	require.Len(t, reconciledDeployments, 1)
+	assert.Equal(t, initialDeployment.Name, reconciledDeployments[0].Name)
+	assert.Zero(t, reconcileClient.deploymentPatches,
+		"an unchanged topology must take the CheckResultExisted path")
 }
 
 func TestPreservedAuthProxyKeepsCustomUpstream(t *testing.T) {
@@ -2650,6 +2735,9 @@ func (m *mockClientForAuthProxyDetection) Create(ctx context.Context, obj kclien
 }
 
 func (m *mockClientForAuthProxyDetection) Patch(ctx context.Context, obj kclient.Object, patch kclient.Patch, opts ...kclient.PatchOption) error {
+	if _, ok := obj.(*appsv1.Deployment); ok {
+		m.deploymentPatches++
+	}
 	if isvc, ok := obj.(*v1beta1.InferenceService); ok {
 		m.patchedInferenceService = isvc.DeepCopy()
 	}
