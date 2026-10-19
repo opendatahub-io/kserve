@@ -125,21 +125,30 @@ func applyExpectedManagedProxyTLS(expected *appsv1.Deployment, reader client.Rea
 	if err != nil {
 		return fmt.Errorf("resolve expected auth-proxy TLS arguments: %w", err)
 	}
-	args := make([]string, 0, len(proxy.Args)+3)
+	tlsArgs := []string{"--tls-min-version=" + workloadTLS.MinVersion}
+	if workloadTLS.CipherSuites != "" {
+		tlsArgs = append(tlsArgs, "--tls-cipher-suites="+workloadTLS.CipherSuites)
+	}
+	if workloadTLS.CurveIDs != "" {
+		tlsArgs = append(tlsArgs, "--tls-curve-preferences="+workloadTLS.CurveIDs)
+	}
+
+	args := make([]string, 0, len(proxy.Args)+len(tlsArgs))
+	insertedTLSArgs := false
 	for _, arg := range proxy.Args {
 		if strings.HasPrefix(arg, "--tls-min-version=") ||
 			strings.HasPrefix(arg, "--tls-cipher-suites=") ||
 			strings.HasPrefix(arg, "--tls-curve-preferences=") {
+			if !insertedTLSArgs {
+				args = append(args, tlsArgs...)
+				insertedTLSArgs = true
+			}
 			continue
 		}
 		args = append(args, arg)
 	}
-	args = append(args, "--tls-min-version="+workloadTLS.MinVersion)
-	if workloadTLS.CipherSuites != "" {
-		args = append(args, "--tls-cipher-suites="+workloadTLS.CipherSuites)
-	}
-	if workloadTLS.CurveIDs != "" {
-		args = append(args, "--tls-curve-preferences="+workloadTLS.CurveIDs)
+	if !insertedTLSArgs {
+		args = append(args, tlsArgs...)
 	}
 	proxy.Args = args
 	if expected.Spec.Template.Annotations == nil {

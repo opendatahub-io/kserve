@@ -4644,6 +4644,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedPredictorDeployment, k8sClient)).To(Succeed())
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check transformer deployment
@@ -4731,6 +4732,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedTransformerDeployment, k8sClient)).To(Succeed())
 			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
 
 			// check predictor service
@@ -5425,6 +5427,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedPredictorDeployment, k8sClient)).To(Succeed())
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check Explainer deployment
@@ -6592,6 +6595,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedPredictorDeployment, k8sClient)).To(Succeed())
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check transformer deployment
@@ -6679,6 +6683,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedTransformerDeployment, k8sClient)).To(Succeed())
 			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
 
 			// check predictor service
@@ -7422,6 +7427,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedPredictorDeployment, k8sClient)).To(Succeed())
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check Explainer deployment
