@@ -1,6 +1,6 @@
 # Build the manager binary
 FROM registry.access.redhat.com/ubi9/go-toolset:1.26 AS builder
-ENV GOTOOLCHAIN=auto
+ENV GOTOOLCHAIN=auto GODEBUG=http2client=0
 
 # Copy in the go src
 WORKDIR /go/src/github.com/kserve/kserve

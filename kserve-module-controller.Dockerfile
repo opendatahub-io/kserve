@@ -1,6 +1,6 @@
 # Build the manager binary
 FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
-ENV GOTOOLCHAIN=auto
+ENV GOTOOLCHAIN=auto GODEBUG=http2client=0
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
 USER root

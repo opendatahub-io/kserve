@@ -1,5 +1,6 @@
 # Build the KernelCacheNode agent.
 FROM golang:1.26.8 AS deps
+ENV GODEBUG=http2client=0
 
 WORKDIR /go/src/github.com/kserve/kserve
 COPY go.mod go.mod

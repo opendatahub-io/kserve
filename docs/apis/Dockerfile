@@ -7,7 +7,7 @@ RUN git clone https://github.com/ahmetb/gen-crd-api-reference-docs
 
 WORKDIR gen-crd-api-reference-docs
 
-RUN go build
+RUN GODEBUG=http2client=0 go build
 
 VOLUME /go/gen-crd-api-reference-docs/apidocs
 

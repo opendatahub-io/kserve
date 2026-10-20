@@ -1,6 +1,6 @@
 # Build the manager binary
 FROM registry.access.redhat.com/ubi9/go-toolset:1.26 AS deps
-ENV GOTOOLCHAIN=auto
+ENV GOTOOLCHAIN=auto GODEBUG=http2client=0
 # distro: UBI go-toolset does not add GOPATH/bin to PATH
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
