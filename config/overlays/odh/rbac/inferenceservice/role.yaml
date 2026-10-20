@@ -19,7 +19,27 @@ rules:
 - apiGroups:
   - rbac.authorization.k8s.io
   resources:
+  - clusterrolebindings
   - rolebindings
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
+  - rbac.authorization.k8s.io
+  resourceNames:
+  - system:auth-delegator
+  resources:
+  - clusterroles
+  verbs:
+  - bind
+- apiGroups:
+  - route.openshift.io
+  resources:
+  - routes
   verbs:
   - create
   - delete
@@ -30,11 +50,9 @@ rules:
 - apiGroups:
   - route.openshift.io
   resources:
-  - routes
+  - routes/status
   verbs:
   - get
-  - list
-  - watch
 - apiGroups:
   - security.openshift.io
   resourceNames:
