@@ -22,6 +22,9 @@
 !tools/
 !qpext/
 !kernelcache/
+!hack/
+hack/*
+!hack/retry.sh
 
 # License (used by go-licenses in all builds)
 !LICENSE

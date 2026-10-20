@@ -13,6 +13,8 @@ jobs:
   precommit-check:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      GODEBUG: http2client=0
     steps:
       - name: Checkout source code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -49,11 +51,12 @@ jobs:
             libassuan-dev \
             libgpg-error-dev
 
-      - name: Install dependencies
+      - name: Install dependencies and helm-docs
         run: |
-          go mod download
-          (cd qpext && go mod download)
-          (cd kernelcache/mcv && go mod download)
+          ./hack/retry.sh go mod download
+          (cd qpext && ../hack/retry.sh go mod download)
+          (cd kernelcache/mcv && ../../hack/retry.sh go mod download)
+          ./hack/retry.sh make helm-docs
 
       - name: Cache openapi-generator JAR
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
