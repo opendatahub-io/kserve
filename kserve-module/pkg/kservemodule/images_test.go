@@ -54,6 +54,70 @@ func TestConfidentialStorageHelperImage_RenderedFromParams(t *testing.T) {
 	}
 }
 
+func TestDefaultAndMultiPortPresetImages_RenderedFromOperatorParams(t *testing.T) {
+	const vllmImage = "registry.example.com/vllm@sha256:1111111111111111111111111111111111111111111111111111111111111111"
+	const sidecarImage = "registry.example.com/sidecar@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	const defaultDecodePreset = "kserve-config-llm-decode-worker-data-parallel"
+	const defaultPrefillPreset = "kserve-config-llm-prefill-worker-data-parallel"
+	const decodePreset = "kserve-config-llm-decode-worker-data-parallel-multi-port"
+	const prefillPreset = "kserve-config-llm-prefill-worker-data-parallel-multi-port"
+
+	type imageTarget struct {
+		preset    string
+		path      []string
+		container string
+		image     string
+	}
+	targets := []imageTarget{
+		{defaultDecodePreset, []string{"spec", "template", "containers"}, "main", vllmImage},
+		{defaultDecodePreset, []string{"spec", "worker", "containers"}, "main", vllmImage},
+		{defaultPrefillPreset, []string{"spec", "prefill", "template", "containers"}, "main", vllmImage},
+		{defaultPrefillPreset, []string{"spec", "prefill", "worker", "containers"}, "main", vllmImage},
+		{decodePreset, []string{"spec", "template", "containers"}, "main", vllmImage},
+		{decodePreset, []string{"spec", "worker", "containers"}, "main", vllmImage},
+		{decodePreset, []string{"spec", "template", "initContainers"}, "llm-d-routing-sidecar", sidecarImage},
+		{decodePreset, []string{"spec", "worker", "initContainers"}, "llm-d-routing-sidecar", sidecarImage},
+		{prefillPreset, []string{"spec", "prefill", "template", "containers"}, "main", vllmImage},
+		{prefillPreset, []string{"spec", "prefill", "worker", "containers"}, "main", vllmImage},
+	}
+
+	for _, overlayName := range []string{"odh", "odh-xks"} {
+		t.Run(overlayName, func(t *testing.T) {
+			g := NewWithT(t)
+			configDir := filepath.Join(t.TempDir(), "config")
+			g.Expect(os.CopyFS(configDir, os.DirFS("../../../config"))).To(Succeed())
+			t.Setenv("RELATED_IMAGE_RHAII_VLLM_CUDA_IMAGE", vllmImage)
+			t.Setenv("RELATED_IMAGE_ODH_LLM_D_ROUTER_DISAGG_SIDECAR_IMAGE", sidecarImage)
+			g.Expect(applyParams(filepath.Join(configDir, "overlays", "odh"), kserveImageParamMap)).To(Succeed())
+
+			resources, err := kustomize.Render(filepath.Join(configDir, "overlays", overlayName), nil)
+			g.Expect(err).NotTo(HaveOccurred())
+			found := make([]bool, len(targets))
+			for _, resource := range resources {
+				if resource.GetKind() != "LLMInferenceServiceConfig" {
+					continue
+				}
+				for i, target := range targets {
+					if resource.GetName() != target.preset {
+						continue
+					}
+					containers, exists, err := unstructured.NestedSlice(resource.Object, target.path...)
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(exists).To(BeTrue(), "%s is missing %v", target.preset, target.path)
+					g.Expect(containers).To(ContainElement(SatisfyAll(
+						HaveKeyWithValue("name", target.container),
+						HaveKeyWithValue("image", target.image),
+					)), "%s %v must use the configured image", target.preset, target.path)
+					found[i] = true
+				}
+			}
+			for i, exists := range found {
+				g.Expect(exists).To(BeTrue(), "%s missing from rendered overlay", targets[i].preset)
+			}
+		})
+	}
+}
+
 func TestKserveImageParamMap_AllValuesAreRelatedImage(t *testing.T) {
 	g := NewWithT(t)
 	for key, val := range kserveImageParamMap {

@@ -144,6 +144,18 @@ replacements:
     fieldPaths:
     - spec.prefill.template.containers.[name=main].image
     - spec.prefill.worker.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-worker-data-parallel-multi-port
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.worker.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-prefill-worker-data-parallel-multi-port
+    fieldPaths:
+    - spec.prefill.template.containers.[name=main].image
+    - spec.prefill.worker.containers.[name=main].image
 # Replace scheduler image with ODH image
 - source:
     kind: ConfigMap
@@ -182,6 +194,12 @@ replacements:
       name: kserve-config-llm-decode-worker-data-parallel
     fieldPaths:
     - spec.template.initContainers.[name=llm-d-routing-sidecar].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-worker-data-parallel-multi-port
+    fieldPaths:
+    - spec.template.initContainers.[name=llm-d-routing-sidecar].image
+    - spec.worker.initContainers.[name=llm-d-routing-sidecar].image
 - source:
     kind: ConfigMap
     name: kserve-parameters

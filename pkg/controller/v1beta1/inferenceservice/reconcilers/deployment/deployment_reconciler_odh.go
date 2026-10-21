@@ -42,6 +42,7 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
+	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
 const (
@@ -221,6 +222,10 @@ func (r *DeploymentReconciler) customizeAuthProxy(ctx context.Context,
 	refreshPreservedSARConfig := false
 	if shouldAddAuthProxy {
 		auditConfigChanged := platformAuthProxyNeedsUpdate(auditLoggingProfile, manageAuditLogging, existingDeployment, componentMeta, isvcname)
+		tlsConfigChanged, err := platformAuthProxyTLSNeedsUpdate(ctx, r.client, existingDeployment, existingProxyType)
+		if err != nil {
+			return false, err
+		}
 		wantsMigration := false
 		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
 			wantsMigration = val == constants.KubeRbacProxyType
@@ -251,12 +256,24 @@ func (r *DeploymentReconciler) customizeAuthProxy(ctx context.Context,
 					configuredKubeRbacImage = oauthConfig.Image
 				}
 				configuredImageMatches := configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage
-				if auditConfigChanged {
+				switch {
+				case auditConfigChanged:
 					err := addOauthContainerToDeployment(ctx, r.client, r.clientset, oauthConfig, headDeployment, componentMeta, r.componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
 					if err != nil {
 						return false, err
 					}
-				} else {
+				case tlsConfigChanged && configuredImageMatches:
+					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
+					workloadTLS, err := distrotls.ResolveWorkloadArgs(ctx, r.client)
+					if err != nil {
+						return false, err
+					}
+					if err := setManagedAuthProxyTLSArgs(headDeployment, desiredAuthProxyTLSArgs(workloadTLS)); err != nil {
+						return false, err
+					}
+					authProxyReused = true
+					refreshPreservedSARConfig = true
+				default:
 					log.Info("Preserving existing auth proxy container",
 						"isvc", isvcname, "type", existingProxyType,
 						"existingImage", existingProxyImage, "configImage", configuredKubeRbacImage)
@@ -362,6 +379,10 @@ func addOauthContainerToDeployment(ctx context.Context,
 	}
 	oauthProxyContainer.Args = customizeAuthProxyArgs(auditLoggingProfile, manageAuditLogging, componentMeta, oauthProxyContainer.Args, isvcName)
 	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
+	if deployment.Spec.Template.Annotations == nil {
+		deployment.Spec.Template.Annotations = make(map[string]string)
+	}
+	deployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
 	// ODH override. See: https://issues.redhat.com/browse/RHOAIENG-19904
 	updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
 	updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
@@ -425,6 +446,17 @@ func generateOauthProxyContainer(ctx context.Context, client kclient.Client, cli
 		// Defines the SAR
 		`--config-file=/etc/kube-rbac-proxy/config-file.yaml`,
 		`--v=4`,
+	}
+	workloadTLS, err := distrotls.ResolveWorkloadArgs(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, "--tls-min-version="+workloadTLS.MinVersion)
+	if workloadTLS.CipherSuites != "" {
+		args = append(args, "--tls-cipher-suites="+workloadTLS.CipherSuites)
+	}
+	if workloadTLS.CurveIDs != "" {
+		args = append(args, "--tls-curve-preferences="+workloadTLS.CurveIDs)
 	}
 	if oauthUpstreamTimeout != "" {
 		if _, err = strconv.ParseInt(oauthUpstreamTimeout, 10, 64); err != nil {
@@ -596,6 +628,12 @@ func copyAuthProxyFromExisting(existing, desired *appsv1.Deployment, containerNa
 	}
 	if authProxyContainer == nil {
 		return
+	}
+	if existing.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] == "true" {
+		if desired.Spec.Template.Annotations == nil {
+			desired.Spec.Template.Annotations = make(map[string]string)
+		}
+		desired.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
 	}
 
 	desiredSpec.Containers = append(desiredSpec.Containers, *authProxyContainer)
@@ -840,6 +878,77 @@ func platformAuthProxyNeedsUpdate(profile constants.AuditLoggingProfile, manage 
 		}
 	}
 	return false
+}
+
+func platformAuthProxyTLSNeedsUpdate(ctx context.Context, reader kclient.Reader, existing *appsv1.Deployment, proxyType string) (bool, error) {
+	if existing == nil || proxyType != constants.KubeRbacContainerName ||
+		existing.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] != "true" {
+		return false, nil
+	}
+	desired, err := distrotls.ResolveWorkloadArgs(ctx, reader)
+	if err != nil {
+		return false, err
+	}
+	want := desiredAuthProxyTLSArgs(desired)
+	for _, container := range existing.Spec.Template.Spec.Containers {
+		if container.Name == proxyType {
+			return !sameArgs(managedAuthProxyTLSArgs(container.Args), want), nil
+		}
+	}
+	return false, nil
+}
+
+func desiredAuthProxyTLSArgs(desired distrotls.WorkloadTLSArgs) []string {
+	args := []string{"--tls-min-version=" + desired.MinVersion}
+	if desired.CipherSuites != "" {
+		args = append(args, "--tls-cipher-suites="+desired.CipherSuites)
+	}
+	if desired.CurveIDs != "" {
+		args = append(args, "--tls-curve-preferences="+desired.CurveIDs)
+	}
+	return args
+}
+
+func setManagedAuthProxyTLSArgs(deployment *appsv1.Deployment, desired []string) error {
+	if deployment == nil {
+		return errors.New("deployment is nil while updating auth proxy TLS args")
+	}
+	for i := range deployment.Spec.Template.Spec.Containers {
+		container := &deployment.Spec.Template.Spec.Containers[i]
+		if container.Name != constants.KubeRbacContainerName {
+			continue
+		}
+		updated := make([]string, 0, len(container.Args)+len(desired))
+		for _, arg := range container.Args {
+			if !isManagedAuthProxyTLSArg(arg) {
+				updated = append(updated, arg)
+			}
+		}
+		updated = append(updated, desired...)
+		container.Args = updated
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = make(map[string]string)
+		}
+		deployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
+		return nil
+	}
+	return fmt.Errorf("container %q not found while updating auth proxy TLS args", constants.KubeRbacContainerName)
+}
+
+func isManagedAuthProxyTLSArg(arg string) bool {
+	return strings.HasPrefix(arg, "--tls-min-version=") ||
+		strings.HasPrefix(arg, "--tls-cipher-suites=") ||
+		strings.HasPrefix(arg, "--tls-curve-preferences=")
+}
+
+func managedAuthProxyTLSArgs(args []string) []string {
+	managed := make([]string, 0, 3)
+	for _, arg := range args {
+		if isManagedAuthProxyTLSArg(arg) {
+			managed = append(managed, arg)
+		}
+	}
+	return managed
 }
 
 // desiredAuditArgs builds controller-managed arguments for the effective profile.
