@@ -16,8 +16,10 @@ import json
 import logging
 import os
 import ssl
+from types import SimpleNamespace
 
 import pytest
+import websocket
 from kserve import KServeClient
 from kubernetes import client
 from kubernetes.stream import stream as k8s_stream
@@ -169,23 +171,64 @@ def _get_container_tls_state(namespace, service_name):
             elif "/app/pd-sidecar" in command:
                 commands["sidecar"].append(command)
             elif any("vllm serve" in arg for arg in command):
-                runtime_state = k8s_stream(
-                    core_v1.connect_get_namespaced_pod_exec,
-                    pod.metadata.name,
-                    namespace,
-                    container=container.name,
-                    command=[
-                        "/bin/bash",
-                        "-c",
-                        "tr '\\0' '\\n' < /proc/1/cmdline",
-                    ],
-                    stderr=True,
-                    stdin=False,
-                    stdout=True,
-                    tty=False,
-                )
+                try:
+                    runtime_state = k8s_stream(
+                        core_v1.connect_get_namespaced_pod_exec,
+                        pod.metadata.name,
+                        namespace,
+                        container=container.name,
+                        command=[
+                            "/bin/bash",
+                            "-c",
+                            "tr '\\0' '\\n' < /proc/1/cmdline",
+                        ],
+                        stderr=True,
+                        stdin=False,
+                        stdout=True,
+                        tty=False,
+                    )
+                except (
+                    client.rest.ApiException,
+                    websocket.WebSocketException,
+                ) as error:
+                    raise AssertionError(
+                        f"Failed to exec into vLLM container {container.name} "
+                        f"in pod {pod.metadata.name}: {error}"
+                    ) from error
                 commands["vllm"].append(runtime_state.splitlines())
     return commands
+
+
+@pytest.mark.parametrize("exec_error", ["kubernetes", "websocket"])
+def test_get_container_tls_state_wraps_exec_failure(monkeypatch, exec_error):
+    container = SimpleNamespace(
+        name="workload",
+        command=["vllm serve model"],
+        args=[],
+    )
+    pod = SimpleNamespace(
+        metadata=SimpleNamespace(name="workload-pod"),
+        spec=SimpleNamespace(init_containers=None, containers=[container]),
+    )
+    core_v1 = SimpleNamespace(
+        list_namespaced_pod=lambda *args, **kwargs: SimpleNamespace(items=[pod]),
+        connect_get_namespaced_pod_exec=lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(client, "CoreV1Api", lambda: core_v1)
+    if exec_error == "kubernetes":
+        failure = client.rest.ApiException(status=500, reason="exec failed")
+    else:
+        failure = websocket.WebSocketException("exec failed")
+
+    def fail_exec(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setitem(globals(), "k8s_stream", fail_exec)
+
+    with pytest.raises(AssertionError, match="Failed to exec") as error:
+        _get_container_tls_state("namespace", "service")
+
+    assert error.value.__cause__ is failure
 
 
 @pytest.mark.llminferenceservice
