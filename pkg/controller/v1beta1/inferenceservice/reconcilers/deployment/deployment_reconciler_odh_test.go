@@ -1135,7 +1135,9 @@ func TestDeploymentReconcilerUnchangedTopologyDoesNotPatchDeployment(t *testing.
 		name         string
 		componentExt *v1beta1.ComponentExtensionSpec
 		stale        bool
+		upstreamPort string
 	}{
+		{name: "direct model route", componentExt: &v1beta1.ComponentExtensionSpec{}, upstreamPort: "8888"},
 		{name: "correct logger route", componentExt: &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}}},
 		{name: "upgrade preserves stale logger route", componentExt: &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}}, stale: true},
 		{name: "upgrade preserves stale batcher route", componentExt: &v1beta1.ComponentExtensionSpec{Batcher: &v1beta1.Batcher{}}, stale: true},
@@ -1203,7 +1205,11 @@ func TestDeploymentReconcilerUnchangedTopologyDoesNotPatchDeployment(t *testing.
 				}
 			}
 			require.NotNil(t, initialProxy)
-			assert.Contains(t, initialProxy.Args, "--upstream=http://localhost:9081")
+			upstreamPort := tt.upstreamPort
+			if upstreamPort == "" {
+				upstreamPort = "9081"
+			}
+			assert.Contains(t, initialProxy.Args, "--upstream=http://localhost:"+upstreamPort)
 			if tt.stale {
 				for index, arg := range initialProxy.Args {
 					if strings.HasPrefix(arg, "--upstream=") {
@@ -1320,13 +1326,31 @@ func TestPreservedAuthProxyUpstreamTransitions(t *testing.T) {
 			expectedUpstreamArg: "--upstream=http://localhost:8888",
 		},
 		{
-			name:                "runtime port change preserves model upstream",
+			name:                "permitted runtime port change updates model upstream",
 			proxyName:           constants.KubeRbacContainerName,
 			existingModelPort:   8888,
 			existingUpstreamArg: "--upstream=http://localhost:8888",
 			componentExt:        &v1beta1.ComponentExtensionSpec{},
 			desiredModelPort:    9999,
+			expectedUpstreamArg: "--upstream=http://localhost:9999",
+		},
+		{
+			name:                "unchanged model port preserves upstream",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:8888",
+			componentExt:        &v1beta1.ComponentExtensionSpec{},
+			desiredModelPort:    8888,
 			expectedUpstreamArg: "--upstream=http://localhost:8888",
+		},
+		{
+			name:                "permitted runtime port change preserves custom upstream",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:15000",
+			componentExt:        &v1beta1.ComponentExtensionSpec{},
+			desiredModelPort:    9999,
+			expectedUpstreamArg: "--upstream=http://localhost:15000",
 		},
 		{
 			name:                "runtime port change preserves stale logger upstream",

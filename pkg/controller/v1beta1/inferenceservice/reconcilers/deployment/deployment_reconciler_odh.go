@@ -689,21 +689,22 @@ func updatePreservedAuthProxyUpstream(existing, desired *appsv1.Deployment, comp
 	}
 
 	// Existing Pod-template annotations record the agent topology already applied
-	// to this workload. Only an activation transition may change a reused proxy.
-	// A stale route discovered during an upgrade, or a ServingRuntime-only port
-	// change, must not itself trigger a predictor rollout.
+	// to this workload. Only an activation transition or a permitted model-port
+	// change may update a reused proxy. A stale route alone must not trigger a
+	// rollout. Ready workloads with auto-update disabled are paused by the caller.
 	annotations := existing.Spec.Template.Annotations
 	existingAgentEnabled := annotations[constants.LoggerInternalAnnotationKey] == "true" ||
 		annotations[constants.BatcherInternalAnnotationKey] == "true"
 	desiredAgentEnabled := componentExt != nil && (componentExt.Logger != nil || componentExt.Batcher != nil)
-	if existingAgentEnabled == desiredAgentEnabled {
+	existingModelPort := modelUpstreamPort(&existing.Spec.Template.Spec)
+	if existingAgentEnabled == desiredAgentEnabled &&
+		(existingAgentEnabled || podSpec == nil || existingModelPort == modelUpstreamPort(podSpec)) {
 		return
 	}
 
 	// The preservation path intentionally copies the old proxy arguments. Only
 	// replace values that this controller could have generated, leaving explicit
 	// user-provided localhost endpoints and endpoint paths untouched.
-	existingModelPort := modelUpstreamPort(&existing.Spec.Template.Spec)
 	managedUpstreamPorts := map[string]struct{}{
 		existingModelPort: {},
 		constants.InferenceServiceDefaultAgentPortStr: {},

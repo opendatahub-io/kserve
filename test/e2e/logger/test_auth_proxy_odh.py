@@ -38,7 +38,7 @@ VERSION = "v1beta1"
 RUNTIME_VERSION = "v1alpha1"
 UPSTREAM_PREFIX = "--upstream=http://localhost:"
 # Use one deterministic HTTP responder for the model and independent event sink.
-# Printing the received body lets the logger assertion verify actual delivery.
+# Receipt metadata verifies delivery and batching without logging request data.
 HTTP_SERVER = """
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
@@ -49,8 +49,13 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
     def do_POST(self):
         body = self.rfile.read(int(self.headers.get('Content-Length', 0)))
-        print(body.decode(), flush=True)
         payload = json.loads(body or '{}')
+        request_type = 'org.kubeflow.serving.inference.request'
+        is_request_event = (self.headers.get('ce-type') == request_type or
+                            payload.get('type') == request_type)
+        event = 'inference_request_received' if is_request_event else 'request_received'
+        print(json.dumps({'event': event,
+                          'instance_count': len(payload.get('instances', []))}), flush=True)
         response = json.dumps({'predictions': [1] * len(payload.get('instances', []))}).encode()
         self.send_response(200)
         self.send_header('Content-Type', 'application/json')
@@ -433,7 +438,7 @@ async def test_late_agent_activation_routes_through_agent(
             batches = [
                 json.loads(line) for line in logs.splitlines() if line.startswith("{")
             ]
-            assert any(len(batch.get("instances", [])) > 2 for batch in batches), logs
+            assert any(batch.get("instance_count", 0) > 2 for batch in batches), logs
             return
 
         def sink_received_request():
@@ -441,12 +446,25 @@ async def test_late_agent_activation_routes_through_agent(
                 test_namespace, label_selector=f"app={name}-sink"
             ).items
             return any(
-                '"instances"'
+                '"event": "inference_request_received"'
                 in _pod_logs(kserve_client, pod.metadata.name, test_namespace)
                 for pod in pods
             )
 
         await asyncio.to_thread(_wait_for, sink_received_request, 60)
+
+
+def _set_runtime_port(kserve_client, name, namespace, port):
+    runtime = kserve_client.api_instance.get_namespaced_custom_object(
+        GROUP, RUNTIME_VERSION, namespace, "servingruntimes", name
+    )
+    container = runtime["spec"]["containers"][0]
+    container["ports"][0]["containerPort"] = port
+    container["args"] = [str(port)]
+    container["readinessProbe"]["httpGet"]["port"] = port
+    kserve_client.api_instance.replace_namespaced_custom_object(
+        GROUP, RUNTIME_VERSION, namespace, "servingruntimes", name, runtime
+    )
 
 
 @pytest.mark.parametrize("logger", [False, True], ids=["direct-model", "logger-agent"])
@@ -459,16 +477,37 @@ def test_runtime_port_change_preserves_paused_workload(
         _,
     ):
         before = _snapshot(kserve_client, name, test_namespace)
-        runtime = kserve_client.api_instance.get_namespaced_custom_object(
-            GROUP, RUNTIME_VERSION, test_namespace, "servingruntimes", name
-        )
-        runtime["spec"]["containers"][0]["ports"][0]["containerPort"] = 8081
-        runtime["spec"]["containers"][0]["args"] = ["8081"]
-        runtime["spec"]["containers"][0]["readinessProbe"]["httpGet"]["port"] = 8081
-        kserve_client.api_instance.replace_namespaced_custom_object(
-            GROUP, RUNTIME_VERSION, test_namespace, "servingruntimes", name, runtime
-        )
+        _set_runtime_port(kserve_client, name, test_namespace, 8081)
         _assert_preserved(kserve_client, {name: before}, test_namespace)
+
+
+@pytest.mark.asyncio(scope="session")
+async def test_runtime_port_change_keeps_authenticated_inference_working(
+    kserve_client, rest_v1_client, test_namespace
+):
+    """An allowed model-port update also moves the proxy to the new model port."""
+    with _workload(kserve_client, test_namespace) as (name, _):
+        before = _snapshot(kserve_client, name, test_namespace)
+        _set_runtime_port(kserve_client, name, test_namespace, 8081)
+        _wait_for(
+            lambda: _upstream(_deployment(kserve_client, name, test_namespace))
+            == f"{UPSTREAM_PREFIX}8081"
+        )
+        _wait_ready(kserve_client, name, test_namespace)
+        after = _snapshot(kserve_client, name, test_namespace)
+        assert after["deployment_uid"] == before["deployment_uid"]
+        assert after["pods"] != before["pods"], "The model-port edit requires new Pods"
+        service = kserve_client.get(name, namespace=test_namespace)
+        configuration = kserve_client.api_instance.api_client.configuration
+        token = configuration.auth_settings().get("BearerToken", {}).get("value")
+        assert token, "The test kubeconfig must provide bearer authentication"
+        result = await rest_v1_client.infer(
+            service["status"]["url"],
+            json.loads((Path("data") / "iris_input.json").read_text()),
+            model_name=name,
+            headers={"Authorization": token},
+        )
+        assert result.get("predictions") == [1, 1], result
 
 
 def test_controller_replacement_preserves_existing_workloads(
