@@ -658,7 +658,7 @@ KSERVE_VERSION=v0.21.0
 ISTIO_VERSION=1.27.1
 KEDA_VERSION=2.20.2
 OPENTELEMETRY_OPERATOR_VERSION=0.114.1
-LWS_VERSION=v0.11.0
+LWS_VERSION=v1.0.0
 GATEWAY_API_VERSION=v1.5.1
 GIE_VERSION=v1.6.2
 LLMD_ROUTER_VERSION=v0.11.0
@@ -2143,7 +2143,7 @@ metadata:
 spec:
   annotations:
     prometheus.kserve.io/path: /metrics
-    prometheus.kserve.io/port: "8080"
+    prometheus.kserve.io/port: "8082"
   containers:
   - env:
     - name: MLSERVER_MODEL_IMPLEMENTATION
@@ -2152,6 +2152,8 @@ spec:
       value: "8080"
     - name: MLSERVER_GRPC_PORT
       value: "9000"
+    - name: MLSERVER_METRICS_PORT
+      value: "8082"
     image: docker.io/seldonio/mlserver:1.7.1
     name: kserve-container
     resources:
@@ -2894,7 +2896,7 @@ spec:
           fi
         fi
 
-        eval "exec vllm serve /mnt/models \
+        eval "exec vllm serve ${KSERVE_MODEL_ARGS:-/mnt/models} \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8001 \
           --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -2911,6 +2913,8 @@ spec:
       - --
       env:
       - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
+      - name: KSERVE_MODEL_ARGS
         value: ""
       - name: HOME
         value: /home
@@ -2999,6 +3003,8 @@ spec:
       - '{{ if .GlobalConfig.TLSCipherSuites }}--tls-cipher-suites={{ .GlobalConfig.TLSCipherSuites
         }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
       env:
+      - name: KSERVE_TRACING_CONFIG_VERSION
+        value: "1"
       - name: INFERENCE_POOL_NAMESPACE
         valueFrom:
           fieldRef:
@@ -3317,7 +3323,7 @@ spec:
           echo "[tls-profile] warning: vLLM ${VLLM_VERSION} is older than 0.15.0 and does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
         fi
         {{ end }}eval "exec vllm serve \
-          /mnt/models \
+          ${KSERVE_MODEL_ARGS:-/mnt/models} \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8001 \
           --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -3341,6 +3347,8 @@ spec:
       - --
       env:
       - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
+      - name: KSERVE_MODEL_ARGS
         value: ""
       - name: HOME
         value: /home
@@ -3433,6 +3441,8 @@ spec:
       - '{{ if .GlobalConfig.TLSCipherSuites }}--tls-cipher-suites={{ .GlobalConfig.TLSCipherSuites
         }}{{ else }}__KSERVE_OMIT_ARG__{{ end }}'
       env:
+      - name: KSERVE_TRACING_CONFIG_VERSION
+        value: "1"
       - name: INFERENCE_POOL_NAMESPACE
         valueFrom:
           fieldRef:
@@ -3738,7 +3748,7 @@ spec:
           echo "[tls-profile] warning: vLLM ${VLLM_VERSION} is older than 0.15.0 and does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
         fi
         {{ end }}eval "exec vllm serve \
-          /mnt/models \
+          ${KSERVE_MODEL_ARGS:-/mnt/models} \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8001 \
           --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -3762,6 +3772,8 @@ spec:
       - --
       env:
       - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
+      - name: KSERVE_MODEL_ARGS
         value: ""
       - name: HOME
         value: /home
@@ -4039,7 +4051,7 @@ spec:
         fi
 
         eval "exec vllm serve \
-          /mnt/models \
+          ${KSERVE_MODEL_ARGS:-/mnt/models} \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8200 \
           --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -4061,6 +4073,8 @@ spec:
       - --
       env:
       - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
+      - name: KSERVE_MODEL_ARGS
         value: ""
       - name: HOME
         value: /home
@@ -4202,6 +4216,8 @@ spec:
       - '{{ if .GlobalConfig.EnableTLS }}--enable-tls=decoder{{- end }}'
       - '{{ if .GlobalConfig.EnableTLS }}--enable-tls=prefiller{{- end }}'
       env:
+      - name: KSERVE_TRACING_CONFIG_VERSION
+        value: "1"
       - name: INFERENCE_POOL_NAMESPACE
         valueFrom:
           fieldRef:
@@ -4484,7 +4500,7 @@ spec:
         fi
 
         eval "exec vllm serve \
-          /mnt/models \
+          ${KSERVE_MODEL_ARGS:-/mnt/models} \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8200 \
           --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -4506,6 +4522,8 @@ spec:
       - --
       env:
       - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
+      - name: KSERVE_MODEL_ARGS
         value: ""
       - name: HOME
         value: /home
@@ -4647,6 +4665,8 @@ spec:
       - '{{ if .GlobalConfig.EnableTLS }}--enable-tls=decoder{{- end }}'
       - '{{ if .GlobalConfig.EnableTLS }}--enable-tls=prefiller{{- end }}'
       env:
+      - name: KSERVE_TRACING_CONFIG_VERSION
+        value: "1"
       - name: INFERENCE_POOL_NAMESPACE
         valueFrom:
           fieldRef:
@@ -5002,7 +5022,7 @@ spec:
             fi
           fi
 
-          eval "exec vllm serve /mnt/models \
+          eval "exec vllm serve ${KSERVE_MODEL_ARGS:-/mnt/models} \
             --served-model-name "{{ .Spec.Model.Name }}" \
             --port 8000 \
             --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -5019,6 +5039,8 @@ spec:
         - --
         env:
         - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
+        - name: KSERVE_MODEL_ARGS
           value: ""
         - name: HOME
           value: /home
@@ -5361,7 +5383,7 @@ spec:
             echo "[tls-profile] warning: vLLM ${VLLM_VERSION} is older than 0.15.0 and does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
           fi
           {{ end }}eval "exec vllm serve \
-            /mnt/models \
+            ${KSERVE_MODEL_ARGS:-/mnt/models} \
             --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
             --port 8000 \
             --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -5385,6 +5407,8 @@ spec:
         - --
         env:
         - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
+        - name: KSERVE_MODEL_ARGS
           value: ""
         - name: HOME
           value: /home
@@ -5717,7 +5741,7 @@ spec:
             echo "[tls-profile] warning: vLLM ${VLLM_VERSION} is older than 0.15.0 and does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
           fi
           {{ end }}eval "exec vllm serve \
-            /mnt/models \
+            ${KSERVE_MODEL_ARGS:-/mnt/models} \
             --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
             --port 8000 \
             --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -5741,6 +5765,8 @@ spec:
         - --
         env:
         - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
+        - name: KSERVE_MODEL_ARGS
           value: ""
         - name: HOME
           value: /home
@@ -6017,7 +6043,7 @@ spec:
           fi
 
           eval "exec vllm serve \
-            /mnt/models \
+            ${KSERVE_MODEL_ARGS:-/mnt/models} \
             --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
             --port 8000 \
             --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -6039,6 +6065,8 @@ spec:
         - --
         env:
         - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
+        - name: KSERVE_MODEL_ARGS
           value: ""
         - name: HOME
           value: /home
@@ -6375,7 +6403,7 @@ spec:
           fi
 
           eval "exec vllm serve \
-            /mnt/models \
+            ${KSERVE_MODEL_ARGS:-/mnt/models} \
             --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
             --port 8000 \
             --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -6397,6 +6425,8 @@ spec:
         - --
         env:
         - name: KSERVE_KV_TRANSFER_ARGS
+          value: ""
+        - name: KSERVE_MODEL_ARGS
           value: ""
         - name: HOME
           value: /home
@@ -7410,7 +7440,7 @@ spec:
           fi
         fi
 
-        eval "exec vllm serve /mnt/models \
+        eval "exec vllm serve ${KSERVE_MODEL_ARGS:-/mnt/models} \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8000 \
           --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -7427,6 +7457,8 @@ spec:
       - --
       env:
       - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
+      - name: KSERVE_MODEL_ARGS
         value: ""
       - name: HOME
         value: /home
@@ -7544,8 +7576,12 @@ spec:
                 {{ if .GlobalConfig.EnableTLS }}--enable-ssl-refresh \
                 --ssl-certfile /var/run/kserve/tls/tls.crt \
                 --ssl-keyfile /var/run/kserve/tls/tls.key{{ end }} \
-                {{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{ end }}
+                {{ if and .GlobalConfig.EnableTLS .GlobalConfig.TLSCipherSuitesOpenSSL }}${TLS_CIPHER_ARGS}{{ end }} \
+                "$@"
+            - --
             env:
+            - name: KSERVE_TRACING_CONFIG_VERSION
+              value: "1"
             - name: HF_HOME
               value: /tmp/hf
             - name: DO_NOT_TRACK
@@ -7868,7 +7904,7 @@ spec:
           echo "[tls-profile] warning: vLLM ${VLLM_VERSION} is older than 0.15.0 and does not support --ssl-ciphers; continuing without the configured cipher policy" >&2
         fi
         {{ end }}eval "exec vllm serve \
-          /mnt/models \
+          ${KSERVE_MODEL_ARGS:-/mnt/models} \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8000 \
           --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -7892,6 +7928,8 @@ spec:
       - --
       env:
       - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
+      - name: KSERVE_MODEL_ARGS
         value: ""
       - name: HOME
         value: /home
@@ -8197,7 +8235,7 @@ spec:
         fi
 
         eval "exec vllm serve \
-          /mnt/models \
+          ${KSERVE_MODEL_ARGS:-/mnt/models} \
           --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
           --port 8000 \
           --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -8221,6 +8259,8 @@ spec:
       - --
       env:
       - name: KSERVE_KV_TRANSFER_ARGS
+        value: ""
+      - name: KSERVE_MODEL_ARGS
         value: ""
       - name: HOME
         value: /home

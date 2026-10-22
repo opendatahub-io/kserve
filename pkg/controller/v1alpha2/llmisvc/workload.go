@@ -75,6 +75,11 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 		llmSvc.MarkMainWorkloadNotReady("Stopped", "Service is stopped")
 	}
 
+	if err := r.reconcileModelExpress(ctx, llmSvc, config); err != nil {
+		llmSvc.MarkMainWorkloadNotReady("ModelExpressNotReady", err.Error())
+		return fmt.Errorf("failed to reconcile ModelExpress: %w", err)
+	}
+
 	if err := r.preparePlatformWorkload(ctx, llmSvc, config); err != nil {
 		llmSvc.MarkMainWorkloadNotReady("PreparePlatformWorkloadError", "%s", err.Error())
 		return fmt.Errorf("failed to prepare platform workload: %w", err)
