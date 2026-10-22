@@ -279,8 +279,8 @@ func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]stri
 	}
 }
 
-func modelControllerPostRender(ctx context.Context, _ *KserveModuleReconciler,
-	_ *platformv1alpha1.Kserve,
+func modelControllerPostRender(ctx context.Context, r *KserveModuleReconciler,
+	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 
 	log := ctrl.LoggerFrom(ctx)
@@ -289,6 +289,10 @@ func modelControllerPostRender(ctx context.Context, _ *KserveModuleReconciler,
 	if afterCount := len(result); beforeCount != afterCount {
 		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
 	}
+
+	versionPrefix := r.getVersionPrefix(ctx, kserve)
+	result = versionedClusterServingRuntimes(result, versionPrefix)
+
 	return result, nil
 }
 

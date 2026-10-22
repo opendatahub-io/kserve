@@ -224,3 +224,70 @@ func TestVersionLLMInferenceServiceConfigs_EmptyPrefix(t *testing.T) {
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(result[0].GetName()).Should(Equal("kserve-config-llm-template"))
 }
+
+func TestVersionClusterServingRuntimes_Renames(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := []unstructured.Unstructured{
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha1",
+			"kind":       "ClusterServingRuntime",
+			"metadata": map[string]any{
+				"name": "csr-kserve-vllm-cuda",
+			},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha1",
+			"kind":       "ClusterServingRuntime",
+			"metadata": map[string]any{
+				"name": "csr-kserve-vllm-omni-cuda",
+			},
+		}},
+	}
+
+	result := versionedClusterServingRuntimes(resources, "v3-6-0")
+	g.Expect(result[0].GetName()).Should(Equal("v3-6-0-csr-kserve-vllm-cuda"))
+	g.Expect(result[1].GetName()).Should(Equal("v3-6-0-csr-kserve-vllm-omni-cuda"))
+}
+
+func TestVersionClusterServingRuntimes_SkipsOtherKinds(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := []unstructured.Unstructured{
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha1",
+			"kind":       "ClusterServingRuntime",
+			"metadata": map[string]any{
+				"name": "csr-kserve-vllm-cuda",
+			},
+		}},
+		{Object: map[string]any{
+			"apiVersion": "template.openshift.io/v1",
+			"kind":       "Template",
+			"metadata": map[string]any{
+				"name": "vllm-cuda-template",
+			},
+		}},
+	}
+
+	result := versionedClusterServingRuntimes(resources, "v3-6-0")
+	g.Expect(result[0].GetName()).Should(Equal("v3-6-0-csr-kserve-vllm-cuda"))
+	g.Expect(result[1].GetName()).Should(Equal("vllm-cuda-template"))
+}
+
+func TestVersionClusterServingRuntimes_EmptyPrefix(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := []unstructured.Unstructured{
+		{Object: map[string]any{
+			"apiVersion": "serving.kserve.io/v1alpha1",
+			"kind":       "ClusterServingRuntime",
+			"metadata": map[string]any{
+				"name": "csr-kserve-vllm-cuda",
+			},
+		}},
+	}
+
+	result := versionedClusterServingRuntimes(resources, "")
+	g.Expect(result[0].GetName()).Should(Equal("csr-kserve-vllm-cuda"))
+}

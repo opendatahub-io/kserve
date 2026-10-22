@@ -11,8 +11,15 @@ var (
 
 	llmISVCConfigListGVK = llmISVCConfigGVK.GroupVersion().WithKind(llmISVCConfigKind + "List")
 
+	clusterServingRuntimeGVK = schema.GroupVersionKind{
+		Group:   "serving.kserve.io",
+		Version: "v1alpha1",
+		Kind:    "ClusterServingRuntime",
+	}
+
 	unownedGroupKinds = map[schema.GroupKind]struct{}{
-		llmISVCConfigGVK.GroupKind(): {},
+		llmISVCConfigGVK.GroupKind():         {},
+		clusterServingRuntimeGVK.GroupKind(): {},
 	}
 )
 
