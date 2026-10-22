@@ -50,7 +50,7 @@ func versionedClusterServingRuntimes(resources []unstructured.Unstructured, vers
 		return resources
 	}
 	for i := range resources {
-		if resources[i].GroupVersionKind().GroupKind() == clusterServingRuntimeGVK.GroupKind() {
+		if resources[i].GroupVersionKind().GroupKind() == clusterServingRuntimeGK {
 			resources[i].SetName(fmt.Sprintf("%s-%s", versionPrefix, resources[i].GetName()))
 		}
 	}
