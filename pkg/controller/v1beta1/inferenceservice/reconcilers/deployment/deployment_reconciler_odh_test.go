@@ -1616,7 +1616,7 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 				assert.Equal(t, tt.expectedReason, conditions[0].Reason)
 				assert.Equal(t, corev1.ConditionFalse, conditions[0].Status)
 				assert.Equal(t, v1beta1.LatestDeploymentReady, conditions[0].Type)
-				assert.Equal(t, "Keeping the existing authentication proxy image instead of replacing it", conditions[0].Message)
+				assert.Equal(t, "Preserving existing auth proxy container to avoid pod restart", conditions[0].Message)
 			} else {
 				assert.Empty(t, conditions, "expected no condition")
 			}

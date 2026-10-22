@@ -3657,7 +3657,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				return servingRuntimeAfterUpdate.Spec.ServingRuntimePodSpec.Labels["key1"], nil
 			}, timeout, interval).Should(Equal("updatedServingRuntime"))
 
-			// A runtime port change must not bypass the Ready workload preservation policy.
+			// Check to make sure deployment didn't update
 			deploymentAfterUpdate := &appsv1.Deployment{}
 			Consistently(func() (corev1.PodTemplateSpec, error) {
 				if err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate); err != nil {

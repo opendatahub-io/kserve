@@ -60,7 +60,7 @@ const (
 )
 
 // AuthProxyPreservedReason marks the LatestDeploymentReady condition recorded
-// while an existing auth proxy container is kept across reconciliation.
+// while an existing auth proxy container is kept to avoid restarting its pods.
 const AuthProxyPreservedReason = "AuthProxyPreserved"
 
 // resourceTypeFor derives the owning resource kind of a component. It returns
@@ -103,7 +103,7 @@ func (r *DeploymentReconciler) customizeDeployments(ctx context.Context, compone
 			Type:    v1beta1.LatestDeploymentReady,
 			Status:  corev1.ConditionFalse,
 			Reason:  AuthProxyPreservedReason,
-			Message: "Keeping the existing authentication proxy image instead of replacing it",
+			Message: "Preserving existing auth proxy container to avoid pod restart",
 		}}
 	}
 	return nil
