@@ -41,10 +41,5 @@ jobs:
 
             - name: vet + compile (incl. test files)
               env:
-                  # /tmp can be a small tmpfs on hosted runners. Use the main disk.
-                  GOTMPDIR: ${{ runner.temp }}/go-build
                   GOFLAGS: ${{ matrix.tags != '' && format('-tags={0}', matrix.tags) || '' }}
-              run: |
-                  mkdir -p "$GOTMPDIR"
-                  df -h "$GOTMPDIR"
-                  go test -vet=all -c -o /dev/null ./...
+              run: go test -vet=all -c -o /dev/null ./...
