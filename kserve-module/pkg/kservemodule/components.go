@@ -118,8 +118,7 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
 
-	versionPrefix := r.getVersionPrefix(ctx, kserve)
-	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, versionPrefix)
+	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, r.versionPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("versioning LLMInferenceServiceConfigs: %w", err)
 	}
@@ -290,8 +289,7 @@ func modelControllerPostRender(ctx context.Context, r *KserveModuleReconciler,
 		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
 	}
 
-	versionPrefix := r.getVersionPrefix(ctx, kserve)
-	result = versionedClusterServingRuntimes(result, versionPrefix)
+	result = versionedClusterServingRuntimes(result, r.versionPrefix)
 
 	return result, nil
 }

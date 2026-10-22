@@ -275,19 +275,3 @@ func TestVersionClusterServingRuntimes_SkipsOtherKinds(t *testing.T) {
 	g.Expect(result[1].GetName()).Should(Equal("vllm-cuda-template"))
 }
 
-func TestVersionClusterServingRuntimes_EmptyPrefix(t *testing.T) {
-	g := NewWithT(t)
-
-	resources := []unstructured.Unstructured{
-		{Object: map[string]any{
-			"apiVersion": "serving.kserve.io/v1alpha1",
-			"kind":       "ClusterServingRuntime",
-			"metadata": map[string]any{
-				"name": "csr-kserve-vllm-cuda",
-			},
-		}},
-	}
-
-	result := versionedClusterServingRuntimes(resources, "")
-	g.Expect(result[0].GetName()).Should(Equal("csr-kserve-vllm-cuda"))
-}

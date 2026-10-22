@@ -46,9 +46,6 @@ func wellKnownPresetNames(resources []unstructured.Unstructured) []string {
 }
 
 func versionedClusterServingRuntimes(resources []unstructured.Unstructured, versionPrefix string) []unstructured.Unstructured {
-	if versionPrefix == "" {
-		return resources
-	}
 	for i := range resources {
 		if resources[i].GroupVersionKind().GroupKind() == clusterServingRuntimeGK {
 			resources[i].SetName(fmt.Sprintf("%s-%s", versionPrefix, resources[i].GetName()))
