@@ -22,9 +22,9 @@ spec:
           # The compile takes 30 to 160 minutes depending on the model.
           - name: VLLM_ENGINE_READY_TIMEOUT_S
             value: "9600"
-          # vllm-rbln rejects a disabled chunked prefill.
+          # Without --model-impl=vllm, vllm-rbln may pick its optimum-rbln path for some architectures.
           - name: VLLM_ADDITIONAL_ARGS
-            value: "--enable-chunked-prefill --model-impl=vllm"
+            value: "--model-impl=vllm"
         # The base startupProbe allows 10 minutes; a cold NPU compile takes longer.
         # 500 x 30 s = 250 minutes, which covers the longest compile with headroom.
         startupProbe:

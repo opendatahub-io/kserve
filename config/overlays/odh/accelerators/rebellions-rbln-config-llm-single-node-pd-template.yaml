@@ -22,10 +22,11 @@ spec:
           # The compile takes 30 to 160 minutes depending on the model.
           - name: VLLM_ENGINE_READY_TIMEOUT_S
             value: "9600"
-          # vllm-rbln rejects a disabled chunked prefill. The RBLN connector must be named here:
+          # Without --model-impl=vllm, vllm-rbln may pick its optimum-rbln path for some architectures.
+          # The RBLN connector must be named here:
           # without a --kv-transfer-config the base adds the stock NixlConnector.
           - name: VLLM_ADDITIONAL_ARGS
-            value: "--enable-chunked-prefill --model-impl=vllm --kv-transfer-config '{\"kv_connector\":\"RblnNixlConnector\",\"kv_role\":\"kv_both\",\"kv_buffer_device\":\"rbln\",\"kv_connector_extra_config\":{\"name\":\"nixl\"}}'"
+            value: "--model-impl=vllm --kv-transfer-config '{\"kv_connector\":\"RblnNixlConnector\",\"kv_role\":\"kv_both\",\"kv_buffer_device\":\"rbln\",\"kv_connector_extra_config\":{\"name\":\"nixl\"}}'"
         # The base startupProbe allows 10 minutes; a cold NPU compile takes longer.
         # 500 x 30 s = 250 minutes, which covers the longest compile with headroom. Decode's vLLM is on
         # 8001; 8000 is the routing sidecar, which answers at once and would let liveness kill the compile.
@@ -44,7 +45,7 @@ spec:
             - name: VLLM_ENGINE_READY_TIMEOUT_S
               value: "9600"
             - name: VLLM_ADDITIONAL_ARGS
-              value: "--enable-chunked-prefill --model-impl=vllm --kv-transfer-config '{\"kv_connector\":\"RblnNixlConnector\",\"kv_role\":\"kv_both\",\"kv_buffer_device\":\"rbln\",\"kv_connector_extra_config\":{\"name\":\"nixl\"}}'"
+              value: "--model-impl=vllm --kv-transfer-config '{\"kv_connector\":\"RblnNixlConnector\",\"kv_role\":\"kv_both\",\"kv_buffer_device\":\"rbln\",\"kv_connector_extra_config\":{\"name\":\"nixl\"}}'"
           startupProbe:
             httpGet:
               path: /health
