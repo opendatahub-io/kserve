@@ -172,13 +172,13 @@ func (r *LLMISVCReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSv
 		return nil
 	}
 
-	monitor := r.expectedSchedulerMonitor(llmSvc)
+	monitor := r.expectedSchedulerMonitor(llmSvc, enableTLS)
 	if err := Reconcile[*v1alpha2.LLMInferenceService](ctx, r, nil, &monitoringv1.ServiceMonitor{}, monitor, semanticServiceMonitorIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile scheduler monitor %s/%s: %w", monitor.GetNamespace(), monitor.GetName(), err)
 	}
 
 	// This is kept for backward compatibility, do not remove.
-	relabeledMonitor := r.expectedSchedulerMonitor(llmSvc, monitoringv1.RelabelConfig{
+	relabeledMonitor := r.expectedSchedulerMonitor(llmSvc, enableTLS, monitoringv1.RelabelConfig{
 		SourceLabels: []monitoringv1.LabelName{"__name__"},
 		Action:       "replace",
 		Replacement:  ptr.To("kserve_$1"),
@@ -361,10 +361,32 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 
 // expectedSchedulerMonitor returns the expected ServiceMonitor configuration for scraping
 // metrics from the llm-d scheduler. The scheduler requires authorization.
-func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferenceService, relabelConfigs ...monitoringv1.RelabelConfig) *monitoringv1.ServiceMonitor {
+func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferenceService, enableTLS bool, relabelConfigs ...monitoringv1.RelabelConfig) *monitoringv1.ServiceMonitor {
 	name := "kserve-llm-isvc-scheduler"
 	if len(relabelConfigs) == 0 {
 		name += "-default"
+	}
+	scheme := ptr.To(monitoringv1.Scheme("http"))
+	var tlsConfig *monitoringv1.TLSConfig
+	if enableTLS {
+		scheme = ptr.To(monitoringv1.Scheme("https"))
+		rotationEnabled := llmSvcHasTlsRotationEnabled(llmSvc)
+		tlsConfig = &monitoringv1.TLSConfig{SafeTLSConfig: monitoringv1.SafeTLSConfig{
+			InsecureSkipVerify: ptr.To(!rotationEnabled),
+		}}
+		if rotationEnabled {
+			tlsConfig.CA = monitoringv1.SecretOrConfigMap{
+				Secret: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
+					},
+					Key: "ca.crt",
+				},
+			}
+			// Targets are endpoint addresses and the scheduler's certificate carries DNS SANs
+			// only, so the Service name has to be asserted.
+			tlsConfig.ServerName = ptr.To(fmt.Sprintf("%s.%s.svc", llmSvc.Spec.Router.EPPServiceName(llmSvc), llmSvc.GetNamespace()))
+		}
 	}
 	return &monitoringv1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
@@ -385,9 +407,11 @@ func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferen
 			},
 			Endpoints: []monitoringv1.Endpoint{
 				{
-					Port: "metrics",
+					Port:   "metrics",
+					Scheme: scheme,
 					HTTPConfigWithProxyAndTLSFiles: monitoringv1.HTTPConfigWithProxyAndTLSFiles{
 						HTTPConfigWithTLSFiles: monitoringv1.HTTPConfigWithTLSFiles{
+							TLSConfig: tlsConfig,
 							HTTPConfigWithoutTLS: monitoringv1.HTTPConfigWithoutTLS{
 								Authorization: &monitoringv1.SafeAuthorization{
 									Credentials: &corev1.SecretKeySelector{
@@ -469,10 +493,10 @@ func (r *LLMISVCReconciler) cleanupMonitoringResources(ctx context.Context, llmS
 	// Per-service PodMonitors are owned via ownerReferences and cleaned up by GC when the
 	// LLMInferenceService is deleted; no explicit deletion is needed here.
 
-	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, r.expectedSchedulerMonitor(llmSvc)); err != nil {
+	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, r.expectedSchedulerMonitor(llmSvc, false)); err != nil {
 		return fmt.Errorf("failed to delete scheduler monitor: %w", err)
 	}
-	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, r.expectedSchedulerMonitor(llmSvc, monitoringv1.RelabelConfig{})); err != nil {
+	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, r.expectedSchedulerMonitor(llmSvc, false, monitoringv1.RelabelConfig{})); err != nil {
 		return fmt.Errorf("failed to delete scheduler monitor: %w", err)
 	}
 
