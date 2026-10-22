@@ -249,7 +249,7 @@ spec:
               fi
             fi
 
-            eval "exec vllm serve /mnt/models \
+            eval "exec vllm serve ${KSERVE_MODEL_ARGS:-/mnt/models} \
               --served-model-name "{{ .Spec.Model.Name }}" "publishers/{{ .ObjectMeta.Namespace }}/models/{{ .Spec.Model.Name }}" \
               --port 8001 \
               --root-path /{{ .ObjectMeta.Namespace }}/{{ .ObjectMeta.Name }} \
@@ -267,6 +267,8 @@ spec:
           - "--"
         env:
           - name: KSERVE_KV_TRANSFER_ARGS
+            value: ''
+          - name: KSERVE_MODEL_ARGS
             value: ''
           - name: HOME
             value: /home
@@ -389,6 +391,8 @@ spec:
             name: tls-certs
             readOnly: true
         env:
+          - name: KSERVE_TRACING_CONFIG_VERSION
+            value: "1"
           - name: INFERENCE_POOL_NAMESPACE
             valueFrom:
               fieldRef:
