@@ -20,9 +20,11 @@ package distro
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/constants"
@@ -49,16 +51,32 @@ func InjectPythonTLSProfile(ctx context.Context, reader client.Reader, podSpec *
 		return nil
 	}
 
-	workloadTLS, err := ResolveWorkloadArgs(ctx, reader)
+	workloadTLS, apiServerReadable, err := resolveWorkloadArgs(ctx, reader)
+	if isAPIServerAccessDenied(err) {
+		return nil
+	}
 	if err != nil {
 		return err
+	}
+	if !apiServerReadable {
+		return nil
 	}
 	for _, i := range targets {
 		setContainerEnv(&podSpec.Containers[i], tlsProfileProviderEnv, tlsProfileProvider)
 		setContainerEnv(&podSpec.Containers[i], tlsMinVersionEnv, workloadTLS.MinVersion)
-		setContainerEnv(&podSpec.Containers[i], tlsCiphersEnv, workloadTLS.CipherSuites)
+		setContainerEnv(&podSpec.Containers[i], tlsCiphersEnv, workloadTLS.OpenSSLCipherSuites)
 	}
 	return nil
+}
+
+func isAPIServerAccessDenied(err error) bool {
+	for err != nil {
+		if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
+			return true
+		}
+		err = errors.Unwrap(err)
+	}
+	return false
 }
 
 func hasTLSCredentials(container *corev1.Container) bool {
@@ -73,11 +91,9 @@ func hasTLSCredentials(container *corev1.Container) bool {
 	}
 	for _, arg := range append(append([]string(nil), container.Command...), container.Args...) {
 		switch {
-		case arg == "--ssl_certfile" || arg == "--ssl-certfile" ||
-			strings.HasPrefix(arg, "--ssl_certfile=") || strings.HasPrefix(arg, "--ssl-certfile="):
+		case arg == "--ssl_certfile" || strings.HasPrefix(arg, "--ssl_certfile="):
 			hasCert = true
-		case arg == "--ssl_keyfile" || arg == "--ssl-keyfile" ||
-			strings.HasPrefix(arg, "--ssl_keyfile=") || strings.HasPrefix(arg, "--ssl-keyfile="):
+		case arg == "--ssl_keyfile" || strings.HasPrefix(arg, "--ssl_keyfile="):
 			hasKey = true
 		}
 	}

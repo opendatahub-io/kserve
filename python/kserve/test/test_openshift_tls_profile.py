@@ -24,7 +24,7 @@ def test_openshift_provider_applies_injected_profile(monkeypatch):
     monkeypatch.setenv("KSERVE_TLS_MIN_VERSION", "VersionTLS12")
     monkeypatch.setenv(
         "KSERVE_TLS_CIPHERS",
-        "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+        "ECDHE-RSA-AES128-GCM-SHA256,ECDHE-RSA-AES256-GCM-SHA384",
     )
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
 

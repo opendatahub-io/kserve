@@ -27,15 +27,6 @@ _TLS_VERSIONS = {
     "VersionTLS13": ssl.TLSVersion.TLSv1_3,
 }
 
-_OPENSHIFT_TO_OPENSSL_CIPHERS = {
-    "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256": "ECDHE-ECDSA-AES128-GCM-SHA256",
-    "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256": "ECDHE-RSA-AES128-GCM-SHA256",
-    "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384": "ECDHE-ECDSA-AES256-GCM-SHA384",
-    "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384": "ECDHE-RSA-AES256-GCM-SHA384",
-    "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256": "ECDHE-ECDSA-CHACHA20-POLY1305",
-    "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256": "ECDHE-RSA-CHACHA20-POLY1305",
-}
-
 
 class OpenShiftTLSProfileProvider:
     """Apply the OpenShift profile resolved and injected by the controller."""
@@ -57,23 +48,12 @@ class OpenShiftTLSProfileProvider:
             for cipher in os.environ.get(TLS_CIPHERS_ENV, "").split(",")
             if cipher
         )
-        unsupported = [
-            cipher
-            for cipher in cipher_names
-            if cipher not in _OPENSHIFT_TO_OPENSSL_CIPHERS
-        ]
-        if unsupported:
-            raise ValueError(
-                "unsupported OpenShift TLS cipher suites: " + ", ".join(unsupported)
-            )
 
         apply_tls_profile(
             self._ssl_context,
             TLSProfile(
                 minimum_version=minimum_version,
-                ciphers=tuple(
-                    _OPENSHIFT_TO_OPENSSL_CIPHERS[cipher] for cipher in cipher_names
-                ),
+                ciphers=cipher_names,
             ),
         )
 

@@ -78,6 +78,7 @@ def _convert_cipher_suites(cipher_suites: str) -> list[str]:
     ]
 
 
+@pytest.mark.llminferenceservice
 def test_converted_cipher_suite_names_are_accepted_by_python_ssl():
     """The OpenSSL names rendered for vLLM must configure Python SSL."""
     converted = _convert_cipher_suites(",".join(GO_TLS_CIPHER_SUITES))
