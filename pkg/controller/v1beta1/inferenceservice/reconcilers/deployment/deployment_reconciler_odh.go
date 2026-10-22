@@ -48,6 +48,7 @@ import (
 const (
 	tlsVolumeName           = "proxy-tls"
 	authProxyUpstreamPrefix = "--upstream=http://localhost:"
+	authProxyUpstreamFormat = "--upstream=http://localhost:%s"
 )
 
 // workloadResourceType is the kind of resource that owns the raw Deployment.
@@ -102,7 +103,7 @@ func (r *DeploymentReconciler) customizeDeployments(ctx context.Context, compone
 			Type:    v1beta1.LatestDeploymentReady,
 			Status:  corev1.ConditionFalse,
 			Reason:  AuthProxyPreservedReason,
-			Message: "Preserving existing auth proxy container and reconciling a controller-managed upstream when present",
+			Message: "Keeping the existing authentication proxy image instead of replacing it",
 		}}
 	}
 	return nil
@@ -453,7 +454,7 @@ func generateOauthProxyContainer(ctx context.Context, client kclient.Client, cli
 	args := []string{
 		`--secure-listen-address=:` + strconv.Itoa(constants.OauthProxyPort),
 		`--proxy-endpoints-port=8643`,
-		authProxyUpstreamPrefix + upstreamPort,
+		fmt.Sprintf(authProxyUpstreamFormat, upstreamPort),
 		`--auth-header-fields-enabled=true`,
 		`--tls-cert-file=/etc/tls/private/tls.crt`,
 		`--tls-private-key-file=/etc/tls/private/tls.key`,
@@ -687,6 +688,18 @@ func updatePreservedAuthProxyUpstream(existing, desired *appsv1.Deployment, comp
 		return
 	}
 
+	// Existing Pod-template annotations record the agent topology already applied
+	// to this workload. Only an activation transition may change a reused proxy.
+	// A stale route discovered during an upgrade, or a ServingRuntime-only port
+	// change, must not itself trigger a predictor rollout.
+	annotations := existing.Spec.Template.Annotations
+	existingAgentEnabled := annotations[constants.LoggerInternalAnnotationKey] == "true" ||
+		annotations[constants.BatcherInternalAnnotationKey] == "true"
+	desiredAgentEnabled := componentExt != nil && (componentExt.Logger != nil || componentExt.Batcher != nil)
+	if existingAgentEnabled == desiredAgentEnabled {
+		return
+	}
+
 	// The preservation path intentionally copies the old proxy arguments. Only
 	// replace values that this controller could have generated, leaving explicit
 	// user-provided localhost endpoints and endpoint paths untouched.
@@ -695,7 +708,7 @@ func updatePreservedAuthProxyUpstream(existing, desired *appsv1.Deployment, comp
 		existingModelPort: {},
 		constants.InferenceServiceDefaultAgentPortStr: {},
 	}
-	desiredUpstream := authProxyUpstreamPrefix + authProxyUpstreamPort(componentExt, podSpec)
+	desiredUpstream := fmt.Sprintf(authProxyUpstreamFormat, authProxyUpstreamPort(componentExt, podSpec))
 	for i := range desired.Spec.Template.Spec.Containers {
 		container := &desired.Spec.Template.Spec.Containers[i]
 		if container.Name != constants.KubeRbacContainerName && container.Name != constants.OauthProxyContainerName {
