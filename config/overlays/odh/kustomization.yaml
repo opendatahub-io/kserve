@@ -790,6 +790,99 @@ replacements:
       name: kserve-config-llm-template-cpu-fast-2
     fieldPaths:
     - metadata.annotations.[opendatahub.io/runtime-version]
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-rebellions-rbln
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-template-rebellions-rbln
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-pd-template-rebellions-rbln
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.prefill.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-rebellions-rbln-fast-1
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-template-rebellions-rbln-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-pd-template-rebellions-rbln-fast-1
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.prefill.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-rebellions-rbln-fast-2
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-template-rebellions-rbln-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-pd-template-rebellions-rbln-fast-2
+    fieldPaths:
+    - spec.template.containers.[name=main].image
+    - spec.prefill.template.containers.[name=main].image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-rebellions-rbln-upstream-version
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-template-rebellions-rbln
+    fieldPaths:
+    - metadata.annotations.[opendatahub.io/runtime-version]
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-pd-template-rebellions-rbln
+    fieldPaths:
+    - metadata.annotations.[opendatahub.io/runtime-version]
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-rebellions-rbln-fast-1-upstream-version
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-template-rebellions-rbln-fast-1
+    fieldPaths:
+    - metadata.annotations.[opendatahub.io/runtime-version]
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-pd-template-rebellions-rbln-fast-1
+    fieldPaths:
+    - metadata.annotations.[opendatahub.io/runtime-version]
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-rebellions-rbln-fast-2-upstream-version
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-template-rebellions-rbln-fast-2
+    fieldPaths:
+    - metadata.annotations.[opendatahub.io/runtime-version]
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-single-node-pd-template-rebellions-rbln-fast-2
+    fieldPaths:
+    - metadata.annotations.[opendatahub.io/runtime-version]
 
 configMapGenerator:
 - envs:
