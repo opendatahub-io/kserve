@@ -482,16 +482,21 @@ def test_runtime_port_change_preserves_paused_workload(
 
 
 @pytest.mark.asyncio(scope="session")
+@pytest.mark.parametrize("logger", [False, True], ids=["direct-model", "stale-logger"])
 async def test_runtime_port_change_keeps_authenticated_inference_working(
-    kserve_client, rest_v1_client, test_namespace
+    kserve_client, rest_v1_client, test_namespace, logger
 ):
-    """An allowed model-port update also moves the proxy to the new model port."""
-    with _workload(kserve_client, test_namespace) as (name, _):
+    """An allowed model-port update keeps direct and stale Logger routes usable."""
+    with _workload(kserve_client, test_namespace, logger=logger, stale=logger) as (
+        name,
+        _,
+    ):
         before = _snapshot(kserve_client, name, test_namespace)
         _set_runtime_port(kserve_client, name, test_namespace, 8081)
+        expected_port = 9081 if logger else 8081
         _wait_for(
             lambda: _upstream(_deployment(kserve_client, name, test_namespace))
-            == f"{UPSTREAM_PREFIX}8081"
+            == f"{UPSTREAM_PREFIX}{expected_port}"
         )
         _wait_ready(kserve_client, name, test_namespace)
         after = _snapshot(kserve_client, name, test_namespace)

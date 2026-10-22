@@ -698,7 +698,7 @@ func updatePreservedAuthProxyUpstream(existing, desired *appsv1.Deployment, comp
 	desiredAgentEnabled := componentExt != nil && (componentExt.Logger != nil || componentExt.Batcher != nil)
 	existingModelPort := modelUpstreamPort(&existing.Spec.Template.Spec)
 	if existingAgentEnabled == desiredAgentEnabled &&
-		(existingAgentEnabled || podSpec == nil || existingModelPort == modelUpstreamPort(podSpec)) {
+		(podSpec == nil || existingModelPort == modelUpstreamPort(podSpec)) {
 		return
 	}
 
@@ -707,7 +707,9 @@ func updatePreservedAuthProxyUpstream(existing, desired *appsv1.Deployment, comp
 	// user-provided localhost endpoints and endpoint paths untouched.
 	managedUpstreamPorts := map[string]struct{}{
 		existingModelPort: {},
-		constants.InferenceServiceDefaultAgentPortStr: {},
+	}
+	if existingAgentEnabled {
+		managedUpstreamPorts[constants.InferenceServiceDefaultAgentPortStr] = struct{}{}
 	}
 	desiredUpstream := fmt.Sprintf(authProxyUpstreamFormat, authProxyUpstreamPort(componentExt, podSpec))
 	for i := range desired.Spec.Template.Spec.Containers {
