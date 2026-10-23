@@ -138,9 +138,9 @@ func workloadSettingsFromAPIServer(apiServer *configv1.APIServer) (Settings, err
 }
 
 // WorkloadTLSArgs contains the resolved TLS arguments for workload consumers.
-// CipherSuites are Go names for TLS proxies; OpenSSLCipherSuites preserves the
-// profile's OpenSSL names for Python's ssl module. Cipher suites are omitted
-// for TLS 1.3 because consumers manage TLS 1.3 cipher selection internally.
+// CipherSuites are Go names for TLS proxies; OpenSSLCipherSuites are canonical
+// OpenSSL names for Python's ssl module. Cipher suites are omitted for TLS 1.3
+// because consumers manage TLS 1.3 cipher selection internally.
 type WorkloadTLSArgs struct {
 	MinVersion          string
 	CipherSuites        string
@@ -189,8 +189,12 @@ func workloadArgsFromSettings(settings Settings, fipsMode bool) (WorkloadTLSArgs
 			continue
 		}
 		if name := goCipherSuiteName(id); name != "" {
+			openSSLCipher := openSSLCipherSuiteName(id)
+			if openSSLCipher == "" {
+				return WorkloadTLSArgs{}, fmt.Errorf("TLS profile cipher %q has no OpenSSL equivalent", cipher)
+			}
 			ciphers = append(ciphers, name)
-			openSSLCiphers = append(openSSLCiphers, cipher)
+			openSSLCiphers = append(openSSLCiphers, openSSLCipher)
 		}
 	}
 	if len(settings.ProfileSpec.Ciphers) > 0 && len(ciphers) == 0 {
@@ -216,4 +220,26 @@ func goCipherSuiteName(id uint16) string {
 		}
 	}
 	return ""
+}
+
+// openSSLCipherSuiteName returns a canonical OpenSSL cipher name for Python's
+// ssl module based on the resolved Go cipher ID, avoiding profile aliases that
+// OpenSSL does not accept.
+func openSSLCipherSuiteName(id uint16) string {
+	switch id {
+	case tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
+		return "ECDHE-ECDSA-AES128-GCM-SHA256"
+	case tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+		return "ECDHE-RSA-AES128-GCM-SHA256"
+	case tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+		return "ECDHE-ECDSA-AES256-GCM-SHA384"
+	case tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+		return "ECDHE-RSA-AES256-GCM-SHA384"
+	case tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
+		return "ECDHE-ECDSA-CHACHA20-POLY1305"
+	case tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+		return "ECDHE-RSA-CHACHA20-POLY1305"
+	default:
+		return ""
+	}
 }

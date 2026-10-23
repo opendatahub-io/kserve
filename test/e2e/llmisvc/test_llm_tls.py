@@ -200,6 +200,7 @@ def _get_container_tls_state(namespace, service_name):
     return commands
 
 
+@pytest.mark.llminferenceservice
 @pytest.mark.parametrize("exec_error", ["kubernetes", "websocket"])
 def test_get_container_tls_state_wraps_exec_failure(monkeypatch, exec_error):
     container = SimpleNamespace(

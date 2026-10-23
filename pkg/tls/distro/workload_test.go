@@ -79,6 +79,20 @@ func TestWorkloadArgsFromSettings(t *testing.T) {
 			wantOpenSSL: "ECDHE-RSA-AES128-GCM-SHA256",
 		},
 		{
+			name: "canonicalizes CHACHA20 aliases for Python",
+			settings: Settings{ProfileSpec: configv1.TLSProfileSpec{
+				MinTLSVersion: configv1.VersionTLS12,
+				Ciphers: []string{
+					"ECDHE-ECDSA-CHACHA20-POLY1305-SHA256",
+					"ECDHE-RSA-CHACHA20-POLY1305-SHA256",
+				},
+			}},
+			wantMin: "VersionTLS12",
+			wantCipher: "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256," +
+				"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+			wantOpenSSL: "ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305",
+		},
+		{
 			name: "unsupported custom ciphers fail",
 			settings: Settings{ProfileSpec: configv1.TLSProfileSpec{
 				MinTLSVersion: configv1.VersionTLS12,
