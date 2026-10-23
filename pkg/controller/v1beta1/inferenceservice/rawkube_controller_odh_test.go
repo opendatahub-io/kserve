@@ -3643,6 +3643,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
 			servingRuntimeToUpdate.Spec.Labels["key1"] = "updatedServingRuntime"
+			servingRuntimeToUpdate.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 8081}}
+			servingRuntimeToUpdate.Spec.Containers[0].Args[1] = "--rest_api_port=8081"
 			Expect(k8sClient.Update(ctx, servingRuntimeToUpdate)).Should(Succeed())
 
 			// Wait until the ServingRuntime reflects the updated spec.
@@ -3657,12 +3659,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// Check to make sure deployment didn't update
 			deploymentAfterUpdate := &appsv1.Deployment{}
-			Consistently(func() (string, error) {
+			Consistently(func() (corev1.PodTemplateSpec, error) {
 				if err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate); err != nil {
-					return "", err
+					return corev1.PodTemplateSpec{}, err
 				}
-				return deploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"], nil
-			}, fastTimeout, interval).Should(Equal("val1FromSR"))
+				return deploymentAfterUpdate.Spec.Template, nil
+			}, fastTimeout, interval).Should(Equal(originalDeployment.Spec.Template))
 		})
 		It("InferenceService should reconcile only if the matching serving runtime was updated even if multiple exist", func() {
 			// Create configmap
