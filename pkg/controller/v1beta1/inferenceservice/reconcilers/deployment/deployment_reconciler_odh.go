@@ -143,6 +143,9 @@ func (r *DeploymentReconciler) customizePlatformDeployments(ctx context.Context,
 	if err := mountTransformerTLSInfrastructure(headDeployment, componentMeta); err != nil {
 		return false, fmt.Errorf("failed to mount transformer TLS infrastructure: %w", err)
 	}
+	if err := distrotls.InjectPythonTLSProfile(ctx, r.client, &headDeployment.Spec.Template.Spec); err != nil {
+		return false, fmt.Errorf("failed to inject TLS security profile provider: %w", err)
+	}
 
 	return authProxyPreservationWarning, nil
 }

@@ -35,23 +35,35 @@ import (
 // missing APIServer object (including non-OpenShift clusters) uses the
 // hardened Intermediate defaults.
 func ResolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLSArgs, error) {
+	args, _, err := resolveWorkloadArgs(ctx, reader)
+	return args, err
+}
+
+// resolveWorkloadArgs also reports whether the OpenShift APIServer object was
+// readable. Consumers that apply an OpenShift profile directly can leave their
+// workloads untouched when the resource is unavailable, while Go proxies keep
+// using the hardened Intermediate fallback through ResolveWorkloadArgs.
+func resolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLSArgs, bool, error) {
 	if reader == nil {
-		return workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]}, true)
+		args, err := workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]}, true)
+		return args, false, err
 	}
 	apiServer := &configv1.APIServer{}
 	if err := reader.Get(ctx, client.ObjectKey{Name: apiServerName}, apiServer); err != nil {
 		if apierrors.IsNotFound(err) || apiMeta.IsNoMatchError(err) {
-			return workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]}, true)
+			args, fallbackErr := workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]}, true)
+			return args, false, fallbackErr
 		}
-		return WorkloadTLSArgs{}, fmt.Errorf("reading APIServer TLS profile for workload: %w", err)
+		return WorkloadTLSArgs{}, false, fmt.Errorf("reading APIServer TLS profile for workload: %w", err)
 	}
 	settings, err := workloadSettingsFromAPIServer(apiServer)
 	if err != nil {
-		return WorkloadTLSArgs{}, err
+		return WorkloadTLSArgs{}, true, err
 	}
 	// The sidecar is a separate strict-FIPS binary; its curve policy must not
 	// depend on whether the manager process itself was built in FIPS mode.
-	return workloadArgsFromSettings(settings, true)
+	args, err := workloadArgsFromSettings(settings, true)
+	return args, true, err
 }
 
 var goCurveIDs = map[string]uint16{
@@ -125,13 +137,15 @@ func workloadSettingsFromAPIServer(apiServer *configv1.APIServer) (Settings, err
 	return Settings{ProfileSpec: *profileSpec, Adherence: apiServer.Spec.TLSAdherence}, nil
 }
 
-// WorkloadTLSArgs contains the TLS arguments understood by the generated
-// serving auth proxy. Cipher suites are omitted for TLS 1.3 because Go
-// manages TLS 1.3 cipher selection internally.
+// WorkloadTLSArgs contains the resolved TLS arguments for workload consumers.
+// CipherSuites are Go names for TLS proxies; OpenSSLCipherSuites are canonical
+// OpenSSL names for Python's ssl module. Cipher suites are omitted for TLS 1.3
+// because consumers manage TLS 1.3 cipher selection internally.
 type WorkloadTLSArgs struct {
-	MinVersion   string
-	CipherSuites string
-	CurveIDs     string
+	MinVersion          string
+	CipherSuites        string
+	OpenSSLCipherSuites string
+	CurveIDs            string
 }
 
 // WorkloadArgsFromSettings converts the effective OpenShift TLS settings into
@@ -163,6 +177,7 @@ func workloadArgsFromSettings(settings Settings, fipsMode bool) (WorkloadTLSArgs
 	}
 
 	ciphers := make([]string, 0, len(settings.ProfileSpec.Ciphers))
+	openSSLCiphers := make([]string, 0, len(settings.ProfileSpec.Ciphers))
 	for _, cipher := range settings.ProfileSpec.Ciphers {
 		id, supported := openSSLToGoCipher[cipher]
 		if !supported {
@@ -174,13 +189,19 @@ func workloadArgsFromSettings(settings Settings, fipsMode bool) (WorkloadTLSArgs
 			continue
 		}
 		if name := goCipherSuiteName(id); name != "" {
+			openSSLCipher := openSSLCipherSuiteName(id)
+			if openSSLCipher == "" {
+				return WorkloadTLSArgs{}, fmt.Errorf("TLS profile cipher %q has no OpenSSL equivalent", cipher)
+			}
 			ciphers = append(ciphers, name)
+			openSSLCiphers = append(openSSLCiphers, openSSLCipher)
 		}
 	}
 	if len(settings.ProfileSpec.Ciphers) > 0 && len(ciphers) == 0 {
 		return WorkloadTLSArgs{}, errors.New("TLS profile specifies no cipher suites supported by Go")
 	}
 	args.CipherSuites = strings.Join(ciphers, ",")
+	args.OpenSSLCipherSuites = strings.Join(openSSLCiphers, ",")
 	return args, nil
 }
 
@@ -199,4 +220,26 @@ func goCipherSuiteName(id uint16) string {
 		}
 	}
 	return ""
+}
+
+// openSSLCipherSuiteName returns a canonical OpenSSL cipher name for Python's
+// ssl module based on the resolved Go cipher ID, avoiding profile aliases that
+// OpenSSL does not accept.
+func openSSLCipherSuiteName(id uint16) string {
+	switch id {
+	case tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256:
+		return "ECDHE-ECDSA-AES128-GCM-SHA256"
+	case tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256:
+		return "ECDHE-RSA-AES128-GCM-SHA256"
+	case tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384:
+		return "ECDHE-ECDSA-AES256-GCM-SHA384"
+	case tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384:
+		return "ECDHE-RSA-AES256-GCM-SHA384"
+	case tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256:
+		return "ECDHE-ECDSA-CHACHA20-POLY1305"
+	case tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256:
+		return "ECDHE-RSA-CHACHA20-POLY1305"
+	default:
+		return ""
+	}
 }

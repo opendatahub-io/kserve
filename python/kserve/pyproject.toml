@@ -76,6 +76,9 @@ classifiers = [
 [project.urls]
 repository = "https://github.com/kserve/kserve/tree/master/python/kserve"
 
+[project.entry-points."kserve.tls_profile_providers"]
+openshift = "kserve.protocol.rest.openshift_tls_profile:OpenShiftTLSProfileProvider"
+
 [project.optional-dependencies]
 storage = [
     "kserve-storage==0.21.0"

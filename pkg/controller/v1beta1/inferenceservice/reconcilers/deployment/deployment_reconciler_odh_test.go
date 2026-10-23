@@ -2721,6 +2721,46 @@ func TestCustomizeDeploymentsServingCertAnnotation(t *testing.T) {
 	assert.Equal(t, "worker-predictor"+constants.ServingCertSecretSuffix, worker.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation])
 }
 
+func TestCustomizeDeploymentsInjectsPythonTLSProfile(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	reader := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence: configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{
+				Type: configv1.TLSProfileCustomType,
+				Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
+					MinTLSVersion: configv1.VersionTLS12,
+					Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+				}},
+			},
+		},
+	}).Build()
+	componentMeta := metav1.ObjectMeta{Name: "predictor", Namespace: "test-ns", Labels: map[string]string{}}
+	podSpec := &corev1.PodSpec{Containers: []corev1.Container{{
+		Name: constants.InferenceServiceContainerName,
+		Env: []corev1.EnvVar{
+			{Name: constants.TransformerTLSCertEnvVar, Value: "/tls/tls.crt"},
+			{Name: constants.TransformerTLSKeyEnvVar, Value: "/tls/tls.key"},
+		},
+	}}}
+
+	reconciler, err := NewDeploymentReconciler(t.Context(), reader, nil, nil, componentMeta, metav1.ObjectMeta{},
+		&v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, reconciler.DeploymentList, 1)
+
+	container := reconciler.DeploymentList[0].Spec.Template.Spec.Containers[0]
+	env := make(map[string]string, len(container.Env))
+	for _, item := range container.Env {
+		env[item.Name] = item.Value
+	}
+	assert.Equal(t, "openshift", env["KSERVE_TLS_PROFILE_PROVIDER"])
+	assert.Equal(t, "VersionTLS12", env["KSERVE_TLS_MIN_VERSION"])
+	assert.Equal(t, "ECDHE-RSA-AES128-GCM-SHA256", env["KSERVE_TLS_CIPHERS"])
+}
+
 func TestCustomizeDeploymentsInferenceGraphMountsServingCertWithoutProxy(t *testing.T) {
 	tests := []struct {
 		name   string
