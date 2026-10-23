@@ -503,6 +503,84 @@ func TestTransformerTLSPortAndProbeOverride(t *testing.T) {
 			expectedPort:     8443,
 			expectedHttpPort: "8443",
 		},
+		{
+			name: "zero --http_port falls back to 8443",
+			args: []string{"--http_port", "0"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "negative --http_port falls back to 8443",
+			args: []string{"--http_port", "-1"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "oversized --http_port falls back to 8443",
+			args: []string{"--http_port=65536"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "malformed --http_port falls back to 8443",
+			args: []string{"--http_port", "not-a-port"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "invalid duplicate equals form falls back to 8443",
+			args: []string{"--http_port", "9000", "--http_port=0"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "invalid duplicate two-element form falls back to 8443",
+			args: []string{"--http_port=9000", "--http_port", "65536"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
 	}
 
 	for _, tt := range tests {
