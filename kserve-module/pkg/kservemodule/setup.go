@@ -121,6 +121,17 @@ func (r *KserveModuleReconciler) buildDynamicWatches() []*dynamicWatch {
 			},
 		},
 		{
+			// CSRs are deliberately out of the ownerRef chain (see
+			// unownedGroupKinds), so nothing recreates them when deleted.
+			// Watching them turns that into a normal reconcile.
+			groupKind:     clusterServingRuntimeGK,
+			gvk:           schema.GroupVersionKind{Group: clusterServingRuntimeGK.Group, Version: "v1alpha1", Kind: clusterServingRuntimeGK.Kind},
+			selfInstalled: true,
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return strings.HasPrefix(u.GetName(), "csr-kserve-") || strings.Contains(u.GetName(), "-csr-kserve-")
+			},
+		},
+		{
 			// Monitoring is optional, so its watch never blocks startup when the CRD is absent.
 			groupKind:  schema.GroupKind{Group: monitoringAPIGroup, Kind: monitoringKind},
 			gvk:        monitoringGVK,

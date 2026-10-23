@@ -979,6 +979,45 @@ var _ = Describe("KserveModule Reconciler", func() {
 			}).WithContext(ctx).Should(Succeed())
 		})
 	})
+
+	Context("CSR version stamping", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+
+		BeforeAll(func(ctx SpecContext) {
+			testEnv.Reconciler.Deployer = &fixture.MockDeployer{}
+
+			cr = fixture.KserveCR(fixture.WithAnnotation("platform.opendatahub.io/version", "3.6.0"))
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				deleteAndWaitGone(ctx, cr)
+			})
+		})
+
+		It("stamps CSR names with the version prefix and deploys them unowned", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "csr-stamp")
+
+			Eventually(func(g Gomega) {
+				m := mockDeployer()
+				g.Expect(len(m.Calls)).To(BeNumerically(">=", 2), "expected both owned and unowned deploy calls")
+
+				found := false
+				for _, call := range m.Calls {
+					if call.Owner != nil {
+						continue
+					}
+					for _, res := range call.Resources {
+						if res.GetKind() == "ClusterServingRuntime" {
+							g.Expect(res.GetName()).To(Equal("v3-6-0-csr-kserve-vllm-cuda"))
+							g.Expect(res.GetOwnerReferences()).To(BeEmpty())
+							found = true
+						}
+					}
+				}
+				g.Expect(found).To(BeTrue(), "versioned CSR not found in unowned deploy call")
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
 })
 
 func createReadyDeployment(ctx SpecContext, name, namespace string) {

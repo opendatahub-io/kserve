@@ -289,7 +289,17 @@ func modelControllerPostRender(ctx context.Context, r *KserveModuleReconciler,
 		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
 	}
 
+	beforeCSR := len(result)
 	result = versionedClusterServingRuntimes(result, r.versionPrefix)
+	stampedCount := 0
+	for i := range result {
+		if result[i].GroupVersionKind().GroupKind() == clusterServingRuntimeGK {
+			stampedCount++
+		}
+	}
+	if stampedCount > 0 {
+		log.Info("versioned ClusterServingRuntimes", "prefix", r.versionPrefix, "stamped", stampedCount, "total", beforeCSR)
+	}
 
 	return result, nil
 }
