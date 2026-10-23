@@ -998,11 +998,11 @@ var _ = Describe("KserveModule Reconciler", func() {
 			triggerReconcile(ctx, cr, "csr-stamp")
 
 			Eventually(func(g Gomega) {
-				m := mockDeployer()
-				g.Expect(len(m.Calls)).To(BeNumerically(">=", 2), "expected both owned and unowned deploy calls")
+				calls := mockDeployer().GetCalls()
+				g.Expect(len(calls)).To(BeNumerically(">=", 2), "expected both owned and unowned deploy calls")
 
 				found := false
-				for _, call := range m.Calls {
+				for _, call := range calls {
 					if call.Owner != nil {
 						continue
 					}
