@@ -45,6 +45,15 @@ func wellKnownPresetNames(resources []unstructured.Unstructured) []string {
 	return names
 }
 
+func versionedClusterServingRuntimes(resources []unstructured.Unstructured, versionPrefix string) []unstructured.Unstructured {
+	for i := range resources {
+		if resources[i].GroupVersionKind().GroupKind() == clusterServingRuntimeGK {
+			resources[i].SetName(fmt.Sprintf("%s-%s", versionPrefix, resources[i].GetName()))
+		}
+	}
+	return resources
+}
+
 func versionedWellKnownLLMInferenceServiceConfigs(resources []unstructured.Unstructured, versionPrefix string) ([]unstructured.Unstructured, error) {
 	if versionPrefix == "" {
 		return resources, nil

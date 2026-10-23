@@ -118,8 +118,7 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
 
-	versionPrefix := r.getVersionPrefix(ctx, kserve)
-	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, versionPrefix)
+	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, r.versionPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("versioning LLMInferenceServiceConfigs: %w", err)
 	}
@@ -279,8 +278,8 @@ func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]stri
 	}
 }
 
-func modelControllerPostRender(ctx context.Context, _ *KserveModuleReconciler,
-	_ *platformv1alpha1.Kserve,
+func modelControllerPostRender(ctx context.Context, r *KserveModuleReconciler,
+	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 
 	log := ctrl.LoggerFrom(ctx)
@@ -289,6 +288,19 @@ func modelControllerPostRender(ctx context.Context, _ *KserveModuleReconciler,
 	if afterCount := len(result); beforeCount != afterCount {
 		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
 	}
+
+	beforeCSR := len(result)
+	result = versionedClusterServingRuntimes(result, r.versionPrefix)
+	stampedCount := 0
+	for i := range result {
+		if result[i].GroupVersionKind().GroupKind() == clusterServingRuntimeGK {
+			stampedCount++
+		}
+	}
+	if stampedCount > 0 {
+		log.Info("versioned ClusterServingRuntimes", "prefix", r.versionPrefix, "stamped", stampedCount, "total", beforeCSR)
+	}
+
 	return result, nil
 }
 
