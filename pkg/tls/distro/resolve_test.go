@@ -205,7 +205,7 @@ func TestResolveClusterProfile_OldHonorsConfiguredMinimumAndCiphers(t *testing.T
 	if err != nil {
 		t.Fatalf("resolveClusterProfile() error = %v", err)
 	}
-	cfg := &tls.Config{}
+	cfg := newTestTLSConfig()
 	result.TLSOpts[0](cfg)
 	if cfg.MinVersion != tls.VersionTLS10 {
 		t.Fatalf("expected Old profile minimum TLS 1.0 honored exactly, got %d", cfg.MinVersion)
@@ -264,7 +264,7 @@ func TestResolveClusterProfile_CustomSubTLS12MinimumHonoredExactly(t *testing.T)
 			if err != nil {
 				t.Fatalf("resolveClusterProfile() error = %v", err)
 			}
-			cfg := &tls.Config{}
+			cfg := newTestTLSConfig()
 			result.TLSOpts[0](cfg)
 			if cfg.MinVersion != tc.want {
 				t.Fatalf("expected %s honored exactly (%d), got %d", tc.name, tc.want, cfg.MinVersion)
@@ -310,7 +310,7 @@ func TestResolveClusterProfile_PrunesUnusableCiphersKeepingUsable(t *testing.T) 
 	if err != nil {
 		t.Fatalf("resolveClusterProfile() error = %v", err)
 	}
-	cfg := &tls.Config{}
+	cfg := newTestTLSConfig()
 	result.TLSOpts[0](cfg)
 	if len(cfg.CipherSuites) != 1 || cfg.CipherSuites[0] != tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
 		t.Fatalf("expected only the usable ECDHE suite to survive pruning, got %v", cfg.CipherSuites)
@@ -335,7 +335,7 @@ func TestResolveClusterProfile_RejectsRC4Ciphers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveClusterProfile() error = %v", err)
 	}
-	cfg := &tls.Config{}
+	cfg := newTestTLSConfig()
 	result.TLSOpts[0](cfg)
 	if len(cfg.CipherSuites) != 1 || cfg.CipherSuites[0] != tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
 		t.Fatalf("expected the RC4 entry to be dropped and the usable suite kept, got %v", cfg.CipherSuites)
@@ -367,7 +367,7 @@ func TestResolveClusterProfile_RetainsImplementedCustomCiphers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveClusterProfile() error = %v", err)
 	}
-	cfg := &tls.Config{}
+	cfg := newTestTLSConfig()
 	result.TLSOpts[0](cfg)
 	if len(cfg.CipherSuites) != 2 || cfg.CipherSuites[0] != tls.TLS_ECDHE_RSA_WITH_3DES_EDE_CBC_SHA || cfg.CipherSuites[1] != tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256 {
 		t.Fatalf("expected both runtime-supported custom suites to be retained, got %v", cfg.CipherSuites)
@@ -434,4 +434,8 @@ func assertIntermediateTLS(t *testing.T, result Result) {
 	if cfg.MinVersion != tls.VersionTLS12 {
 		t.Fatalf("expected TLS 1.2 fallback, got %d", cfg.MinVersion)
 	}
+}
+
+func newTestTLSConfig() *tls.Config {
+	return &tls.Config{MinVersion: tls.VersionTLS12}
 }
