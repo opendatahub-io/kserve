@@ -63,9 +63,10 @@ type LocalModelNamespaceCacheReconciler struct {
 // Step 4 - Creates PV & PVCs for ISVCs in the same namespace using this cached model
 func (c *LocalModelNamespaceCacheReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	c.Log.Info("Reconciling namespace-scoped localmodel", "name", req.Name, "namespace", req.Namespace)
-	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, c.Clientset)
+	configNamespace := inferenceServiceConfigNamespace()
+	isvcConfigMap, err := getInferenceServiceConfigMap(ctx, c.Clientset)
 	if err != nil {
-		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", constants.KServeNamespace)
+		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", configNamespace)
 		return reconcile.Result{}, err
 	}
 	localModelConfig, err := v1beta1.NewLocalModelConfig(isvcConfigMap)
@@ -341,9 +342,10 @@ func (c *LocalModelNamespaceCacheReconciler) SetupWithManager(mgr ctrl.Manager) 
 	if c.APIReader == nil {
 		c.APIReader = mgr.GetAPIReader()
 	}
-	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(context.Background(), c.Clientset)
+	configNamespace := inferenceServiceConfigNamespace()
+	isvcConfigMap, err := getInferenceServiceConfigMap(context.Background(), c.Clientset)
 	if err != nil {
-		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", constants.KServeNamespace)
+		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", configNamespace)
 		return err
 	}
 	localModelConfig, err := v1beta1.NewLocalModelConfig(isvcConfigMap)
@@ -459,6 +461,7 @@ func (c *LocalModelNamespaceCacheReconciler) SetupWithManager(mgr ctrl.Manager) 
 		}
 	}
 
+	c.setupNamespaceCacheConfigMapWatch(controllerBuilder)
 	return controllerBuilder.
 		Watches(&v1alpha1.LocalModelNamespaceCache{}, handler.EnqueueRequestsFromMapFunc(c.deletedCacheFuncNamespaceCache), builder.WithPredicates(cacheDeletePredicates)).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(c.nodeFuncNamespaceCache), builder.WithPredicates(nodePredicates)).

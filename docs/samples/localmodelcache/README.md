@@ -35,6 +35,21 @@ exists in the shared job namespace by that Secret's `metadata.name` (for example
 no extra ownership check. KServe does not copy Secrets from the cache namespace.
 Prefer `pvcRef` when tenants must not share that cluster credential store.
 
+### ODH ModelCache module
+
+When KServe is installed through the ODH module, the module sets
+`localModel.jobNamespace` to `model-serving-cache` in `inferenceservice-config`.
+Before enabling or upgrading a node-group cache, administrators must manually
+create every referenced ServiceAccount, image-pull Secret, and storage credential Secret in
+`model-serving-cache`. The module does not copy or synchronize credentials from
+the applications or user namespace. Shared-PVC imports that use `pvcRef`
+continue to run in the cache's user namespace and keep their existing credential
+location.
+
+The standalone examples below continue to use `kserve-localmodel-jobs`; that is
+the default job namespace for those examples and is separate from the ODH module
+configuration.
+
 Node-local download Jobs are not replaced when `imagePullSecrets` (or
 `serviceAccountName` / `storage`) change. Delete the failed or pending Job in
 `localModel.jobNamespace` so the agent creates a replacement. Shared-PVC import Jobs
@@ -325,4 +340,3 @@ spec:
         limits:
           nvidia.com/gpu: "1"
 ```
-

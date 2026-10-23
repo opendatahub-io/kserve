@@ -27,13 +27,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
-	"github.com/kserve/kserve/pkg/constants"
 )
 
 // Load gets and parses the KernelCache configuration from the shared ConfigMap.
 func Load(ctx context.Context, reader client.Reader) (*v1beta1.KernelCacheConfig, error) {
 	configMap := &corev1.ConfigMap{}
-	key := client.ObjectKey{Namespace: constants.KServeNamespace, Name: constants.InferenceServiceConfigMapName}
+	key := inferenceServiceConfigMapKey()
 	if err := reader.Get(ctx, key, configMap); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, fmt.Errorf("inferenceservice-config was not found: %w", err)

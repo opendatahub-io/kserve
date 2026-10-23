@@ -563,9 +563,10 @@ func (c *LocalModelNodeReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	c.Log.Info("Agent reconciling LocalModelNode", "name", req.Name, "node", nodeName)
 
 	// 1. Load config
-	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, c.Clientset)
+	configNamespace := inferenceServiceConfigNamespace()
+	isvcConfigMap, err := getInferenceServiceConfigMap(ctx, c.Clientset)
 	if err != nil {
-		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", constants.KServeNamespace)
+		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", configNamespace)
 		return reconcile.Result{}, err
 	}
 	c.IsvcConfigMap = isvcConfigMap
@@ -639,11 +640,12 @@ func (c *LocalModelNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if c.APIReader == nil {
 		c.APIReader = mgr.GetAPIReader()
 	}
-	return ctrl.NewControllerManagedBy(mgr).
+	b := ctrl.NewControllerManagedBy(mgr).
 		// Do not reconcile on status change, when a job is created and the status is updated, the next reconcile is triggered immediately and
 		// there is a chance that the job is not returned when we list jobs, causing the same job to be created twice.
 		// Keep AnnotationChangedPredicate because we use it to trigger reconciliation in the test
 		For(&v1alpha1.LocalModelNode{}, builder.WithPredicates(predicate.Or(predicate.GenerationChangedPredicate{}, predicate.AnnotationChangedPredicate{}))).
-		Owns(&batchv1.Job{}).
-		Complete(c)
+		Owns(&batchv1.Job{})
+	c.setupConfigMapWatch(b)
+	return b.Complete(c)
 }

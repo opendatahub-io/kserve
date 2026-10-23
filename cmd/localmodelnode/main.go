@@ -131,6 +131,7 @@ func main() {
 	}
 
 	mgr, err := manager.New(cfg, manager.Options{
+		Cache:                  modelCacheConfigMapCacheOptions(),
 		Metrics:                metricsServerOptions,
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,

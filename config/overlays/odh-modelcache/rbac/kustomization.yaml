@@ -3,3 +3,4 @@ kind: Kustomization
 resources:
   - localmodel
   - localmodelnode
+  - configmap_source_reader.yaml
