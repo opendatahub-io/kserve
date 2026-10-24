@@ -15,3 +15,5 @@ resources:
 - ibm-spyre-x86-config-llm-template.yaml
 - ibm-spyre-ppc64le-config-llm-template.yaml
 - cpu-config-llm-template.yaml
+- rebellions-rbln-config-llm-single-node-template.yaml
+- rebellions-rbln-config-llm-single-node-pd-template.yaml
