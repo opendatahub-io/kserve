@@ -1,11 +1,13 @@
 # Build the inference qpext binary
 FROM golang:1.26.8 AS deps
+ENV GODEBUG=http2client=0
 
 WORKDIR /go/src/github.com/kserve/kserve/qpext
+COPY hack/retry.sh /usr/local/bin/retry
 COPY qpext/go.mod  go.mod
 COPY qpext/go.sum  go.sum
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+    /usr/local/bin/retry go mod download
 
 # ---- Build stage (parallel with license on BuildKit) ----
 FROM deps AS builder
@@ -21,7 +23,7 @@ FROM deps AS license
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go install github.com/google/go-licenses@v1.6.0
+    /usr/local/bin/retry go install github.com/google/go-licenses@v1.6.0
 
 COPY qpext/cmd/qpext cmd/qpext
 COPY qpext/logger.go logger.go
