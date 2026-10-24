@@ -4,19 +4,19 @@ go 1.26.7
 
 require (
 	github.com/NVIDIA/go-nvml v0.13.0-1
-	github.com/containers/buildah v1.42.1
-	github.com/containers/podman/v5 v5.7.0
+	github.com/containers/buildah v1.43.2
+	github.com/containers/podman/v5 v5.8.6
 	github.com/docker/docker v28.5.2+incompatible
 	github.com/google/go-containerregistry v0.20.7
 	github.com/jaypipes/ghw v0.17.0
 	github.com/jaypipes/pcidb v1.0.1
 	github.com/pkg/errors v0.9.1
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
-	go.podman.io/common v0.66.1-0.20251111134650-36964d15757a
-	go.podman.io/image/v5 v5.38.1-0.20251111134650-36964d15757a
-	go.podman.io/storage v1.61.1-0.20251111134650-36964d15757a
+	go.podman.io/common v0.67.1
+	go.podman.io/image/v5 v5.39.2
+	go.podman.io/storage v1.62.0
 )
 
 require (
@@ -84,7 +84,7 @@ require (
 	github.com/mattn/go-shellwords v1.0.12 // indirect
 	github.com/mattn/go-sqlite3 v1.14.32 // indirect
 	github.com/miekg/pkcs11 v1.1.1 // indirect
-	github.com/mistifyio/go-zfs/v4 v4.0.0 // indirect
+	github.com/mistifyio/go-zfs/v3 v3.1.0 // indirect
 	github.com/mitchellh/go-homedir v1.1.0 // indirect
 	github.com/moby/buildkit v0.25.1 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect
@@ -135,13 +135,13 @@ require (
 	go.opentelemetry.io/otel/metric v1.43.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.yaml.in/yaml/v2 v2.4.3 // indirect
-	golang.org/x/crypto v0.52.0 // indirect
-	golang.org/x/mod v0.35.0 // indirect
+	golang.org/x/crypto v0.53.0 // indirect
+	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.45.0 // indirect
-	golang.org/x/term v0.43.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/sync v0.21.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
+	golang.org/x/term v0.44.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260414002931-afd174a4e478 // indirect
 	google.golang.org/grpc v1.82.1 // indirect
