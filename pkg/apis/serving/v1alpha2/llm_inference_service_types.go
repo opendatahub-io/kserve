@@ -199,8 +199,8 @@ type WorkloadSpec struct {
 	KVCacheOffloading *KVCacheOffloadingSpec `json:"kvCacheOffloading,omitempty"`
 
 	// RolloutStrategy configures how rolling updates are performed for this workload.
-	// When omitted, Kubernetes/LWS defaults apply (maxUnavailable: 25%, maxSurge: 25%
-	// for Deployments; maxUnavailable: 1, maxSurge: 0 for LeaderWorkerSets).
+	// When omitted, single-node Deployments use Recreate. LeaderWorkerSets keep
+	// their default (maxUnavailable: 1, maxSurge: 0).
 	// +optional
 	RolloutStrategy *RolloutStrategy `json:"rolloutStrategy,omitempty"`
 }

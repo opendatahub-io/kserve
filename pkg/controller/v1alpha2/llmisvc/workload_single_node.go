@@ -638,11 +638,14 @@ func prefillDeploymentName(llmSvc *v1alpha2.LLMInferenceService) string {
 }
 
 func applyDeploymentRolloutStrategy(d *appsv1.Deployment, workload *v1alpha2.WorkloadSpec) {
-	if workload == nil || workload.RolloutStrategy == nil {
+	if workload == nil {
 		return
 	}
 	rs := workload.RolloutStrategy
-	if rs.MaxUnavailable == nil && rs.MaxSurge == nil {
+	if rs == nil || (rs.MaxUnavailable == nil && rs.MaxSurge == nil) {
+		d.Spec.Strategy = appsv1.DeploymentStrategy{
+			Type: appsv1.RecreateDeploymentStrategyType,
+		}
 		return
 	}
 	d.Spec.Strategy = appsv1.DeploymentStrategy{

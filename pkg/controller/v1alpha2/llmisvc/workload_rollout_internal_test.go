@@ -34,18 +34,20 @@ func TestApplyDeploymentRolloutStrategy(t *testing.T) {
 		assert.Equal(t, appsv1.DeploymentStrategy{}, d.Spec.Strategy)
 	})
 
-	t.Run("nil rollout strategy leaves deployment strategy empty", func(t *testing.T) {
+	t.Run("nil rollout strategy defaults to recreate", func(t *testing.T) {
 		d := &appsv1.Deployment{}
 		applyDeploymentRolloutStrategy(d, &v1alpha2.WorkloadSpec{})
-		assert.Equal(t, appsv1.DeploymentStrategy{}, d.Spec.Strategy)
+		assert.Equal(t, appsv1.RecreateDeploymentStrategyType, d.Spec.Strategy.Type)
+		assert.Nil(t, d.Spec.Strategy.RollingUpdate)
 	})
 
-	t.Run("empty rollout strategy leaves deployment strategy empty", func(t *testing.T) {
+	t.Run("empty rollout strategy defaults to recreate", func(t *testing.T) {
 		d := &appsv1.Deployment{}
 		applyDeploymentRolloutStrategy(d, &v1alpha2.WorkloadSpec{
 			RolloutStrategy: &v1alpha2.RolloutStrategy{},
 		})
-		assert.Equal(t, appsv1.DeploymentStrategy{}, d.Spec.Strategy)
+		assert.Equal(t, appsv1.RecreateDeploymentStrategyType, d.Spec.Strategy.Type)
+		assert.Nil(t, d.Spec.Strategy.RollingUpdate)
 	})
 
 	t.Run("maxUnavailable only sets rolling update strategy", func(t *testing.T) {
