@@ -398,22 +398,19 @@ def _verify_tls_arguments(
         "--tls-cipher-suites": tls_cipher_suites,
     }
     for component in ("epp", "sidecar"):
-        for flag, value in expected_args.items():
-            matching_args = [
-                arg
-                for command in commands[component]
-                for arg in command
-                if arg.startswith(f"{flag}=")
-            ]
-            if value:
-                assert f"{flag}={value}" in matching_args, (
-                    f"Expected {component} to receive {flag}={value}, "
-                    f"got: {matching_args}"
-                )
-            else:
-                assert not matching_args, (
-                    f"Expected {component} to omit {flag}, got: {matching_args}"
-                )
+        for command in commands[component]:
+            for flag, value in expected_args.items():
+                matching_args = [arg for arg in command if arg.startswith(f"{flag}=")]
+                if value:
+                    assert f"{flag}={value}" in matching_args, (
+                        f"Expected {component} command to receive {flag}={value}, "
+                        f"got: {matching_args}"
+                    )
+                else:
+                    assert not matching_args, (
+                        f"Expected {component} command to omit {flag}, "
+                        f"got: {matching_args}"
+                    )
 
     expected_vllm_ciphers = ":".join(_convert_cipher_suites(tls_cipher_suites))
     for command in commands["vllm"]:
@@ -439,3 +436,41 @@ def _verify_tls_arguments(
             )
 
     logger.info("TLS argument verification passed for components: %s", sorted(commands))
+
+
+@pytest.mark.llminferenceservice
+@pytest.mark.parametrize("component", ("epp", "sidecar"))
+def test_verify_tls_arguments_rejects_mixed_replica_flags(monkeypatch, component):
+    tls_cipher_suites = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+    expected_cipher = "ECDHE-RSA-AES128-GCM-SHA256"
+    good_command = [
+        "--tls-min-version=VersionTLS12",
+        f"--tls-cipher-suites={tls_cipher_suites}",
+    ]
+    bad_command = [
+        "--tls-min-version=VersionTLS10",
+        f"--tls-cipher-suites={tls_cipher_suites}",
+    ]
+    commands = {
+        "epp": [good_command],
+        "sidecar": [good_command],
+        "vllm": [["--ssl-ciphers", expected_cipher]],
+    }
+    commands[component].append(bad_command)
+    monkeypatch.setitem(
+        globals(),
+        "_get_container_tls_state",
+        lambda *_args, **_kwargs: commands,
+    )
+
+    with pytest.raises(
+        AssertionError,
+        match=rf"Expected {component} command to receive --tls-min-version=VersionTLS12",
+    ):
+        _verify_tls_arguments(
+            "service",
+            "namespace",
+            True,
+            "VersionTLS12",
+            tls_cipher_suites,
+        )

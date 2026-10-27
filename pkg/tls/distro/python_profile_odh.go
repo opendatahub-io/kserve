@@ -84,20 +84,29 @@ func hasTLSCredentials(container *corev1.Container) bool {
 	for _, env := range container.Env {
 		switch env.Name {
 		case constants.TransformerTLSCertEnvVar:
-			hasCert = true
+			hasCert = hasCert || env.Value != "" || env.ValueFrom != nil
 		case constants.TransformerTLSKeyEnvVar:
-			hasKey = true
+			hasKey = hasKey || env.Value != "" || env.ValueFrom != nil
 		}
 	}
-	for _, arg := range append(append([]string(nil), container.Command...), container.Args...) {
+	args := append(append([]string(nil), container.Command...), container.Args...)
+	for i, arg := range args {
 		switch {
-		case arg == "--ssl_certfile" || strings.HasPrefix(arg, "--ssl_certfile="):
-			hasCert = true
-		case arg == "--ssl_keyfile" || strings.HasPrefix(arg, "--ssl_keyfile="):
-			hasKey = true
+		case arg == "--ssl_certfile":
+			hasCert = hasCert || hasNonEmptyFlagValue(args, i)
+		case strings.HasPrefix(arg, "--ssl_certfile="):
+			hasCert = hasCert || strings.TrimPrefix(arg, "--ssl_certfile=") != ""
+		case arg == "--ssl_keyfile":
+			hasKey = hasKey || hasNonEmptyFlagValue(args, i)
+		case strings.HasPrefix(arg, "--ssl_keyfile="):
+			hasKey = hasKey || strings.TrimPrefix(arg, "--ssl_keyfile=") != ""
 		}
 	}
 	return hasCert && hasKey
+}
+
+func hasNonEmptyFlagValue(args []string, index int) bool {
+	return index+1 < len(args) && args[index+1] != "" && !strings.HasPrefix(args[index+1], "--")
 }
 
 func setContainerEnv(container *corev1.Container, name, value string) {

@@ -62,6 +62,39 @@ func TestInjectTLSSecurityProfileProvider(t *testing.T) {
 	}, {
 		Name: "dash-server",
 		Args: []string{"--ssl-certfile=/tls/tls.crt", "--ssl-keyfile=/tls/tls.key"},
+	}, {
+		Name: "empty-env-server",
+		Env: []corev1.EnvVar{
+			{Name: constants.TransformerTLSCertEnvVar},
+			{Name: constants.TransformerTLSKeyEnvVar},
+		},
+	}, {
+		Name: "empty-equals-server",
+		Args: []string{"--ssl_certfile=", "--ssl_keyfile="},
+	}, {
+		Name: "empty-separated-server",
+		Args: []string{"--ssl_certfile", "", "--ssl_keyfile", ""},
+	}, {
+		Name: "missing-separated-cert-value-server",
+		Args: []string{"--ssl_certfile", "--ssl_keyfile=/tls/tls.key"},
+	}, {
+		Name: "value-from-server",
+		Env: []corev1.EnvVar{
+			{
+				Name: constants.TransformerTLSCertEnvVar,
+				ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "tls"},
+					Key:                  "tls.crt",
+				}},
+			},
+			{
+				Name: constants.TransformerTLSKeyEnvVar,
+				ValueFrom: &corev1.EnvVarSource{SecretKeyRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "tls"},
+					Key:                  "tls.key",
+				}},
+			},
+		},
 	}}}
 
 	require.NoError(t, InjectPythonTLSProfile(t.Context(), reader, podSpec))
@@ -73,6 +106,11 @@ func TestInjectTLSSecurityProfileProvider(t *testing.T) {
 		tlsCiphersEnv:                      "ECDHE-RSA-AES128-GCM-SHA256",
 	}, envValues(podSpec.Containers[0]))
 	require.Empty(t, podSpec.Containers[1].Env)
+	require.NotContains(t, envValues(podSpec.Containers[4]), tlsProfileProviderEnv)
+	require.NotContains(t, envValues(podSpec.Containers[5]), tlsProfileProviderEnv)
+	require.NotContains(t, envValues(podSpec.Containers[6]), tlsProfileProviderEnv)
+	require.NotContains(t, envValues(podSpec.Containers[7]), tlsProfileProviderEnv)
+	require.Equal(t, tlsProfileProvider, envValues(podSpec.Containers[8])[tlsProfileProviderEnv])
 	require.Equal(t, map[string]string{
 		tlsProfileProviderEnv: tlsProfileProvider,
 		tlsMinVersionEnv:      "VersionTLS12",
