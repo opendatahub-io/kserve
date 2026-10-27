@@ -29,6 +29,7 @@ from pathlib import Path
 import time
 from uuid import uuid4
 
+from kubernetes import client
 import pytest
 
 pytestmark = pytest.mark.kserve_on_openshift
@@ -88,6 +89,55 @@ def _pod_logs(kserve_client, name, namespace, container=None):
         name, namespace, container=container, _preload_content=False
     ) as response:
         return response.read().decode("utf-8")
+
+
+def _bearer_token(kserve_client, name, namespace):
+    """Mint a ServiceAccount token allowed to get the InferenceService.
+
+    The kubeconfig may use client certificates, so it cannot be relied on for a bearer token.
+    """
+    sa_name = f"{name}-client"
+    meta = client.V1ObjectMeta(name=sa_name, namespace=namespace)
+    rbac = client.RbacAuthorizationV1Api()
+    kserve_client.core_api.create_namespaced_service_account(
+        namespace, client.V1ServiceAccount(metadata=meta)
+    )
+    rbac.create_namespaced_role(
+        namespace,
+        client.V1Role(
+            metadata=meta,
+            rules=[
+                client.V1PolicyRule(
+                    api_groups=[GROUP],
+                    resources=["inferenceservices"],
+                    resource_names=[name],
+                    verbs=["get"],
+                )
+            ],
+        ),
+    )
+    rbac.create_namespaced_role_binding(
+        namespace,
+        client.V1RoleBinding(
+            metadata=meta,
+            role_ref=client.V1RoleRef(
+                api_group="rbac.authorization.k8s.io", kind="Role", name=sa_name
+            ),
+            subjects=[
+                client.RbacV1Subject(
+                    kind="ServiceAccount", name=sa_name, namespace=namespace
+                )
+            ],
+        ),
+    )
+    response = kserve_client.core_api.create_namespaced_service_account_token(
+        sa_name,
+        namespace,
+        client.AuthenticationV1TokenRequest(
+            spec=client.V1TokenRequestSpec(expiration_seconds=3600)
+        ),
+    )
+    return response.status.token
 
 
 def _wait_ready(kserve_client, name, namespace):
@@ -398,9 +448,7 @@ async def test_late_agent_activation_routes_through_agent(
             )
         )
         _wait_ready(kserve_client, name, test_namespace)
-        configuration = kserve_client.api_instance.api_client.configuration
-        token = configuration.auth_settings().get("BearerToken", {}).get("value")
-        assert token, "The test kubeconfig must provide bearer authentication"
+        token = _bearer_token(kserve_client, name, test_namespace)
         service = kserve_client.get(name, namespace=test_namespace)
         filename = (
             "iris_batch_input.json" if feature == "batcher" else "iris_input.json"
@@ -414,7 +462,7 @@ async def test_late_agent_activation_routes_through_agent(
                     service["status"]["url"],
                     request,
                     model_name=name,
-                    headers={"Authorization": token},
+                    headers={"Authorization": f"Bearer {token}"},
                 )
                 for request in requests
             )
@@ -503,14 +551,12 @@ async def test_runtime_port_change_keeps_authenticated_inference_working(
         assert after["deployment_uid"] == before["deployment_uid"]
         assert after["pods"] != before["pods"], "The model-port edit requires new Pods"
         service = kserve_client.get(name, namespace=test_namespace)
-        configuration = kserve_client.api_instance.api_client.configuration
-        token = configuration.auth_settings().get("BearerToken", {}).get("value")
-        assert token, "The test kubeconfig must provide bearer authentication"
+        token = _bearer_token(kserve_client, name, test_namespace)
         result = await rest_v1_client.infer(
             service["status"]["url"],
             json.loads((Path("data") / "iris_input.json").read_text()),
             model_name=name,
-            headers={"Authorization": token},
+            headers={"Authorization": f"Bearer {token}"},
         )
         assert result.get("predictions") == [1, 1], result
 
