@@ -90,16 +90,17 @@ func hasTLSCredentials(container *corev1.Container) bool {
 		}
 	}
 	args := append(append([]string(nil), container.Command...), container.Args...)
+	// Python argparse applies explicit flags over environment defaults; repeated flags use the last value.
 	for i, arg := range args {
 		switch {
 		case arg == "--ssl_certfile":
-			hasCert = hasCert || hasNonEmptyFlagValue(args, i)
+			hasCert = hasNonEmptyFlagValue(args, i)
 		case strings.HasPrefix(arg, "--ssl_certfile="):
-			hasCert = hasCert || strings.TrimPrefix(arg, "--ssl_certfile=") != ""
+			hasCert = strings.TrimPrefix(arg, "--ssl_certfile=") != ""
 		case arg == "--ssl_keyfile":
-			hasKey = hasKey || hasNonEmptyFlagValue(args, i)
+			hasKey = hasNonEmptyFlagValue(args, i)
 		case strings.HasPrefix(arg, "--ssl_keyfile="):
-			hasKey = hasKey || strings.TrimPrefix(arg, "--ssl_keyfile=") != ""
+			hasKey = strings.TrimPrefix(arg, "--ssl_keyfile=") != ""
 		}
 	}
 	return hasCert && hasKey

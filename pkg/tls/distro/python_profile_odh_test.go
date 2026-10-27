@@ -95,6 +95,36 @@ func TestInjectTLSSecurityProfileProvider(t *testing.T) {
 				}},
 			},
 		},
+	}, {
+		Name: "empty-equals-overrides-env-server",
+		Env: []corev1.EnvVar{
+			{Name: constants.TransformerTLSCertEnvVar, Value: "/tls/tls.crt"},
+			{Name: constants.TransformerTLSKeyEnvVar, Value: "/tls/tls.key"},
+		},
+		Args: []string{"--ssl_certfile=", "--ssl_keyfile="},
+	}, {
+		Name: "empty-separated-overrides-env-server",
+		Env: []corev1.EnvVar{
+			{Name: constants.TransformerTLSCertEnvVar, Value: "/tls/tls.crt"},
+			{Name: constants.TransformerTLSKeyEnvVar, Value: "/tls/tls.key"},
+		},
+		Args: []string{"--ssl_certfile", "", "--ssl_keyfile", ""},
+	}, {
+		Name: "repeated-flags-last-empty-server",
+		Env: []corev1.EnvVar{
+			{Name: constants.TransformerTLSCertEnvVar, Value: "/tls/tls.crt"},
+			{Name: constants.TransformerTLSKeyEnvVar, Value: "/tls/tls.key"},
+		},
+		Args: []string{
+			"--ssl_certfile=/tls/tls.crt", "--ssl_certfile=",
+			"--ssl_keyfile=/tls/tls.key", "--ssl_keyfile=",
+		},
+	}, {
+		Name: "repeated-flags-last-non-empty-server",
+		Args: []string{
+			"--ssl_certfile=", "--ssl_certfile=/tls/tls.crt",
+			"--ssl_keyfile=", "--ssl_keyfile=/tls/tls.key",
+		},
 	}}}
 
 	require.NoError(t, InjectPythonTLSProfile(t.Context(), reader, podSpec))
@@ -111,6 +141,10 @@ func TestInjectTLSSecurityProfileProvider(t *testing.T) {
 	require.NotContains(t, envValues(podSpec.Containers[6]), tlsProfileProviderEnv)
 	require.NotContains(t, envValues(podSpec.Containers[7]), tlsProfileProviderEnv)
 	require.Equal(t, tlsProfileProvider, envValues(podSpec.Containers[8])[tlsProfileProviderEnv])
+	for _, i := range []int{9, 10, 11} {
+		require.NotContains(t, envValues(podSpec.Containers[i]), tlsProfileProviderEnv)
+	}
+	require.Equal(t, tlsProfileProvider, envValues(podSpec.Containers[12])[tlsProfileProviderEnv])
 	require.Equal(t, map[string]string{
 		tlsProfileProviderEnv: tlsProfileProvider,
 		tlsMinVersionEnv:      "VersionTLS12",
