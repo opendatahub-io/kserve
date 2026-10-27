@@ -298,6 +298,7 @@ func (r *LLMISVCReconciler) expectedPrefillMainDeployment(ctx context.Context, l
 			MatchLabels: deploymentSelectorLabels(pod.IdentityLabels, llmSvc.Spec.Prefill.Labels),
 		}
 		applyDeploymentRolloutStrategy(d, llmSvc.Spec.Prefill)
+		applyPlatformDeploymentStrategy(llmSvc, d)
 	}
 
 	propagateDeploymentObjectMetadata(llmSvc, d)
@@ -638,14 +639,11 @@ func prefillDeploymentName(llmSvc *v1alpha2.LLMInferenceService) string {
 }
 
 func applyDeploymentRolloutStrategy(d *appsv1.Deployment, workload *v1alpha2.WorkloadSpec) {
-	if workload == nil {
+	if workload == nil || workload.RolloutStrategy == nil {
 		return
 	}
 	rs := workload.RolloutStrategy
-	if rs == nil || (rs.MaxUnavailable == nil && rs.MaxSurge == nil) {
-		d.Spec.Strategy = appsv1.DeploymentStrategy{
-			Type: appsv1.RecreateDeploymentStrategyType,
-		}
+	if rs.MaxUnavailable == nil && rs.MaxSurge == nil {
 		return
 	}
 	d.Spec.Strategy = appsv1.DeploymentStrategy{
