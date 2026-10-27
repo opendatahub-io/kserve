@@ -655,7 +655,7 @@ PROMETHEUS_VERSION=83.4.0
 PROMETHEUS_ADAPTER_VERSION=5.3.0
 JAEGER_VERSION=4.7.0
 KSERVE_VERSION=v0.21.0
-ISTIO_VERSION=1.27.1
+ISTIO_VERSION=1.31.2
 KEDA_VERSION=2.20.2
 OPENTELEMETRY_OPERATOR_VERSION=0.114.1
 LWS_VERSION=v1.0.0
@@ -7163,6 +7163,8 @@ spec:
             - --
             env:
             - name: KSERVE_TRACING_CONFIG_VERSION
+              value: "1"
+            - name: KSERVE_PULL_SECRETS_CONFIG_VERSION
               value: "1"
             - name: HF_HOME
               value: /tmp/hf
