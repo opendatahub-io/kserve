@@ -226,6 +226,7 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainPodTemplate(ctx context.Contex
 
 	utils.PropagateMap(llmSvc.Spec.Labels, &template.Labels)
 	utils.PropagateMap(llmSvc.Spec.Annotations, &template.Annotations, nonPropagatedSpecAnnotations...)
+	applyNetworkPolicyPodIdentity(&template, llmSvc, networkPolicyRoleWorkload)
 
 	// Inject tracing instrumentation when spec.tracing is set
 	if llmSvc.Spec.Tracing != nil {
@@ -383,10 +384,12 @@ func (r *LLMISVCReconciler) expectedSingleNodePrefillPodTemplate(ctx context.Con
 	}
 
 	propagatePodTemplateMetadata(llmSvc, &template)
+	applyNetworkPolicyPodIdentity(&template, llmSvc, networkPolicyRoleWorkload)
 
 	if llmSvc.Spec.Prefill != nil {
 		utils.PropagateMap(llmSvc.Spec.Prefill.Labels, &template.Labels)
 		utils.PropagateMap(llmSvc.Spec.Prefill.Annotations, &template.Annotations, nonPropagatedSpecAnnotations...)
+		applyNetworkPolicyPodIdentity(&template, llmSvc, networkPolicyRoleWorkload)
 	}
 
 	// Inject tracing instrumentation when spec.tracing is set

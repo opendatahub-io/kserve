@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -56,11 +57,11 @@ func TestIngressNamespaceUsesConfigNotOpenShiftFallback(t *testing.T) {
 	}
 }
 
-func TestMonitoringNetworkPolicyNameIsPerService(t *testing.T) {
+func TestLegacyMonitoringNetworkPolicyNameIsPerService(t *testing.T) {
 	t.Parallel()
 
 	llmSvc := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{Name: "svc-a", Namespace: "team-a"}}
-	got := monitoringNetworkPolicyName(llmSvc)
+	got := legacyMonitoringNetworkPolicyName(llmSvc)
 	want := kmeta.ChildName("svc-a", "-prometheus-scraping")
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
@@ -76,11 +77,9 @@ func TestGatewayPeerNamespaces(t *testing.T) {
 	llmSvc := func(refs ...v1alpha2.GatewayObjectReference) *v1alpha2.LLMInferenceService {
 		svc := &v1alpha2.LLMInferenceService{
 			ObjectMeta: metav1.ObjectMeta{Name: "svc-a", Namespace: svcNs},
-		}
-		if len(refs) > 0 {
-			svc.Spec.Router = &v1alpha2.RouterSpec{
+			Spec: v1alpha2.LLMInferenceServiceSpec{Router: &v1alpha2.RouterSpec{
 				Gateway: &v1alpha2.GatewaySpec{Refs: refs},
-			}
+			}},
 		}
 		return svc
 	}
@@ -104,19 +103,19 @@ func TestGatewayPeerNamespaces(t *testing.T) {
 			want: []string{managed},
 		},
 		{
-			name: "same-namespace custom ref is skipped",
+			name: "same-namespace custom ref is included",
 			svc:  llmSvc(ref("my-gw", svcNs)),
-			want: []string{managed},
+			want: []string{svcNs},
 		},
 		{
-			name: "empty ref namespace defaults to service namespace and is skipped",
+			name: "empty ref namespace defaults to service namespace",
 			svc:  llmSvc(ref("my-gw", "")),
-			want: []string{managed},
+			want: []string{svcNs},
 		},
 		{
-			name: "cross-namespace custom ref is added",
+			name: "cross-namespace custom ref replaces managed",
 			svc:  llmSvc(ref("my-gw", "other-ns")),
-			want: []string{managed, "other-ns"},
+			want: []string{"other-ns"},
 		},
 		{
 			name: "duplicate managed namespace is not repeated",
@@ -126,12 +125,52 @@ func TestGatewayPeerNamespaces(t *testing.T) {
 		{
 			name: "two cross-namespace refs",
 			svc:  llmSvc(ref("gw-a", "ns-a"), ref("gw-b", "ns-b")),
-			want: []string{managed, "ns-a", "ns-b"},
+			want: []string{"ns-a", "ns-b"},
 		},
 		{
-			name: "nil service still has managed peer",
+			name: "inline route parent replaces managed namespace",
+			svc: func() *v1alpha2.LLMInferenceService {
+				svc := llmSvc()
+				svc.Spec.Router.Gateway = nil
+				svc.Spec.Router.Route = &v1alpha2.GatewayRoutesSpec{
+					HTTP: &v1alpha2.HTTPRouteSpec{Spec: &gwapiv1.HTTPRouteSpec{
+						CommonRouteSpec: gwapiv1.CommonRouteSpec{ParentRefs: []gwapiv1.ParentReference{{Namespace: ptr.To(gwapiv1.Namespace("custom-gateway"))}}},
+					}},
+				}
+				return svc
+			}(),
+			want: []string{"custom-gateway"},
+		},
+		{
+			name: "empty gateway with inline route parent does not add managed namespace",
+			svc: func() *v1alpha2.LLMInferenceService {
+				svc := llmSvc()
+				svc.Spec.Router.Gateway = &v1alpha2.GatewaySpec{}
+				svc.Spec.Router.Route = &v1alpha2.GatewayRoutesSpec{
+					HTTP: &v1alpha2.HTTPRouteSpec{Spec: &gwapiv1.HTTPRouteSpec{
+						CommonRouteSpec: gwapiv1.CommonRouteSpec{ParentRefs: []gwapiv1.ParentReference{{Namespace: ptr.To(gwapiv1.Namespace("custom-gateway"))}}},
+					}},
+				}
+				return svc
+			}(),
+			want: []string{"custom-gateway"},
+		},
+		{
+			name: "referenced route requires reconciliation lookup",
+			svc: func() *v1alpha2.LLMInferenceService {
+				svc := llmSvc()
+				svc.Spec.Router.Gateway = nil
+				svc.Spec.Router.Route = &v1alpha2.GatewayRoutesSpec{
+					HTTP: &v1alpha2.HTTPRouteSpec{Refs: []corev1.LocalObjectReference{{Name: "external-route"}}},
+				}
+				return svc
+			}(),
+			want: nil,
+		},
+		{
+			name: "nil service has no Gateway peer",
 			svc:  nil,
-			want: []string{managed},
+			want: nil,
 		},
 	}
 
@@ -207,6 +246,9 @@ func TestReconcileNetworkPoliciesPropagatesTracingServiceErrors(t *testing.T) {
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("failed to add core scheme: %v", err)
 	}
+	if err := netv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add networking scheme: %v", err)
+	}
 	if err := v1alpha2.AddToScheme(scheme); err != nil {
 		t.Fatalf("failed to add serving scheme: %v", err)
 	}
@@ -244,5 +286,12 @@ func TestReconcileNetworkPoliciesPropagatesTracingServiceErrors(t *testing.T) {
 	err := reconciler.reconcileNetworkPolicies(context.Background(), llmSvc, nil)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("reconcileNetworkPolicies error = %v, want wrapped %v", err, wantErr)
+	}
+	denyAll := &netv1.NetworkPolicy{}
+	if err := fakeClient.Get(context.Background(), client.ObjectKey{Name: egressNetworkPolicyName(llmSvc), Namespace: llmSvc.Namespace}, denyAll); err != nil {
+		t.Fatalf("failed to get fail-closed egress policy: %v", err)
+	}
+	if len(denyAll.Spec.Egress) != 0 || !reflect.DeepEqual(denyAll.Spec.PolicyTypes, []netv1.PolicyType{netv1.PolicyTypeEgress}) {
+		t.Fatalf("egress policy is not explicit deny-all: %#v", denyAll.Spec)
 	}
 }

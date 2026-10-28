@@ -541,6 +541,10 @@ func (r *LLMISVCReconciler) expectedSchedulerDeployment(ctx context.Context, llm
 			return d, err
 		}
 	}
+	// Apply the protected NetworkPolicy identity only after every scheduler
+	// template metadata propagation step. Deployment selectors are immutable
+	// across upgrades and must retain the original scheduler identity labels.
+	applyNetworkPolicyPodIdentity(&d.Spec.Template, llmSvc, networkPolicyRoleScheduler)
 
 	log.FromContext(ctx).V(2).Info("Expected router scheduler deployment", "deployment", d)
 

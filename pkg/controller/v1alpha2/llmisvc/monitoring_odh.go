@@ -432,16 +432,16 @@ func (r *LLMISVCReconciler) cleanupMonitoringResources(ctx context.Context, llmS
 	logger := log.FromContext(ctx).WithName("cleanupMonitoring")
 	ctx = log.IntoContext(ctx, logger)
 
+	// NetworkPolicies are per-service resources and must be cleaned up even
+	// when Prometheus integration is disabled. This also removes the legacy
+	// broad same-namespace policy during finalization.
+	if err := cleanupLLMISVCNetworkPolicies(ctx, r, llmSvc); err != nil {
+		return fmt.Errorf("failed to cleanup LLMInferenceService NetworkPolicies: %w", err)
+	}
+
 	if monitoringDisabled {
 		// No monitoring resources to clean up when monitoring is disabled
 		return nil
-	}
-
-	// Per-service NetworkPolicy is owned by this LLMInferenceService. Always
-	// delete it here: envtest has no GC, and finalize must not wait for the
-	// last service in the namespace.
-	if err := r.cleanupMonitoringNetworkPolicy(ctx, llmSvc); err != nil {
-		return fmt.Errorf("failed to cleanup monitoring network policy: %w", err)
 	}
 
 	llmSvcList := &v1alpha2.LLMInferenceServiceList{}
