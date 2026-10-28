@@ -82,6 +82,46 @@ var _ = Describe("LLMInferenceService Monitoring", func() {
 			Expect(expectedServiceMonitor.Spec.Endpoints[0].Authorization.Credentials.Name).To(Equal("kserve-metrics-reader-sa-secret"))
 		})
 
+		It("should replace a token Secret bound to a deleted metrics reader ServiceAccount", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService("test-metrics-reader-recreation",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			waitForMetricsReaderServiceAccount(ctx, testNs.Name)
+			serviceAccount := &corev1.ServiceAccount{}
+			serviceAccountKey := types.NamespacedName{Name: "kserve-metrics-reader-sa", Namespace: testNs.Name}
+			Expect(envTest.Get(ctx, serviceAccountKey, serviceAccount)).To(Succeed())
+			oldServiceAccountUID := serviceAccount.UID
+
+			secret := waitForMetricsReaderSASecret(ctx, testNs.Name)
+			secretKey := types.NamespacedName{Name: "kserve-metrics-reader-sa-secret", Namespace: testNs.Name}
+			oldSecretUID := secret.UID
+			secret.Annotations[corev1.ServiceAccountUIDKey] = string(oldServiceAccountUID)
+			secret.Data = map[string][]byte{corev1.ServiceAccountTokenKey: []byte("old-token")}
+			Expect(envTest.Update(ctx, secret)).To(Succeed())
+
+			// envtest has no token controller; retain the old Secret to model a
+			// token left behind when the ServiceAccount is recreated.
+			Expect(envTest.Delete(ctx, serviceAccount)).To(Succeed())
+			Eventually(func(g Gomega, ctx context.Context) {
+				currentServiceAccount := &corev1.ServiceAccount{}
+				g.Expect(envTest.Get(ctx, serviceAccountKey, currentServiceAccount)).To(Succeed())
+				g.Expect(currentServiceAccount.UID).NotTo(Equal(oldServiceAccountUID))
+			}).WithContext(ctx).Should(Succeed())
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				currentSecret := &corev1.Secret{}
+				g.Expect(envTest.Get(ctx, secretKey, currentSecret)).To(Succeed())
+				g.Expect(currentSecret.UID).NotTo(Equal(oldSecretUID))
+				g.Expect(currentSecret.Annotations).To(HaveKeyWithValue(corev1.ServiceAccountNameKey, serviceAccountKey.Name))
+				g.Expect(currentSecret.Data).NotTo(HaveKey(corev1.ServiceAccountTokenKey))
+			}).WithContext(ctx).Should(Succeed())
+		})
+
 		It("should skip cleanup when an llmisvc is deleted but other llmisvc exist in namespace", func(ctx SpecContext) {
 			// given
 			svcName := "test-llm-cleanup-skip"

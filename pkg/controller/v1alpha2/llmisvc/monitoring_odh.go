@@ -26,6 +26,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/env"
@@ -93,9 +94,8 @@ func (r *LLMISVCReconciler) reconcileMetricsReaderRBAC(ctx context.Context, llmS
 		return fmt.Errorf("failed to reconcile metrics reader service account %s/%s: %w", serviceAccount.GetNamespace(), serviceAccount.GetName(), err)
 	}
 
-	secret := r.expectedMetricsReaderSecret(llmSvc)
-	if err := Reconcile[*v1alpha2.LLMInferenceService](ctx, r, nil, &corev1.Secret{}, secret, semanticSecretSATokenIsEqual); err != nil {
-		return fmt.Errorf("failed to reconcile metrics reader secret %s/%s: %w", secret.GetNamespace(), secret.GetName(), err)
+	if err := r.reconcileMetricsReaderSecret(ctx, llmSvc); err != nil {
+		return err
 	}
 
 	clusterRoleBinding := r.expectedMetricsReaderClusterRoleBinding(llmSvc)
@@ -103,6 +103,54 @@ func (r *LLMISVCReconciler) reconcileMetricsReaderRBAC(ctx context.Context, llmS
 		return fmt.Errorf("failed to reconcile metrics reader cluster role binding %s: %w", clusterRoleBinding.GetName(), err)
 	}
 
+	return nil
+}
+
+// reconcileMetricsReaderSecret replaces a token issued for an older incarnation of
+// the metrics reader ServiceAccount. The token controller will populate the new
+// Secret with a token bound to the current ServiceAccount UID.
+func (r *LLMISVCReconciler) reconcileMetricsReaderSecret(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
+	secret := r.expectedMetricsReaderSecret(llmSvc)
+	serviceAccount, err := r.Clientset.CoreV1().ServiceAccounts(secret.Namespace).Get(ctx, secret.Annotations[corev1.ServiceAccountNameKey], metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get metrics reader service account %s/%s: %w", secret.Namespace, secret.Annotations[corev1.ServiceAccountNameKey], err)
+	}
+
+	// Read directly from the API server so a stale informer cache cannot make us
+	// delete a newly replaced Secret after ServiceAccount recreation.
+	current, err := r.Clientset.CoreV1().Secrets(secret.Namespace).Get(ctx, secret.Name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		if err := r.Create(ctx, secret); err != nil {
+			return fmt.Errorf("failed to create metrics reader secret %s/%s: %w", secret.Namespace, secret.Name, err)
+		}
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("failed to get metrics reader secret %s/%s: %w", secret.Namespace, secret.Name, err)
+	}
+	if current.Type == corev1.SecretTypeServiceAccountToken {
+		secretSAUID := current.Annotations[corev1.ServiceAccountUIDKey]
+		if (secretSAUID != "" && secretSAUID != string(serviceAccount.UID)) ||
+			(secretSAUID == "" && len(current.Data[corev1.ServiceAccountTokenKey]) > 0) {
+			// Updating the annotation would leave the old token in place. A new
+			// Secret UID also protects this replacement from a delayed deletion
+			// by the token controller for the old ServiceAccount.
+			uid := current.UID
+			if err := r.Clientset.CoreV1().Secrets(secret.Namespace).Delete(ctx, secret.Name, metav1.DeleteOptions{
+				Preconditions: &metav1.Preconditions{UID: &uid},
+			}); err != nil && !apierrors.IsNotFound(err) {
+				return fmt.Errorf("failed to delete stale metrics reader secret %s/%s: %w", secret.Namespace, secret.Name, err)
+			}
+			if err := r.Create(ctx, secret); err != nil {
+				return fmt.Errorf("failed to replace metrics reader secret %s/%s: %w", secret.Namespace, secret.Name, err)
+			}
+			return nil
+		}
+	}
+
+	if err := Reconcile[*v1alpha2.LLMInferenceService](ctx, r, nil, &corev1.Secret{}, secret, semanticSecretSATokenIsEqual); err != nil {
+		return fmt.Errorf("failed to reconcile metrics reader secret %s/%s: %w", secret.Namespace, secret.Name, err)
+	}
 	return nil
 }
 
