@@ -47,7 +47,9 @@ import (
 )
 
 const (
-	tlsVolumeName = "proxy-tls"
+	tlsVolumeName           = "proxy-tls"
+	authProxyUpstreamPrefix = "--upstream=http://localhost:"
+	authProxyUpstreamFormat = "--upstream=http://localhost:%s"
 )
 
 // workloadResourceType is the kind of resource that owns the raw Deployment.
@@ -287,6 +289,11 @@ func (r *DeploymentReconciler) customizeAuthProxy(ctx context.Context,
 					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
 				}
 			}
+			if authProxyReused {
+				// Preserve the proxy container, but reconcile its controller-managed
+				// localhost upstream when Logger or Batcher is added later.
+				updatePreservedAuthProxyUpstream(existingDeployment, headDeployment, r.componentExt, podSpec)
+			}
 		} else {
 			err := addOauthContainerToDeployment(ctx, r.client, r.clientset, oauthConfig, headDeployment, componentMeta, r.componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
 			if err != nil {
@@ -359,19 +366,8 @@ func addOauthContainerToDeployment(ctx context.Context,
 	auditLoggingProfile constants.AuditLoggingProfile,
 	manageAuditLogging bool,
 ) error {
-	var upstreamPort, upstreamTimeout string
-
-	switch {
-	case componentExt != nil && componentExt.Batcher != nil:
-		upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-	case componentExt != nil && componentExt.Logger != nil:
-		upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-	default:
-		upstreamPort = GetKServeContainerPort(podSpec)
-		if upstreamPort == "" {
-			upstreamPort = constants.InferenceServiceDefaultHttpPort
-		}
-	}
+	upstreamPort := authProxyUpstreamPort(componentExt, podSpec)
+	var upstreamTimeout string
 
 	if componentExt != nil && componentExt.TimeoutSeconds != nil {
 		upstreamTimeout = strconv.FormatInt(*componentExt.TimeoutSeconds, 10)
@@ -392,6 +388,25 @@ func addOauthContainerToDeployment(ctx context.Context,
 	updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
 	deployment.Spec.Template.Spec = *updatedPodSpec
 	return nil
+}
+
+func authProxyUpstreamPort(componentExt *v1beta1.ComponentExtensionSpec, podSpec *corev1.PodSpec) string {
+	switch {
+	case componentExt != nil && componentExt.Batcher != nil:
+		return constants.InferenceServiceDefaultAgentPortStr
+	case componentExt != nil && componentExt.Logger != nil:
+		return constants.InferenceServiceDefaultAgentPortStr
+	default:
+		return modelUpstreamPort(podSpec)
+	}
+}
+
+func modelUpstreamPort(podSpec *corev1.PodSpec) string {
+	upstreamPort := GetKServeContainerPort(podSpec)
+	if upstreamPort == "" {
+		return constants.InferenceServiceDefaultHttpPort
+	}
+	return upstreamPort
 }
 
 func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
@@ -443,7 +458,7 @@ func generateOauthProxyContainer(ctx context.Context, client kclient.Client, cli
 	args := []string{
 		`--secure-listen-address=:` + strconv.Itoa(constants.OauthProxyPort),
 		`--proxy-endpoints-port=8643`,
-		`--upstream=http://localhost:` + upstreamPort,
+		fmt.Sprintf(authProxyUpstreamFormat, upstreamPort),
 		`--auth-header-fields-enabled=true`,
 		`--tls-cert-file=/etc/tls/private/tls.crt`,
 		`--tls-private-key-file=/etc/tls/private/tls.key`,
@@ -668,6 +683,52 @@ func copyAuthProxyFromExisting(existing, desired *appsv1.Deployment, containerNa
 				}
 			}
 			break
+		}
+	}
+}
+
+func updatePreservedAuthProxyUpstream(existing, desired *appsv1.Deployment, componentExt *v1beta1.ComponentExtensionSpec, podSpec *corev1.PodSpec) {
+	if existing == nil || desired == nil {
+		return
+	}
+
+	// Existing Pod-template annotations record the agent topology already applied
+	// to this workload. Only an activation transition or a permitted model-port
+	// change may update a reused proxy. A stale route alone must not trigger a
+	// rollout. Ready workloads with auto-update disabled are paused by the caller.
+	annotations := existing.Spec.Template.Annotations
+	existingAgentEnabled := annotations[constants.LoggerInternalAnnotationKey] == "true" ||
+		annotations[constants.BatcherInternalAnnotationKey] == "true"
+	desiredAgentEnabled := componentExt != nil && (componentExt.Logger != nil || componentExt.Batcher != nil)
+	existingModelPort := modelUpstreamPort(&existing.Spec.Template.Spec)
+	if existingAgentEnabled == desiredAgentEnabled &&
+		(podSpec == nil || existingModelPort == modelUpstreamPort(podSpec)) {
+		return
+	}
+
+	// The preservation path intentionally copies the old proxy arguments. Only
+	// replace values that this controller could have generated, leaving explicit
+	// user-provided localhost endpoints and endpoint paths untouched.
+	managedUpstreamPorts := map[string]struct{}{
+		existingModelPort: {},
+	}
+	if existingAgentEnabled {
+		managedUpstreamPorts[constants.InferenceServiceDefaultAgentPortStr] = struct{}{}
+	}
+	desiredUpstream := fmt.Sprintf(authProxyUpstreamFormat, authProxyUpstreamPort(componentExt, podSpec))
+	for i := range desired.Spec.Template.Spec.Containers {
+		container := &desired.Spec.Template.Spec.Containers[i]
+		if container.Name != constants.KubeRbacContainerName && container.Name != constants.OauthProxyContainerName {
+			continue
+		}
+		for j, arg := range container.Args {
+			if !strings.HasPrefix(arg, authProxyUpstreamPrefix) {
+				continue
+			}
+			if _, managed := managedUpstreamPorts[strings.TrimPrefix(arg, authProxyUpstreamPrefix)]; managed {
+				container.Args[j] = desiredUpstream
+				return
+			}
 		}
 	}
 }
