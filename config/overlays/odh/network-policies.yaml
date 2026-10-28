@@ -7,7 +7,34 @@ spec:
   podSelector:
     matchLabels:
       control-plane: kserve-controller-manager
+  policyTypes:
+    - Ingress
+    - Egress
   ingress:
+    # OpenShift's host-network group is the intended source for API-server
+    # webhook calls and kubelet probes; confirm the source on target clusters.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              policy-group.network.openshift.io/host-network: ""
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9443
+        - protocol: TCP
+          port: 8081
+    # Admit metrics scrapers from OpenShift's monitoring namespace group.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: monitoring
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8443
+  # Explicit allow-all egress keeps Kubernetes API and DNS access working and
+  # remains compatible with deployment-specific controller endpoints.
+  egress:
     - {}
 ---
 apiVersion: networking.k8s.io/v1
@@ -18,5 +45,32 @@ spec:
   podSelector:
     matchLabels:
       control-plane: llmisvc-controller-manager
+  policyTypes:
+    - Ingress
+    - Egress
   ingress:
+    # OpenShift's host-network group is the intended source for API-server
+    # webhook calls and kubelet probes; confirm the source on target clusters.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              policy-group.network.openshift.io/host-network: ""
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9443
+        - protocol: TCP
+          port: 8081
+    # Admit metrics scrapers from OpenShift's monitoring namespace group.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: monitoring
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8443
+  # Explicit allow-all egress keeps Kubernetes API and DNS access working and
+  # remains compatible with deployment-specific controller endpoints.
+  egress:
     - {}

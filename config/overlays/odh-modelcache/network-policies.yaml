@@ -1,0 +1,65 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kserve-localmodel-controller-manager
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: kserve-localmodel-controller-manager
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # OpenShift's host-network group is the intended source for API-server
+    # webhook calls and kubelet probes; confirm the source on target clusters.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              policy-group.network.openshift.io/host-network: ""
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 9443
+        - protocol: TCP
+          port: 8081
+    # Admit metrics scrapers from OpenShift's monitoring namespace group.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: monitoring
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8443
+  # Explicit allow-all egress keeps Kubernetes API and DNS access working and
+  # remains compatible with configured registry endpoints used by ModelCache.
+  egress:
+    - {}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: kserve-localmodelnode-agent
+spec:
+  podSelector:
+    matchLabels:
+      control-plane: kserve-localmodelnode-agent
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Admit metrics scrapers from OpenShift's monitoring group. The ODH
+    # DaemonSet does not configure a health probe, so only metrics is exposed.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              network.openshift.io/policy-group: monitoring
+          podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8443
+  # Explicit allow-all egress keeps Kubernetes API and DNS access working with
+  # deployment-specific cluster endpoints. Download Jobs need separate policy.
+  egress:
+    - {}
