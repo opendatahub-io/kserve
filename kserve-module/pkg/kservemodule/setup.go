@@ -121,6 +121,17 @@ func (r *KserveModuleReconciler) buildDynamicWatches() []*dynamicWatch {
 			},
 		},
 		{
+			// CSRs are deliberately out of the ownerRef chain (see
+			// unownedGroupKinds), so nothing recreates them when deleted.
+			// Watching them turns that into a normal reconcile.
+			groupKind:     clusterServingRuntimeGK,
+			gvk:           schema.GroupVersionKind{Group: clusterServingRuntimeGK.Group, Version: "v1alpha1", Kind: clusterServingRuntimeGK.Kind},
+			selfInstalled: true,
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return strings.HasPrefix(u.GetName(), "csr-kserve-") || strings.Contains(u.GetName(), "-csr-kserve-")
+			},
+		},
+		{
 			// Monitoring is optional, so its watch never blocks startup when the CRD is absent.
 			groupKind:  schema.GroupKind{Group: monitoringAPIGroup, Kind: monitoringKind},
 			gvk:        monitoringGVK,
@@ -443,12 +454,13 @@ func (r *KserveModuleReconciler) dynamicWatchCRDNames() map[string]bool {
 }
 
 func (r *KserveModuleReconciler) dynamicWatchCRDExists(ctx context.Context, reader client.Reader, dw *dynamicWatch) error {
-	if dw.crdName == "" {
-		return cluster.CustomResourceDefinitionExists(ctx, reader, dw.groupKind)
+	name := dw.crdName
+	if name == "" {
+		name = crdResourceName(dw.groupKind)
 	}
 
 	crd := &apiextensionsv1.CustomResourceDefinition{}
-	if err := reader.Get(ctx, client.ObjectKey{Name: dw.crdName}, crd); err != nil {
+	if err := reader.Get(ctx, client.ObjectKey{Name: name}, crd); err != nil {
 		return err
 	}
 	for _, condition := range crd.Status.Conditions {
@@ -456,7 +468,7 @@ func (r *KserveModuleReconciler) dynamicWatchCRDExists(ctx context.Context, read
 			return nil
 		}
 	}
-	return fmt.Errorf("CRD %s is not established", dw.crdName)
+	return fmt.Errorf("CRD %s is not established", name)
 }
 
 func crdResourceName(gk schema.GroupKind) string {
