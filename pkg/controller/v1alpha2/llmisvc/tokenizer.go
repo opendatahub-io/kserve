@@ -223,6 +223,10 @@ func (r *LLMISVCReconciler) expectedTokenizerDeployment(ctx context.Context, llm
 			},
 		},
 	}
+	// Keep the Deployment selector on the original tokenizer identity. The
+	// protected NetworkPolicy labels belong only to the PodTemplate and must not
+	// make upgrades attempt to mutate an immutable selector.
+	applyNetworkPolicyPodIdentity(&d.Spec.Template, llmSvc, networkPolicyRoleTokenizer)
 
 	// If the tokenizer isn't enabled, reconcileTokenizerDeployment only needs `d`'s
 	// identity to Delete it -- skip building a pod spec with no container to attach to.

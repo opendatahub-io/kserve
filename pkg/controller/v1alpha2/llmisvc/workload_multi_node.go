@@ -197,6 +197,7 @@ func (r *LLMISVCReconciler) expectedMultiNodeMainLeaderWorkerTemplate(ctx contex
 		constants.KubernetesAppNameLabelKey:   llmSvc.GetName(),
 		constants.KubernetesPartOfLabelKey:    constants.LLMInferenceServicePartOfValue,
 	}
+	applyNetworkPolicyLabels(workerLabels, llmSvc, networkPolicyRoleWorkload)
 	if llmSvc.Spec.Template == nil || workerServesDataParallelRanks(&llmSvc.Spec.WorkloadSpec) {
 		// Workers with their own rank endpoints also belong to the InferencePool.
 		workerLabels[constants.KServeComponentLabelKey] = constants.KServeComponentWorkload
@@ -206,6 +207,7 @@ func (r *LLMISVCReconciler) expectedMultiNodeMainLeaderWorkerTemplate(ctx contex
 		if err != nil {
 			return nil, fmt.Errorf("failed to propagate InferencePool reference labels: %w", err)
 		}
+		applyNetworkPolicyLabels(workerLabels, llmSvc, networkPolicyRoleWorkload)
 	}
 	role := constants.LLMDRoleDecode
 	if llmSvc.Spec.Prefill == nil {
@@ -224,6 +226,7 @@ func (r *LLMISVCReconciler) expectedMultiNodeMainLeaderWorkerTemplate(ctx contex
 		constants.KServeComponentLabelKey:     constants.KServeComponentWorkload,
 		constants.LLMDRoleLabelKey:            role,
 	}
+	applyNetworkPolicyLabels(leaderLabels, llmSvc, networkPolicyRoleWorkload)
 
 	group := lwsapi.LeaderWorkerTemplate{
 		Size: llmSvc.Spec.Parallelism.GetSize(),
@@ -241,6 +244,7 @@ func (r *LLMISVCReconciler) expectedMultiNodeMainLeaderWorkerTemplate(ctx contex
 		if err != nil {
 			return nil, fmt.Errorf("failed to propagate InferencePool reference labels: %w", err)
 		}
+		applyNetworkPolicyLabels(leaderLabels, llmSvc, networkPolicyRoleWorkload)
 
 		group.LeaderTemplate = &corev1.PodTemplateSpec{
 			ObjectMeta: metav1.ObjectMeta{
@@ -324,12 +328,14 @@ func (r *LLMISVCReconciler) expectedMultiNodeMainLeaderWorkerTemplate(ctx contex
 		if llmSvc.Spec.KVCacheOffloading != nil {
 			group.LeaderTemplate.Labels = addPVCEvictorConsumerLabels(group.LeaderTemplate.Labels, llmSvc.Spec.KVCacheOffloading.Secondary, leaderEvictorTemplate != nil)
 		}
+		applyNetworkPolicyPodIdentity(group.LeaderTemplate, llmSvc, networkPolicyRoleWorkload)
 	}
 	utils.PropagateMap(llmSvc.Spec.Labels, &group.WorkerTemplate.Labels)
 	utils.PropagateMap(llmSvc.Spec.Annotations, &group.WorkerTemplate.Annotations, nonPropagatedSpecAnnotations...)
 	if llmSvc.Spec.KVCacheOffloading != nil {
 		group.WorkerTemplate.Labels = addPVCEvictorConsumerLabels(group.WorkerTemplate.Labels, llmSvc.Spec.KVCacheOffloading.Secondary, workerEvictorTemplate != nil)
 	}
+	applyNetworkPolicyPodIdentity(&group.WorkerTemplate, llmSvc, networkPolicyRoleWorkload)
 
 	// Inject tracing instrumentation when spec.tracing is set
 	if llmSvc.Spec.Tracing != nil {
@@ -401,6 +407,7 @@ func (r *LLMISVCReconciler) expectedMultiNodePrefillLeaderWorkerTemplate(ctx con
 		constants.KubernetesAppNameLabelKey:   llmSvc.GetName(),
 		constants.KubernetesPartOfLabelKey:    constants.LLMInferenceServicePartOfValue,
 	}
+	applyNetworkPolicyLabels(workerLabels, llmSvc, networkPolicyRoleWorkload)
 	if llmSvc.Spec.Prefill != nil && (llmSvc.Spec.Prefill.Template == nil || workerServesDataParallelRanks(llmSvc.Spec.Prefill)) {
 		// Workers with their own rank endpoints also belong to the InferencePool.
 		workerLabels[constants.KServeComponentLabelKey] = constants.KServeComponentWorkload
@@ -410,6 +417,7 @@ func (r *LLMISVCReconciler) expectedMultiNodePrefillLeaderWorkerTemplate(ctx con
 		if err != nil {
 			return nil, fmt.Errorf("failed to propagate InferencePool reference labels: %w", err)
 		}
+		applyNetworkPolicyLabels(workerLabels, llmSvc, networkPolicyRoleWorkload)
 	}
 	leaderLabels := map[string]string{
 		constants.KubernetesComponentLabelKey: constants.LLMComponentWorkloadLeaderPrefill,
@@ -418,6 +426,7 @@ func (r *LLMISVCReconciler) expectedMultiNodePrefillLeaderWorkerTemplate(ctx con
 		constants.KServeComponentLabelKey:     constants.KServeComponentWorkload,
 		constants.LLMDRoleLabelKey:            constants.LLMDRolePrefill,
 	}
+	applyNetworkPolicyLabels(leaderLabels, llmSvc, networkPolicyRoleWorkload)
 
 	group := lwsapi.LeaderWorkerTemplate{
 		WorkerTemplate: corev1.PodTemplateSpec{
@@ -442,6 +451,7 @@ func (r *LLMISVCReconciler) expectedMultiNodePrefillLeaderWorkerTemplate(ctx con
 			if err != nil {
 				return nil, fmt.Errorf("failed to propagate InferencePool reference labels: %w", err)
 			}
+			applyNetworkPolicyLabels(leaderLabels, llmSvc, networkPolicyRoleWorkload)
 
 			group.LeaderTemplate = &corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{
@@ -518,12 +528,14 @@ func (r *LLMISVCReconciler) expectedMultiNodePrefillLeaderWorkerTemplate(ctx con
 			if llmSvc.Spec.Prefill.KVCacheOffloading != nil {
 				group.LeaderTemplate.Labels = addPVCEvictorConsumerLabels(group.LeaderTemplate.Labels, llmSvc.Spec.Prefill.KVCacheOffloading.Secondary, prefillLeaderEvictorTemplate != nil)
 			}
+			applyNetworkPolicyPodIdentity(group.LeaderTemplate, llmSvc, networkPolicyRoleWorkload)
 		}
 		utils.PropagateMap(llmSvc.Spec.Prefill.Labels, &group.WorkerTemplate.Labels)
 		utils.PropagateMap(llmSvc.Spec.Prefill.Annotations, &group.WorkerTemplate.Annotations, nonPropagatedSpecAnnotations...)
 		if llmSvc.Spec.Prefill.KVCacheOffloading != nil {
 			group.WorkerTemplate.Labels = addPVCEvictorConsumerLabels(group.WorkerTemplate.Labels, llmSvc.Spec.Prefill.KVCacheOffloading.Secondary, prefillWorkerEvictorTemplate != nil)
 		}
+		applyNetworkPolicyPodIdentity(&group.WorkerTemplate, llmSvc, networkPolicyRoleWorkload)
 	}
 
 	applyLeaderWorkerSetWorkloadRevision(&group, config)

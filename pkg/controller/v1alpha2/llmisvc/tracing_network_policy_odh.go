@@ -74,7 +74,10 @@ func tracingNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
 }
 
 func (r *LLMISVCReconciler) reconcileTracingNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
-	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Tracing == nil || llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] != "true" {
+	// Keep the egress policy while a force-stopped workload terminates. This
+	// avoids a gap in the opt-in tracing restriction and lets finalization own
+	// cleanup once the LLMInferenceService is deleted.
+	if llmSvc.Spec.Tracing == nil || llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] != "true" {
 		setTracingServiceStatusAnnotation(llmSvc, "")
 		return r.cleanupTracingNetworkPolicy(ctx, llmSvc)
 	}
@@ -252,16 +255,14 @@ func expectedTracingNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, otlpPeer
 				constants.KubernetesPartOfLabelKey:    constants.LLMInferenceServicePartOfValue,
 				constants.KubernetesAppNameLabelKey:   llmSvc.GetName(),
 				constants.KubernetesComponentLabelKey: tracingNPComponentLabel,
+				networkPolicyServiceIDLabel:           networkPolicyServiceID(llmSvc),
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 		Spec: netv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
-				constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
-				constants.KubernetesAppNameLabelKey: llmSvc.GetName(),
-			}},
+			PodSelector: allServicePodsSelector(llmSvc),
 			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeEgress},
 			Egress: []netv1.NetworkPolicyEgressRule{
 				{Ports: []netv1.NetworkPolicyPort{

@@ -228,6 +228,7 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainPodTemplate(ctx context.Contex
 	if llmSvc.Spec.KVCacheOffloading != nil {
 		template.Labels = addPVCEvictorConsumerLabels(template.Labels, llmSvc.Spec.KVCacheOffloading.Secondary, evictorTemplate != nil)
 	}
+	applyNetworkPolicyPodIdentity(&template, llmSvc, networkPolicyRoleWorkload)
 
 	// Inject tracing instrumentation when spec.tracing is set
 	if llmSvc.Spec.Tracing != nil {
@@ -392,6 +393,7 @@ func (r *LLMISVCReconciler) expectedSingleNodePrefillPodTemplate(ctx context.Con
 	}
 
 	propagatePodTemplateMetadata(llmSvc, &template)
+	applyNetworkPolicyPodIdentity(&template, llmSvc, networkPolicyRoleWorkload)
 
 	if llmSvc.Spec.Prefill != nil {
 		utils.PropagateMap(llmSvc.Spec.Prefill.Labels, &template.Labels)
@@ -399,6 +401,7 @@ func (r *LLMISVCReconciler) expectedSingleNodePrefillPodTemplate(ctx context.Con
 		if llmSvc.Spec.Prefill.KVCacheOffloading != nil {
 			template.Labels = addPVCEvictorConsumerLabels(template.Labels, llmSvc.Spec.Prefill.KVCacheOffloading.Secondary, evictorTemplate != nil)
 		}
+		applyNetworkPolicyPodIdentity(&template, llmSvc, networkPolicyRoleWorkload)
 	}
 
 	// Inject tracing instrumentation when spec.tracing is set

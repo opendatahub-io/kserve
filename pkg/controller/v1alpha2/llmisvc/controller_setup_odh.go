@@ -38,8 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
+	igwapiv1alpha2 "github.com/kserve/kserve/pkg/apis/gie/v1alpha2pool"
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/utils"
 )
@@ -56,6 +58,12 @@ func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builde
 	logger := mgr.GetLogger().WithName("LLMInferenceService.SetupWithManager")
 	r.watchConfidentialDependencies(b, logger)
 	b.Watches(&corev1.Service{}, r.enqueueOnOTLPServiceChange(logger), builder.WithPredicates(otlpServiceChangePredicate()))
+	// Shared InferencePool routing can make a routerless LLMISVC depend on a
+	// sibling's pool selector and Gateway references. Requeue all services on
+	// generation changes because a referenced Gateway may live in a different
+	// namespace from the receiving LLMISVC.
+	b.Watches(&v1alpha2.LLMInferenceService{}, handler.EnqueueRequestsFromMapFunc(r.enqueueSharedNetworkPolicyDependents),
+		builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioapi.SchemeGroupVersion.String(), "DestinationRule"); ok && err == nil {
 		b.Owns(&istioapi.DestinationRule{}, builder.WithPredicates(childResourcesPredicate))
@@ -77,6 +85,18 @@ func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builde
 	}
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), monitoringGroup, "ServiceMonitor"); ok && err == nil {
 		b.Owns(&monitoringv1.ServiceMonitor{}, builder.WithPredicates(childResourcesPredicate))
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapi.GroupVersion.String(), "InferencePool"); ok && err == nil {
+		b.Watches(&igwapi.InferencePool{}, handler.EnqueueRequestsFromMapFunc(r.enqueueSharedNetworkPolicyDependents),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}))
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), igwapiv1alpha2.GroupVersion.String(), "InferencePool"); ok && err == nil {
+		b.Watches(&igwapiv1alpha2.InferencePool{}, handler.EnqueueRequestsFromMapFunc(r.enqueueSharedNetworkPolicyDependents),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}))
+	}
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), gwapiv1.GroupVersion.String(), "Gateway"); ok && err == nil {
+		b.Watches(&gwapiv1.Gateway{}, handler.EnqueueRequestsFromMapFunc(r.enqueueSharedNetworkPolicyDependents),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 	}
 
 	return nil
