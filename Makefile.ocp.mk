@@ -36,6 +36,11 @@ RUNNING_LOCAL ?= true
 # Set to false to skip the docker build/push when images are already pushed (e.g. re-running setup).
 # Only has effect when RUNNING_LOCAL=true.
 BUILD_KSERVE_IMAGES ?= true
+TLS_SCANNER_NAMESPACE ?= kserve-tls-scanner
+TLS_SCANNER_READY_TIMEOUT ?= 20m
+SKLEARN_IMAGE ?= docker.io/kserve/sklearnserver:latest
+
+.PHONY: deploy-tls-scanner-workloads-ocp cleanup-tls-scanner-workloads-ocp
 
 # Namespace where KServe controller runs. Derived from OPERATOR_TYPE when not set.
 # odh/opendatahub -> opendatahub, rhoai/rhods -> redhat-ods-applications, empty -> kserve
@@ -112,3 +117,13 @@ redeploy-e2e-ocp: undeploy-ocp deploy-e2e-ocp ## Tear down then re-deploy the fu
 
 undeploy-ocp: ## Tear down the entire OCP environment (operator, DSC, namespaces). See WARNING at top of file.
 	./test/scripts/openshift-ci/teardown-e2e-setup.sh
+
+deploy-tls-scanner-workloads-ocp: ## Deploy scanner fixtures and wait for healthy ISVC and LLMISVC workloads.
+	TLS_SCANNER_NAMESPACE="$(strip $(TLS_SCANNER_NAMESPACE))" \
+	TLS_SCANNER_READY_TIMEOUT="$(strip $(TLS_SCANNER_READY_TIMEOUT))" \
+	SKLEARN_IMAGE="$(strip $(SKLEARN_IMAGE))" \
+	./test/scripts/openshift-ci/deploy-tls-scanner-workloads.sh
+
+cleanup-tls-scanner-workloads-ocp: ## Remove only the managed TLS scanner fixture workloads; retain the namespace.
+	TLS_SCANNER_NAMESPACE="$(strip $(TLS_SCANNER_NAMESPACE))" \
+	./test/scripts/openshift-ci/cleanup-tls-scanner-workloads.sh
