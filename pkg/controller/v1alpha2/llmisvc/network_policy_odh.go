@@ -51,6 +51,7 @@ const (
 	networkPolicySchedulerSuffix = "-networkpolicy-scheduler"
 	networkPolicyTokenizerSuffix = "-networkpolicy-tokenizer"
 	networkPolicyEgressSuffix    = "-networkpolicy-egress"
+	networkPolicyAllowAllSuffix  = "-networkpolicy-allow-all"
 
 	legacyMonitoringNetworkPolicySuffix = "-prometheus-scraping"
 
@@ -81,6 +82,10 @@ func tokenizerNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
 
 func egressNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
 	return networkPolicyName(llmSvc, networkPolicyEgressSuffix)
+}
+
+func allowAllNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
+	return networkPolicyName(llmSvc, networkPolicyAllowAllSuffix)
 }
 
 func legacyMonitoringNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
@@ -221,9 +226,9 @@ func expectedWorkloadNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, gateway
 		}
 		rules = append([]netv1.NetworkPolicyIngressRule{gatewayIngressRule(gatewayNamespaces, gatewayPorts...)}, rules...)
 	}
-	// The monitoring ingress feature gate controlled the legacy optional policy.
-	// These baseline policies always isolate the Pods, so metrics peers must stay
-	// allowed while monitoring is enabled, including when that gate is off.
+	// The strict NetworkPolicy feature gate (and before it the legacy monitoring
+	// gate) is not consulted here: when strict policies are reconciled, metrics
+	// peers must stay allowed while monitoring is enabled.
 	if !monitoringDisabled {
 		rules = append(rules, monitoringIngressRule(defaultWorkloadPort, config))
 	}
@@ -287,6 +292,36 @@ func expectedDenyAllEgressNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *n
 	// egress. It is used only as a fail-closed transition state while the
 	// restrictive tracing policy is being repaired.
 	policy.Spec.Egress = []netv1.NetworkPolicyEgressRule{}
+	return policy
+}
+
+// expectedAllowAllNetworkPolicy returns the default-mode policy: a single
+// per-service NetworkPolicy that selects every Pod of the service (via the
+// controller-owned network policy identity labels) and allows all ingress and
+// egress. It exists because the platform contract requires an owner-controlled
+// NetworkPolicy per LLMInferenceService even when strict isolation is disabled;
+// semantically it restores the pre-policy behavior of not policing Pod traffic.
+func expectedAllowAllNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *netv1.NetworkPolicy {
+	return &netv1.NetworkPolicy{
+		ObjectMeta: networkPolicyObjectMeta(llmSvc, allowAllNetworkPolicyName(llmSvc), networkPolicyComponentLabel),
+		Spec: netv1.NetworkPolicySpec{
+			PodSelector: allServicePodsSelector(llmSvc),
+			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress, netv1.PolicyTypeEgress},
+			// Empty rule bodies ({} entries) explicitly allow all traffic in both
+			// directions. NetworkPolicy permissions are additive, so tracing opt-in
+			// replaces this policy with an ingress-only grant before restricting egress.
+			Ingress: []netv1.NetworkPolicyIngressRule{{}},
+			Egress:  []netv1.NetworkPolicyEgressRule{{}},
+		},
+	}
+}
+
+// expectedAllowAllIngressNetworkPolicy preserves default-mode ingress while
+// leaving egress to the opt-in tracing policy (or its deny-all failure fallback).
+func expectedAllowAllIngressNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *netv1.NetworkPolicy {
+	policy := expectedAllowAllNetworkPolicy(llmSvc)
+	policy.Spec.PolicyTypes = []netv1.PolicyType{netv1.PolicyTypeIngress}
+	policy.Spec.Egress = nil
 	return policy
 }
 
@@ -602,12 +637,20 @@ func reconcileLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, 
 		return fmt.Errorf("failed to remove legacy monitoring NetworkPolicy: %w", err)
 	}
 
+	strict := config != nil && config.FeatureGates.StrictNetworkPolicy
 	tracingRequested := llmSvc.Spec.Tracing != nil && llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] == "true"
 	if tracingRequested {
-		// Remove the broad default before attempting the restrictive policy so a
-		// failed tracing reconcile cannot leave both policies selecting the same
-		// Pods. A retry restores the restrictive policy when its dependencies are
-		// available.
+		// NetworkPolicy permissions are additive: remove broad egress grants
+		// before reconciling tracing so neither tracing nor its fail-closed
+		// fallback is bypassed. In default mode, update the combined policy in
+		// place to preserve ingress even if tracing reconciliation fails.
+		if !strict {
+			if err := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllIngressNetworkPolicy(llmSvc)); err != nil {
+				return err
+			}
+		} else if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllNetworkPolicy(llmSvc)); err != nil {
+			return fmt.Errorf("failed to remove default-mode allow-all NetworkPolicy: %w", err)
+		}
 		if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, expectedDefaultEgressNetworkPolicy(llmSvc)); err != nil {
 			return fmt.Errorf("failed to remove default LLMISVC egress NetworkPolicy: %w", err)
 		}
@@ -621,6 +664,17 @@ func reconcileLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, 
 		return err
 	}
 
+	if strict {
+		return reconcileStrictNetworkPolicies(ctx, r, llmSvc, config, tracingRequested)
+	}
+	return reconcileDefaultModeNetworkPolicies(ctx, r, llmSvc, tracingRequested)
+}
+
+// reconcileStrictNetworkPolicies enforces the least-privilege policy set:
+// workload/scheduler/tokenizer ingress isolation plus an explicit allow-all
+// egress policy (unless the opt-in tracing policy governs egress). It runs when
+// the llmisvc.featureGates.strictNetworkPolicy gate is enabled.
+func reconcileStrictNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, config *Config, tracingRequested bool) error {
 	if !tracingRequested {
 		if err := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, expectedDefaultEgressNetworkPolicy(llmSvc)); err != nil {
 			return err
@@ -650,6 +704,43 @@ func reconcileLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, 
 			return err
 		}
 	}
+
+	// Migration off→on: the strict policies are in place, so remove the
+	// default-mode allow-all policy. Delete last so a failure above leaves the
+	// broad policy covering the Pods instead of a partial strict set.
+	if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllNetworkPolicy(llmSvc)); err != nil {
+		return fmt.Errorf("failed to remove default-mode allow-all NetworkPolicy: %w", err)
+	}
+	return nil
+}
+
+// reconcileDefaultModeNetworkPolicies runs when the strict gate is off (the
+// default): it maintains a single per-service allow-all NetworkPolicy and
+// removes any strict policies from an earlier strict-mode reconcile. Tracing
+// stays independent of the gate; when tracing is requested an ingress-only
+// allow-all policy was already established before tracing reconciliation, so
+// the opt-in tracing policy governs egress without changing ingress allowance.
+func reconcileDefaultModeNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, tracingRequested bool) error {
+	// Establish ingress coverage before deleting strict policies. For tracing,
+	// the ingress-only variant was already reconciled before tracing egress.
+	if !tracingRequested {
+		if err := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllNetworkPolicy(llmSvc)); err != nil {
+			return err
+		}
+	}
+
+	// Migration on→off: remove the strict-mode policies.
+	strict := []*netv1.NetworkPolicy{
+		{ObjectMeta: metav1.ObjectMeta{Name: workloadNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
+		{ObjectMeta: metav1.ObjectMeta{Name: schedulerNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
+		{ObjectMeta: metav1.ObjectMeta{Name: tokenizerNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
+		{ObjectMeta: metav1.ObjectMeta{Name: egressNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
+	}
+	for _, policy := range strict {
+		if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, policy); err != nil {
+			return fmt.Errorf("failed to remove strict NetworkPolicy %s/%s: %w", policy.GetNamespace(), policy.GetName(), err)
+		}
+	}
 	return nil
 }
 
@@ -660,6 +751,7 @@ func cleanupLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, ll
 		{ObjectMeta: metav1.ObjectMeta{Name: schedulerNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
 		{ObjectMeta: metav1.ObjectMeta{Name: tokenizerNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
 		{ObjectMeta: metav1.ObjectMeta{Name: egressNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
+		{ObjectMeta: metav1.ObjectMeta{Name: allowAllNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
 		{ObjectMeta: metav1.ObjectMeta{Name: tracingNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
 	}
 	for _, policy := range policies {

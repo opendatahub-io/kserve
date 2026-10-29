@@ -36,11 +36,83 @@ import (
 )
 
 var _ = Describe("LLMInferenceService NetworkPolicies", func() {
-	Context("baseline policy reconciliation", func() {
-		It("creates protected per-role policies without blanket same-namespace ingress", func(ctx SpecContext) {
+	Context("default mode (strict gate off)", func() {
+		BeforeEach(func(ctx SpecContext) {
 			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
-				cfg.FeatureGates.MonitoringIngressNetworkPolicy = false
+				cfg.FeatureGates.StrictNetworkPolicy = false
 			})
+		})
+
+		It("creates a single allow-all policy instead of strict policies", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService("test-llm-netpol-allow-all",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			allowAll := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-allow-all"))
+			Expect(metav1.IsControlledBy(allowAll, llmSvc)).To(BeTrue(), "allow-all policy must be owned by the service")
+			Expect(allowAll.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeIngress, netv1.PolicyTypeEgress))
+			Expect(allowAll.Spec.Ingress).To(HaveLen(1))
+			Expect(allowAll.Spec.Ingress[0].From).To(BeEmpty())
+			Expect(allowAll.Spec.Ingress[0].Ports).To(BeEmpty())
+			Expect(allowAll.Spec.Egress).To(HaveLen(1))
+			Expect(allowAll.Spec.Egress[0].To).To(BeEmpty())
+			Expect(allowAll.Spec.Egress[0].Ports).To(BeEmpty())
+			Expect(allowAll.Spec.PodSelector.MatchLabels).To(HaveKey("serving.kserve.io/llmisvc-network-policy-id"))
+			Expect(allowAll.Spec.PodSelector.MatchLabels).NotTo(HaveKey("serving.kserve.io/llmisvc-network-policy-role"))
+
+			for _, suffix := range []string{"workload", "scheduler", "tokenizer", "egress"} {
+				name := kmeta.ChildName(llmSvc.Name, "-networkpolicy-"+suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "strict policy %s must not exist in default mode", name)
+			}
+		})
+
+		It("replaces strict policies with the allow-all policy when the gate is disabled", func(ctx SpecContext) {
+			EnableStrictNetworkPolicy(ctx, envTest.Client)
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService("test-llm-netpol-toggle",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-workload"))
+
+			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+				cfg.FeatureGates.StrictNetworkPolicy = false
+			})
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				err := envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(llmSvc.Name, "-networkpolicy-allow-all"),
+					Namespace: testNs.Name,
+				}, &netv1.NetworkPolicy{})
+				g.Expect(err).NotTo(HaveOccurred())
+			}).WithContext(ctx).Should(Succeed())
+
+			for _, suffix := range []string{"workload", "scheduler", "tokenizer", "egress"} {
+				name := kmeta.ChildName(llmSvc.Name, "-networkpolicy-"+suffix)
+				Eventually(func(g Gomega, ctx context.Context) {
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "strict policy %s must be removed after the gate is disabled", name)
+				}).WithContext(ctx).Should(Succeed())
+			}
+		})
+	})
+
+	Context("strict mode (strict gate on)", func() {
+		BeforeEach(func(ctx SpecContext) {
+			EnableStrictNetworkPolicy(ctx, envTest.Client)
+		})
+
+		It("creates protected per-role policies without blanket same-namespace ingress", func(ctx SpecContext) {
 			testNs := NewTestNamespace(ctx, envTest)
 			llmSvc := LLMInferenceService("test-llm-netpol",
 				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
@@ -63,7 +135,7 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 					}
 				}
 			}
-			Expect(monitoringAllowed).To(BeTrue(), "baseline isolation must preserve monitoring when the legacy policy gate is off")
+			Expect(monitoringAllowed).To(BeTrue(), "strict isolation must preserve monitoring peers")
 
 			for _, rule := range workload.Spec.Ingress {
 				Expect(rule.From).NotTo(BeEmpty(), "every ingress rule must identify its source")
@@ -155,6 +227,7 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 				kmeta.ChildName(llmSvc.Name, "-networkpolicy-scheduler"),
 				kmeta.ChildName(llmSvc.Name, "-networkpolicy-tokenizer"),
 				kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress"),
+				kmeta.ChildName(llmSvc.Name, "-networkpolicy-allow-all"),
 			}
 			Eventually(func(g Gomega, ctx context.Context) {
 				for _, name := range policyNames {

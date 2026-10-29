@@ -52,9 +52,9 @@ func PatchLLMISVCConfig(ctx context.Context, c client.Client, mutate func(*llmis
 	gomega.Expect(c.Patch(ctx, cm, patch)).To(gomega.Succeed())
 }
 
-// EnableMonitoringIngressNetworkPolicy turns on the cluster-wide monitoring ingress policy gate.
-func EnableMonitoringIngressNetworkPolicy(ctx context.Context, c client.Client) {
+// EnableStrictNetworkPolicy turns on the cluster-wide strict NetworkPolicy gate.
+func EnableStrictNetworkPolicy(ctx context.Context, c client.Client) {
 	PatchLLMISVCConfig(ctx, c, func(cfg *llmisvc.LLMISVCConfig) {
-		cfg.FeatureGates.MonitoringIngressNetworkPolicy = true
+		cfg.FeatureGates.StrictNetworkPolicy = true
 	})
 }

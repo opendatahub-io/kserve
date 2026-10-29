@@ -35,12 +35,13 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc/fixture"
 )
 
 var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 	BeforeEach(func(ctx SpecContext) {
-		EnableMonitoringIngressNetworkPolicy(ctx, envTest.Client)
+		EnableStrictNetworkPolicy(ctx, envTest.Client)
 	})
 
 	It("creates a comprehensive per-service OTLP egress policy", func(ctx SpecContext) {
@@ -94,6 +95,56 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 			}, &netv1.NetworkPolicy{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}).WithContext(ctx).Should(Succeed())
+	})
+
+	It("preserves unrestricted ingress with tracing across default and strict modes", func(ctx SpecContext) {
+		PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+			cfg.FeatureGates.StrictNetworkPolicy = false
+		})
+		testNs := NewTestNamespace(ctx, envTest)
+		collectorNs, collectorSvc := createOTLPTestService(ctx, testNs.Name, "otel-collector", map[string]string{"app": "otel-collector"}, 4317)
+		defer deleteOTLPTestService(ctx, collectorNs, collectorSvc)
+		llmSvc := LLMInferenceService("test-llm-tracing-default-mode",
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithAnnotations(map[string]string{constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true"}),
+		)
+		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{ExporterEndpoint: ptr.To("http://otel-collector." + collectorNs.Name + ".svc.cluster.local:4317")}
+
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer testNs.DeleteAndWait(ctx, llmSvc)
+
+		np := waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+		Expect(np.Spec.PolicyTypes).To(Equal([]netv1.PolicyType{netv1.PolicyTypeEgress}))
+
+		assertDefaultTracingPolicies := func() {
+			GinkgoHelper()
+			Eventually(func(g Gomega, ctx context.Context) {
+				allowIngress := &netv1.NetworkPolicy{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name: kmeta.ChildName(llmSvc.Name, "-networkpolicy-allow-all"), Namespace: testNs.Name,
+				}, allowIngress)).To(Succeed())
+				g.Expect(allowIngress.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeIngress))
+				g.Expect(allowIngress.Spec.Ingress).To(Equal([]netv1.NetworkPolicyIngressRule{{}}))
+				g.Expect(allowIngress.Spec.Egress).To(BeEmpty(), "must not bypass tracing egress")
+				g.Expect(allowIngress.Spec.PodSelector).To(Equal(np.Spec.PodSelector), "must cover every service Pod")
+				for _, suffix := range []string{"workload", "scheduler", "tokenizer", "egress"} {
+					name := kmeta.ChildName(llmSvc.Name, "-networkpolicy-"+suffix)
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "%s must not exist", name)
+				}
+			}).WithContext(ctx).Should(Succeed())
+		}
+		assertDefaultTracingPolicies()
+
+		// Live strict→default transitions must restore ingress allowance while
+		// keeping tracing egress effective, without restarting the controller.
+		EnableStrictNetworkPolicy(ctx, envTest.Client)
+		waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-workload"))
+		PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+			cfg.FeatureGates.StrictNetworkPolicy = false
+		})
+		assertDefaultTracingPolicies()
 	})
 
 	It("allows a custom cross-namespace OTLP endpoint and port", func(ctx SpecContext) {
