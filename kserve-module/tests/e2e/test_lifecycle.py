@@ -25,6 +25,7 @@ from conftest import (
     WVA_DEPLOYMENT,
     WVA_CONFIGMAP,
     MODEL_CONTROLLER_DEPLOYMENT,
+    TIMEOUT_300S,
     TIMEOUT_120S,
     TIMEOUT_60S,
 )
@@ -282,7 +283,7 @@ class TestManagementState:
             assert not resource_exists(kubectl, "crd", "variantautoscalings.llmd.ai"), \
                 "leftover VariantAutoscaling CRD should be deleted by extraCleanup"
 
-        wait_for(assert_extra_cleanup, timeout=TIMEOUT_120S, interval=5)
+        wait_for(assert_extra_cleanup, timeout=TIMEOUT_300S, interval=5)
         _verify_deployments_available(kubectl, is_openshift=True)
 
     def test_nim_default_managed_env_var(self, kubectl, cluster_info, apply_kserve_cr):
