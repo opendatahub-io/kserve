@@ -86,9 +86,9 @@ class TestModelCacheEnable:
         assert cfg.get("enabled") is True, (
             f"localModel.enabled should be true, got {cfg.get('enabled')}"
         )
-        assert (
-            cfg.get("jobNamespace") == MODEL_CACHE_NAMESPACE
-        ), f"localModel.jobNamespace should be '{MODEL_CACHE_NAMESPACE}', got {cfg.get('jobNamespace')}"
+        assert cfg.get("jobNamespace") == MODEL_CACHE_NAMESPACE, (
+            f"localModel.jobNamespace should be '{MODEL_CACHE_NAMESPACE}', got {cfg.get('jobNamespace')}"
+        )
 
         app_psa_annot = get_jsonpath(
             kubectl,

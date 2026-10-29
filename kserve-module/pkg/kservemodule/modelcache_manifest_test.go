@@ -3,11 +3,14 @@ package kservemodule
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/render/kustomize"
 )
@@ -124,6 +127,118 @@ func TestModelCacheRenderedNamespaceReferences(t *testing.T) {
 			t.Fatalf("ClusterRoleBinding %s subject namespace is %#v", name, subject)
 		}
 	}
+}
+
+// Render both components through the module namespace transformer: the main
+// overlay's TLS binding cannot grant access to accounts in the cache namespace.
+func TestModelCacheRenderedStartupPermissions(t *testing.T) {
+	var resources []unstructured.Unstructured
+	for _, overlay := range []struct{ path, namespace string }{
+		{"odh", "custom-applications"},
+		{"odh-modelcache", modelCacheNamespace},
+	} {
+		path := filepath.Join("..", "..", "..", "config", "overlays", overlay.path)
+		rendered, err := kustomize.Render(path, nil, kustomize.WithNamespace(overlay.namespace))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resources = append(resources, rendered...)
+	}
+	for _, account := range []string{"kserve-localmodel-controller-manager", "kserve-localmodelnode-agent"} {
+		for _, verb := range []string{"get", "list", "watch"} {
+			assertRenderedClusterPermission(t, resources, account, "config.openshift.io", "apiservers", "cluster", verb)
+		}
+	}
+	assertRenderedClusterPermission(t, resources, "kserve-localmodelnode-agent", "security.openshift.io", "securitycontextconstraints", "openshift-ai-localmodel-scc", "use")
+	assertRenderedClusterPermission(t, resources, "kserve-localmodel-permfix", "security.openshift.io", "securitycontextconstraints", "kserve-localmodel-permissions-scc", "use")
+
+	mainBinding := findRenderedModelCacheResource(resources, "ClusterRoleBinding", "kserve-tls-distro-rolebinding")
+	binding := &rbacv1.ClusterRoleBinding{}
+	if mainBinding == nil {
+		t.Fatal("main TLS binding missing")
+	}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(mainBinding.Object, binding); err != nil {
+		t.Fatal(err)
+	}
+	for _, account := range []string{"kserve-controller-manager", "llmisvc-controller-manager"} {
+		if !slices.Contains(binding.Subjects, rbacv1.Subject{Kind: "ServiceAccount", Name: account, Namespace: "custom-applications"}) {
+			t.Fatalf("main TLS binding lost applications-namespace subject %s", account)
+		}
+	}
+
+	// The dedicated agent SCC must permit the workload's fixed UID/group without
+	// allowing arbitrary SELinux labels or privileged containers.
+	scc := findRenderedModelCacheResource(resources, "SecurityContextConstraints", "openshift-ai-localmodel-scc")
+	if scc == nil {
+		t.Fatal("agent SCC missing")
+	}
+	_, agent, err := getIndexedResource[appsv1.DaemonSet](resources, daemonSetGVK, localModelNodeAgentDaemonSetName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.Spec.Template.Spec.ServiceAccountName != "kserve-localmodelnode-agent" {
+		t.Fatalf("unexpected agent service account %q", agent.Spec.Template.Spec.ServiceAccountName)
+	}
+	for _, field := range []string{"allowPrivilegedContainer", "allowPrivilegeEscalation"} {
+		allowed, found, err := unstructured.NestedBool(scc.Object, field)
+		if err != nil || !found || allowed {
+			t.Fatalf("agent SCC must explicitly forbid %s: %v", field, err)
+		}
+	}
+	security := agent.Spec.Template.Spec.SecurityContext
+	if security == nil || security.RunAsUser == nil || security.FSGroup == nil {
+		t.Fatal("agent security context must specify UID and fsGroup")
+	}
+	uid, _, err := unstructured.NestedInt64(scc.Object, "runAsUser", "uid")
+	if err != nil || uid != *security.RunAsUser {
+		t.Fatalf("agent SCC UID %d does not match workload UID %d: %v", uid, *security.RunAsUser, err)
+	}
+	for _, field := range []string{"runAsUser", "fsGroup", "seLinuxContext"} {
+		strategy, _, err := unstructured.NestedString(scc.Object, field, "type")
+		if err != nil || strategy != "MustRunAs" {
+			t.Fatalf("agent SCC %s strategy must be MustRunAs, got %q: %v", field, strategy, err)
+		}
+	}
+	ranges, _, err := unstructured.NestedSlice(scc.Object, "fsGroup", "ranges")
+	if err != nil || len(ranges) != 1 {
+		t.Fatalf("unexpected agent SCC group ranges: %v: %v", ranges, err)
+	}
+	groupRange := ranges[0].(map[string]any)
+	if groupRange["min"] != *security.FSGroup || groupRange["max"] != *security.FSGroup {
+		t.Fatalf("agent SCC must permit exactly workload fsGroup %d, got %v", *security.FSGroup, groupRange)
+	}
+}
+
+func assertRenderedClusterPermission(t *testing.T, resources []unstructured.Unstructured, account, group, resource, name, verb string) {
+	t.Helper()
+	for i := range resources {
+		if resources[i].GetKind() != "ClusterRoleBinding" {
+			continue
+		}
+		binding := &rbacv1.ClusterRoleBinding{}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(resources[i].Object, binding); err != nil {
+			t.Fatal(err)
+		}
+		subject := rbacv1.Subject{Kind: "ServiceAccount", Name: account, Namespace: modelCacheNamespace}
+		if !slices.Contains(binding.Subjects, subject) || binding.RoleRef.Kind != "ClusterRole" {
+			continue
+		}
+		renderedRole := findRenderedModelCacheResource(resources, "ClusterRole", binding.RoleRef.Name)
+		if renderedRole == nil {
+			t.Fatalf("binding %s references missing role %s", binding.Name, binding.RoleRef.Name)
+		}
+		role := &rbacv1.ClusterRole{}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(renderedRole.Object, role); err != nil {
+			t.Fatal(err)
+		}
+		for _, rule := range role.Rules {
+			if slices.Contains(rule.APIGroups, group) && slices.Contains(rule.Resources, resource) && slices.Contains(rule.Verbs, verb) &&
+				(len(rule.ResourceNames) == 0 || slices.Contains(rule.ResourceNames, name)) {
+				return
+			}
+		}
+	}
+	t.Fatalf("service account %s/%s lacks %s on %s/%s %s", modelCacheNamespace, account, verb, group, resource, name)
 }
 
 func findRenderedModelCacheResource(resources []unstructured.Unstructured, kind, name string) *unstructured.Unstructured {

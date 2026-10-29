@@ -203,7 +203,8 @@ func (r *KserveModuleReconciler) ensureModelCacheNamespace(ctx context.Context) 
 }
 
 func validateModelCacheNamespace(ns *corev1.Namespace) error {
-	if ns.Annotations[psaElevatedByAnnotation] != psaElevatedByValue {
+	// The module ownership label survives disable; the PSA elevation annotation does not.
+	if ns.Labels[odhLabels.PlatformPartOf] != KserveComponentName {
 		return fmt.Errorf("namespace %s exists but is not managed by the KServe module", modelCacheNamespace)
 	}
 	return nil

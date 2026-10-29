@@ -4,3 +4,4 @@ resources:
   - localmodel
   - localmodelnode
   - configmap_source_reader.yaml
+  - tls_clusterrolebinding.yaml

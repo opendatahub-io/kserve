@@ -69,15 +69,55 @@ func TestEnsureModelCacheNamespaceRejectsUnmanagedNamespace(t *testing.T) {
 	if err := r.ensureModelCacheNamespace(context.Background()); err == nil {
 		t.Fatal("privileged PSA without ownership marker was accepted")
 	}
+	ns.Annotations = map[string]string{psaElevatedByAnnotation: psaElevatedByValue}
+	if err := r.Update(context.Background(), ns); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ensureModelCacheNamespace(context.Background()); err == nil {
+		t.Fatal("PSA elevation annotation without module ownership label was accepted")
+	}
+	ns.Labels[odhLabels.PlatformPartOf] = "other-component"
+	if err := r.Update(context.Background(), ns); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.ensureModelCacheNamespace(context.Background()); err == nil {
+		t.Fatal("namespace belonging to another component was accepted")
+	}
 }
 
-func TestEnsureModelCacheNamespaceRejectsModuleLabelWithoutMarker(t *testing.T) {
-	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: modelCacheNamespace,
-		Labels: map[string]string{odhLabels.PlatformPartOf: KserveComponentName}}}
-	r := newReconcilerWithFakeClient(ns)
-	if err := r.ensureModelCacheNamespace(context.Background()); err == nil {
-		t.Fatal("generic module label was accepted without ModelCache ownership marker")
+func TestModelCacheNamespaceCanBeReenabled(t *testing.T) {
+	ctx := context.Background()
+	r := newReconcilerWithFakeClient()
+	assertNamespace := func(level, annotation string) {
+		t.Helper()
+		ns := &corev1.Namespace{}
+		if err := r.Get(ctx, client.ObjectKey{Name: modelCacheNamespace}, ns); err != nil {
+			t.Fatal(err)
+		}
+		if ns.Labels[odhLabels.PlatformPartOf] != KserveComponentName {
+			t.Fatalf("namespace lost its module ownership label: %#v", ns.Labels)
+		}
+		if ns.Labels[securityEnforceLabel] != level || ns.Annotations[psaElevatedByAnnotation] != annotation {
+			t.Fatalf("expected PSA %q and annotation %q, got %#v", level, annotation, ns.ObjectMeta)
+		}
 	}
+	if err := r.ensureModelCacheNamespace(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertNamespace("privileged", psaElevatedByValue)
+
+	if err := r.cleanupModelCache(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertNamespace("baseline", "")
+
+	if err := r.ensureModelCacheNamespace(ctx); err != nil {
+		t.Fatalf("re-enabling ModelCache rejected its retained namespace: %v", err)
+	}
+	if err := r.updateNamespacePSA(ctx, modelCacheNamespace, "privileged"); err != nil {
+		t.Fatal(err)
+	}
+	assertNamespace("privileged", psaElevatedByValue)
 }
 
 func TestModelCacheCutoverStopsOldWorkloadsBeforeVolumes(t *testing.T) {

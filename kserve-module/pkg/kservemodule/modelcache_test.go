@@ -19,6 +19,7 @@ import (
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
@@ -605,7 +606,7 @@ func TestModelCacheComponentPostRender_PatchesMCS(t *testing.T) {
 	g := NewWithT(t)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
 	namespace := namespaceWithMCS(modelCacheNamespace, "s0:c28,c27")
-	namespace.Annotations[psaElevatedByAnnotation] = psaElevatedByValue
+	namespace.Labels = map[string]string{odhLabels.PlatformPartOf: KserveComponentName}
 	r := newOpenShiftReconciler(node, namespace)
 	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
 	resources := []unstructured.Unstructured{
