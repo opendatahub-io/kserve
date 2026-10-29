@@ -40,5 +40,18 @@ jobs:
       - name: Install dependencies
         run: cd kserve-module && go mod download
 
+      - name: Bootstrap golangci-lint
+        run: |
+          for attempt in 1 2 3; do
+            if make golangci-lint; then
+              exit 0
+            fi
+            if [ "${attempt}" -lt 3 ]; then
+              echo "golangci-lint bootstrap failed (attempt ${attempt}/3), retrying..."
+              sleep $((attempt * 10))
+            fi
+          done
+          exit 1
+
       - name: Check
         run: make check-km

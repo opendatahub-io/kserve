@@ -16,6 +16,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -53,7 +54,7 @@ import (
 // --- Operand RBAC (cluster-scoped: operand ClusterRoles grant end-user access across namespaces) ---
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=create;delete;get;list;patch;update;watch
 // escalate/bind scoped to the exact roles and clusterroles deployed by this controller
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;odh-model-controller-openshift-distro-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role;kserve-tls-distro-role
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-inferencegraph-distro-role;kserve-kernelcache-nodegroup-manager;kserve-kernelcache-token-requester;kserve-metrics-reader;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-llmisvc-confidential-bare-metal;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;odh-model-controller-openshift-distro-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role;kserve-tls-distro-role;modelexpress-operator;modelexpress-operator-openshift
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role;workload-variant-autoscaler-leader-election-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
 
@@ -62,9 +63,16 @@ import (
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/finalizers,verbs=get;update
 // +kubebuilder:rbac:groups=nim.opendatahub.io,resources=accounts/status,verbs=get;update
 
+// --- ModelExpressServers (cluster-scoped: held-open CRs block ModelExpress removal) ---
+// +kubebuilder:rbac:groups=modelexpress.opendatahub.io,resources=modelexpressservers,verbs=get;list;watch
+
 // --- Operand CRDs (cluster-scoped: controller deploys KServe, LLMInferenceService, and related CRDs) ---
 // no delete — CRDs survive component removal (consistent with odh-operator GC unremovables)
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
+//
+// --- WVA extraCleanup: leftover controller Deployment, VA CRD/CRs, ConfigMap key ---
+// +kubebuilder:rbac:groups=llmd.ai,resources=variantautoscalings,verbs=list;delete
+// +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=variantautoscalings.llmd.ai,verbs=delete
 
 // --- cert-manager (cluster-scoped: ClusterIssuers are cluster-scoped; Issuers/Certificates for webhook TLS) ---
 // +kubebuilder:rbac:groups=cert-manager.io,resources=certificates;issuers,verbs=create;delete;get;list;patch;update;watch
@@ -85,16 +93,21 @@ import (
 // --- Monitoring (cluster-scoped: ServiceMonitors and Prometheus API for metrics collection) ---
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=servicemonitors,verbs=create;delete;get;list;patch;update;watch
 // +kubebuilder:rbac:groups=monitoring.coreos.com,resources=prometheuses/api,resourceNames=k8s,verbs=get;create;update
+// +kubebuilder:rbac:groups=services.platform.opendatahub.io,resources=monitorings,resourceNames=default-monitoring,verbs=get
+// +kubebuilder:rbac:groups=services.platform.opendatahub.io,resources=monitorings,verbs=list;watch
 
 // --- Observability (Perses dashboards deployed to monitoring namespace when COO is present) ---
 // +kubebuilder:rbac:groups=perses.dev,resources=persesdashboards,verbs=create;delete;get;list;patch;update;watch
 
 // --- Dependency detection (read-only: check if required operators are installed) ---
 // +kubebuilder:rbac:groups=operators.coreos.com,resources=subscriptions,verbs=get;list;watch
+// +kubebuilder:rbac:groups=olm.operatorframework.io,resources=clusterextensions,verbs=get;list;watch
 // +kubebuilder:rbac:groups=operator.openshift.io,resources=leaderworkersetoperators,verbs=get;list;watch
+// +kubebuilder:rbac:groups=node.k8s.io,resources=runtimeclasses,verbs=get;list;watch
 //
 // ModelCache RBAC
 // +kubebuilder:rbac:groups="",resources=nodes,verbs=get;list;watch;patch;update
+// +kubebuilder:rbac:groups=resource.k8s.io,resources=resourceslices,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=persistentvolumes,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch;update
@@ -106,6 +119,12 @@ import (
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get
 // +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get
 // +kubebuilder:rbac:groups=opendatahub.io,resources=odhdashboardconfigs,verbs=get
+
+// --- RHCL TelemetryPolicy for LLMInferenceService OCSF audit logging ---
+// This is an optional external dependency. The reconciler checks the installed
+// CRD schema before using these permissions, so older RHCL versions do not
+// block unrelated KServe reconciliation.
+// +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=telemetrypolicies,verbs=create;delete;get;list;patch;update;watch
 
 type ResourceDeployer interface {
 	Deploy(ctx context.Context, input deploy.DeployInput) error
@@ -128,9 +147,27 @@ type KserveModuleReconciler struct {
 	dynamicWatches []*dynamicWatch
 	dynamicWatchMu sync.Mutex
 
+	// draResourceSliceGVK is the served resource.k8s.io ResourceSlice GVK discovered at
+	// setup (empty when the cluster does not serve Dynamic Resource Allocation). When set,
+	// hardware-aware filtering also treats accelerators published via DRA ResourceSlices as
+	// present, not just those in a node's status.allocatable.
+	draResourceSliceGVK schema.GroupVersionKind
+
 	// expectedPresets holds the preset names from the most recent render, written
 	// by reconcile and read by updateComponentReadiness later in the same call.
 	expectedPresets []string
+
+	// tracingConfigError records a non-fatal Monitoring read error so the
+	// reconcile can report it and retry without blocking other components.
+	tracingConfigError error
+
+	// ocsfAuditLoggingCondition records an optional RHCL dependency or gateway
+	// configuration problem without failing unrelated KServe components.
+	ocsfAuditLoggingCondition *auditLoggingCondition
+
+	// removalBlockers holds, per disabled component, what keeps it deployed,
+	// written by reconcile and read by updateComponentReadiness in the same call.
+	removalBlockers map[string][]string
 }
 
 func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request) (result ctrl.Result, retErr error) {
@@ -142,10 +179,51 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	if !kserve.DeletionTimestamp.IsZero() {
-		if cleanupErr := r.cleanupOnDelete(ctx); cleanupErr != nil {
+		if !controllerutil.ContainsFinalizer(kserve, ModuleFinalizerName) {
+			return ctrl.Result{}, nil
+		}
+
+		// Check whether config deletion is blocked before running any destructive
+		// cleanup, so a blocked deletion does not tear down still-running operands.
+		ns := r.getApplicationsNamespace()
+		var componentBlockers []string
+		for _, comp := range components {
+			blockers, err := componentRemovalBlockers(ctx, r, comp)
+			if err != nil {
+				return ctrl.Result{}, fmt.Errorf("checking %s removal blockers: %w", comp.name, err)
+			}
+			for _, b := range blockers {
+				componentBlockers = append(componentBlockers, comp.name+": "+b)
+			}
+		}
+		if len(componentBlockers) > 0 {
+			if err := r.setDeletionBlocked(ctx, kserve, componentBlockers); err != nil {
+				return ctrl.Result{}, err
+			}
+			log.Info("Kserve CR deletion blocked", "blockers", componentBlockers)
+			return ctrl.Result{RequeueAfter: deletionRequeueInterval}, nil
+		}
+
+		outcome, err := r.cleanupLLMISVCConfigsOnDelete(ctx, ns)
+		if err != nil {
+			return ctrl.Result{}, fmt.Errorf("cleaning up LLMInferenceServiceConfigs: %w", err)
+		}
+		if !outcome.done {
+			if err := r.setDeletionBlocked(ctx, kserve, outcome.blockers); err != nil {
+				return ctrl.Result{}, err
+			}
+			log.Info("Kserve CR deletion blocked", "blockers", outcome.blockers)
+			return ctrl.Result{RequeueAfter: deletionRequeueInterval}, nil
+		}
+
+		if cleanupErr := r.cleanupOnDelete(ctx, kserve); cleanupErr != nil {
 			log.Error(cleanupErr, "component extra-cleanup failed during CR deletion")
+			if statusErr := r.setDeletionBlocked(ctx, kserve, []string{"component cleanup failed: " + cleanupErr.Error()}); statusErr != nil {
+				log.Error(statusErr, "failed to record component cleanup failure on status")
+			}
 			return ctrl.Result{}, cleanupErr
 		}
+
 		if controllerutil.RemoveFinalizer(kserve, ModuleFinalizerName) {
 			if err := r.Update(ctx, kserve); err != nil {
 				return ctrl.Result{}, fmt.Errorf("removing module finalizer: %w", err)
@@ -182,8 +260,19 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	r.expectedPresets = nil
+	r.tracingConfigError = nil
+	r.ocsfAuditLoggingCondition = nil
+	r.removalBlockers = map[string][]string{}
 	componentErrors := r.reconcile(ctx, kserve)
+	if componentErrors == nil {
+		componentErrors = make(map[string]error)
+	}
+	if err := r.reconcileOCSFAuditLogging(ctx, kserve); err != nil {
+		componentErrors["auditLogging"] = err
+	}
 	applyProvisioningCondition(condMgr, componentErrors)
+	applyOCSFAuditLoggingCondition(condMgr, kserve, r.ocsfAuditLoggingCondition)
 	if len(componentErrors) > 0 {
 		var msgs []string
 		for _, name := range slices.Sorted(maps.Keys(componentErrors)) {
@@ -193,11 +282,16 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, fmt.Errorf("reconciliation failed: %s", strings.Join(msgs, "; "))
 	}
 
+	applyTracingConfigCondition(condMgr, kserve.Generation, r.tracingConfigError)
 	r.updateComponentReadiness(ctx, kserve, condMgr)
 
 	if !condMgr.IsHappy() {
 		log.Info("not all components ready, requeueing")
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+	if r.tracingConfigError != nil {
+		log.Info("tracing configuration unavailable, requeueing", "error", r.tracingConfigError)
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	// The CRDs this module installs itself exist by now. Register their dynamic
@@ -237,6 +331,22 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 
 	for _, comp := range components {
 		if comp.enabled != nil && !comp.enabled(kserve) {
+			blockers, err := componentRemovalBlockers(ctx, r, comp)
+			if err != nil {
+				componentErrors[comp.name] = fmt.Errorf("checking removal blockers: %w", err)
+				continue
+			}
+			if len(blockers) > 0 {
+				log.Info("component removal blocked, keeping it deployed", "component", comp.name, "blockers", blockers)
+				r.removalBlockers[comp.name] = blockers
+				resources, err := r.reconcileComponent(ctx, kserve, manifestDir, comp)
+				if err != nil {
+					componentErrors[comp.name] = err
+					continue
+				}
+				allResources = append(allResources, resources...)
+				continue
+			}
 			if err := r.defaultCleanup(ctx, comp); err != nil {
 				componentErrors[comp.name] = fmt.Errorf("cleanup: %w", err)
 				continue
@@ -261,8 +371,6 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		return componentErrors
 	}
 
-	r.expectedPresets = wellKnownPresetNames(allResources)
-
 	owned, unowned := splitByOwnership(allResources)
 	if err := r.Deployer.Deploy(ctx, deploy.DeployInput{
 		Client:    r.Client,
@@ -285,6 +393,13 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	return nil
 }
 
+func componentRemovalBlockers(ctx context.Context, r *KserveModuleReconciler, comp componentConfig) ([]string, error) {
+	if comp.removalBlockers == nil {
+		return nil, nil
+	}
+	return comp.removalBlockers(ctx, r)
+}
+
 func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned []unstructured.Unstructured) {
 	for i := range resources {
 		gk := resources[i].GroupVersionKind().GroupKind()
@@ -297,8 +412,11 @@ func splitByOwnership(resources []unstructured.Unstructured) (owned, unowned []u
 	return
 }
 
-func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context) error {
+func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
 	var errs []error
+	if err := r.cleanupOCSFAuditPolicies(ctx, nil, kserve.Name, kserve.UID); err != nil {
+		errs = append(errs, fmt.Errorf("%s: %w", telemetryPolicyComponentValue, err))
+	}
 	for _, comp := range components {
 		if comp.extraCleanup == nil {
 			continue
@@ -324,35 +442,8 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 		sourcePath = comp.sourcePathXKS
 	}
 
-	// Image params live in the base overlay (e.g. overlays/odh/params.env), not
-	// the XKS overlay whose params.env only carries cert-manager keys.
-	if err := applyParams(
-		filepath.Join(manifestDir, comp.dirName(), comp.sourcePath),
-		comp.imageMap,
-	); err != nil {
-		return nil, fmt.Errorf("applying %s image params: %w", comp.name, err)
-	}
-
-	if r.isKubernetes(ctx) {
-		ns := r.getApplicationsNamespace()
-		configData := r.getPlatformConfigData(ctx)
-		certNS := r.getCertManagerNamespace(ctx, configData)
-		if err := applyParams(
-			filepath.Join(manifestDir, comp.dirName(), comp.sourcePathXKS),
-			nil, buildCertManagerParams(ns, configData, certNS),
-		); err != nil {
-			return nil, fmt.Errorf("applying cert-manager params: %w", err)
-		}
-	}
-
-	if comp.extraParams != nil {
-		extra := comp.extraParams(kserve)
-		if err := applyParams(
-			filepath.Join(manifestDir, comp.dirName(), sourcePath),
-			nil, extra,
-		); err != nil {
-			return nil, fmt.Errorf("applying %s extra params: %w", comp.name, err)
-		}
+	if err := r.applyComponentParams(ctx, kserve, manifestDir, comp, sourcePath); err != nil {
+		return nil, err
 	}
 
 	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
@@ -373,6 +464,41 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 
 	log.Info("component rendering complete", "component", comp.name, "resources", len(resources))
 	return resources, nil
+}
+
+func (r *KserveModuleReconciler) applyComponentParams(ctx context.Context,
+	kserve *platformv1alpha1.Kserve, manifestDir string, comp componentConfig, sourcePath string) error {
+	// Image params live in the base overlay (e.g. overlays/odh/params.env), not
+	// the XKS overlay whose params.env only carries cert-manager keys.
+	if err := applyParams(
+		filepath.Join(manifestDir, comp.dirName(), comp.sourcePath),
+		comp.imageMap,
+	); err != nil {
+		return fmt.Errorf("applying %s image params: %w", comp.name, err)
+	}
+
+	if comp.certManagerParams && r.isKubernetes(ctx) {
+		ns := r.getApplicationsNamespace()
+		configData := r.getPlatformConfigData(ctx)
+		certNS := r.getCertManagerNamespace(ctx, configData)
+		if err := applyParams(
+			filepath.Join(manifestDir, comp.dirName(), comp.sourcePathXKS),
+			nil, buildCertManagerParams(ns, configData, certNS),
+		); err != nil {
+			return fmt.Errorf("applying cert-manager params: %w", err)
+		}
+	}
+
+	if comp.extraParams != nil {
+		extra := comp.extraParams(kserve)
+		if err := applyParams(
+			filepath.Join(manifestDir, comp.dirName(), sourcePath),
+			nil, extra,
+		); err != nil {
+			return fmt.Errorf("applying %s extra params: %w", comp.name, err)
+		}
+	}
+	return nil
 }
 
 func (r *KserveModuleReconciler) isKubernetes(ctx context.Context) bool {

@@ -16,3 +16,20 @@ kind: Component
 
 resources:
   - ../../../llmisvcconfig
+  - config-llm-confidential-bare-metal.yaml
+
+# Exclude the sglang template — SGLang is not a supported runtime in the product.
+patches:
+  - patch: |
+      $patch: delete
+      apiVersion: serving.kserve.io/v1alpha2
+      kind: LLMInferenceServiceConfig
+      metadata:
+        name: kserve-config-sglang-template
+  # Exclude Omni until a mirrored product image is published (RHOAIENG-85726).
+  - patch: |
+      $patch: delete
+      apiVersion: serving.kserve.io/v1alpha2
+      kind: LLMInferenceServiceConfig
+      metadata:
+        name: kserve-config-llm-omni-template

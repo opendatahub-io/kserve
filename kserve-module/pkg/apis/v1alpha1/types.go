@@ -22,6 +22,13 @@ const (
 	KserveRawHeaded   RawServiceConfig = "Headed"
 )
 
+type AuditProfile string
+
+const (
+	AuditProfileRemoved  AuditProfile = "Removed"
+	AuditProfileMetadata AuditProfile = "Metadata"
+)
+
 // Compile-time check: Kserve must implement common.PlatformObject so the
 // orchestrator (ODH Operator) can read status, conditions, and releases
 // through a uniform interface across all modules.
@@ -56,14 +63,39 @@ type OAuthProxyConfig struct {
 	Resources *OAuthProxyResourceRequirements `json:"resources,omitempty"`
 }
 
+// ConfidentialContainersConfig supplies installation defaults for confidential
+// model serving. Storage is supplied separately through each model's PVC.
+type ConfidentialContainersConfig struct {
+	// LUKSResourceID identifies the disk passphrase in Trustee/KBS, not the
+	// passphrase itself. It must match the key used to encrypt the supplied disk.
+	// A service's format-disk LUKS_RESOURCE_ID environment variable overrides it.
+	// +optional
+	// +kubebuilder:default="kbs:///default/kserve-luks-password/key"
+	// +kubebuilder:validation:MaxLength=2048
+	// +kubebuilder:validation:Pattern=`^kbs:///[^/\s?#]+/[^/\s?#]+/[^/\s?#]+$`
+	// +kubebuilder:validation:XValidation:rule="self.split('/').all(p, p != '.' && p != '..')",message="luksResourceId must identify a disk key as kbs:///repository/type/tag"
+	LUKSResourceID string `json:"luksResourceId,omitempty"`
+	// InitData is gzip-compressed, base64-encoded initdata.toml for the confidential
+	// guest. A model's explicit cc_init_data annotation overrides this default.
+	// When empty, the runtime's global init data is used.
+	// +optional
+	InitData string `json:"initData,omitempty"`
+}
+
 type KserveSpec struct {
 	common.ManagementSpec `json:",inline"`
 	// +kubebuilder:default=Headless
 	RawDeploymentServiceConfig RawServiceConfig `json:"rawDeploymentServiceConfig,omitempty"`
 	// +optional
 	OAuthProxy *OAuthProxyConfig `json:"oauthProxy,omitempty"`
-	NIM        NIMSpec           `json:"nim,omitempty"`
-	WVA        WVASpec           `json:"wva,omitempty"`
+	// ConfidentialContainers configures the disk-key reference and default guest
+	// init data for confidential model serving.
+	// +optional
+	ConfidentialContainers *ConfidentialContainersConfig `json:"confidentialContainers,omitempty"`
+	NIM                    NIMSpec                       `json:"nim,omitempty"`
+	WVA                    WVASpec                       `json:"wva,omitempty"`
+	// Installs the ModelExpress operator. Removed by default.
+	ModelExpress ModelExpressSpec `json:"modelExpress,omitempty"`
 	// Enables TLS for LLMInferenceService deployments.
 	// When unset, the KServe default (TLS enabled) is preserved.
 	EnableLLMInferenceServiceTLS *bool `json:"enableLLMInferenceServiceTLS,omitempty"`
@@ -71,12 +103,25 @@ type KserveSpec struct {
 	// Enabled by default.
 	EnableLLMInferenceServiceConsoleDashboards *bool `json:"enableLLMInferenceServiceConsoleDashboards,omitempty"`
 
-	// AuditLogging controls inference request audit logging.
-	// Managed writes openshiftConfig.enableAuditLogging=true on inferenceservice-config.
-	// Removed writes openshiftConfig.enableAuditLogging=false.
-	// +kubebuilder:validation:Enum=Managed;Removed
+	// EnableLLMMonitoringIngressNetworkPolicy enables per-LLMInferenceService ingress
+	// NetworkPolicies that restrict Prometheus and gateway traffic (same rules as the
+	// 3.6 restricted defaults). Disabled by default for seamless upgrades.
+	EnableLLMMonitoringIngressNetworkPolicy *bool `json:"enableLLMMonitoringIngressNetworkPolicy,omitempty"`
+
+	// Enables hardware-aware creation of accelerator LLMInferenceServiceConfig presets:
+	// presets for an accelerator are only created when a matching resource is present in
+	// some node's status.allocatable or is published by a DRA ResourceSlice driver listed
+	// in opendatahub.io/recommended-dra-drivers (vendor-domain matching also covers MIG devices).
+	// Enabled by default. Set to false on clusters using accelerator resource names that
+	// do not share a vendor domain, so that all presets are always created.
+	EnableHardwareAwarePresets *bool `json:"enableHardwareAwarePresets,omitempty"`
+
+	// AuditLoggingProfile selects the audit logging profile for InferenceService and
+	// LLMInferenceService traffic. Removed disables audit events; Metadata records
+	// request and response metadata without bodies.
+	// +kubebuilder:validation:Enum=Removed;Metadata
 	// +kubebuilder:default=Removed
-	AuditLogging common.ManagementState `json:"auditLogging,omitempty"`
+	AuditLoggingProfile AuditProfile `json:"auditLoggingProfile,omitempty"`
 
 	ModelCache    *ModelCacheSpec   `json:"modelCache,omitempty"`
 	ModelRegistry ModelRegistrySpec `json:"modelRegistry,omitempty"`
@@ -90,6 +135,12 @@ type NIMSpec struct {
 }
 
 type WVASpec struct {
+	// +kubebuilder:validation:Enum=Managed;Removed
+	// +kubebuilder:default=Removed
+	ManagementState common.ManagementState `json:"managementState,omitempty"`
+}
+
+type ModelExpressSpec struct {
 	// +kubebuilder:validation:Enum=Managed;Removed
 	// +kubebuilder:default=Removed
 	ManagementState common.ManagementState `json:"managementState,omitempty"`

@@ -5,7 +5,7 @@ See [How to contribute](https://github.com/kserve/community#how-can-i-help-) in 
 To contribute, we recommend that you either [fork the
 kserve/kserve](https://github.com/kserve/kserve/fork), or [fork the
 opendatahub-io/kserve](https://github.com/opendatahub-io/kserve/fork)
-repository. This is becase ODH contributors use [GitHub
+repository. This is because ODH contributors use [GitHub
 flow](https://docs.github.com/en/get-started/using-github/github-flow).
 
 The following steps outlines our recommended remotes setup. You will have three

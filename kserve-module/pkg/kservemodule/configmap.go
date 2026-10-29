@@ -17,7 +17,6 @@ import (
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
-
 var (
 	errResourceNotFound = errors.New("resource not found")
 	configMapGVK        = schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}
@@ -38,6 +37,10 @@ func customizeKserveConfigMap(resources []unstructured.Unstructured, kserve *pla
 			return resources, nil
 		}
 		return nil, err
+	}
+
+	if !isWVAEnabled(kserve) && cm.Data != nil {
+		delete(cm.Data, autoscalingWVAControllerConfigKey)
 	}
 
 	if err := updateInferenceCM(cm, kserve); err != nil {
@@ -89,6 +92,17 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		return err
 	}
 
+	if confidential := kserve.Spec.ConfidentialContainers; confidential != nil {
+		if err := updateCMJSONKey(cm, "confidentialBareMetal", func(data map[string]any) {
+			if confidential.LUKSResourceID != "" {
+				data["luksResourceId"] = confidential.LUKSResourceID
+			}
+			data["initData"] = confidential.InitData
+		}); err != nil {
+			return err
+		}
+	}
+
 	oauthProxy := kserve.Spec.OAuthProxy
 	if oauthProxy != nil && oauthProxy.Resources != nil {
 		if err := updateCMJSONKey(cm, oauthProxyConfigKeyName, func(data map[string]any) {
@@ -117,9 +131,26 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		return err
 	}
 
-	auditLoggingEnabled := kserve.Spec.AuditLogging == "Managed"
+	profile := kserve.Spec.AuditLoggingProfile
+	if profile == "" {
+		profile = platformv1alpha1.AuditProfileRemoved
+	}
+	var internalProfile string
+	switch profile {
+	case platformv1alpha1.AuditProfileRemoved:
+		internalProfile = "none"
+	case platformv1alpha1.AuditProfileMetadata:
+		internalProfile = "metadata"
+	default:
+		return fmt.Errorf("audit logging profile must be one of %q or %q, got %q",
+			platformv1alpha1.AuditProfileRemoved,
+			platformv1alpha1.AuditProfileMetadata,
+			profile,
+		)
+	}
 	if err := updateCMJSONKey(cm, openshiftConfigKeyName, func(data map[string]any) {
-		data["enableAuditLogging"] = auditLoggingEnabled
+		data["auditLoggingProfile"] = internalProfile
+		delete(data, "enableAuditLogging")
 	}); err != nil {
 		return err
 	}
@@ -132,7 +163,39 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		}
 	}
 
+	if err := updateLLMISVCConfigMapKey(cm, kserve); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func updateLLMISVCConfigMapKey(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) error {
+	monitoringNS := os.Getenv("MONITORING_NAMESPACE")
+	if kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy == nil && monitoringNS == "" {
+		return nil
+	}
+
+	if cm.Data == nil {
+		cm.Data = map[string]string{}
+	}
+	if _, ok := cm.Data[llmisvcConfigKeyName]; !ok {
+		cm.Data[llmisvcConfigKeyName] = "{}"
+	}
+
+	return updateCMJSONKey(cm, llmisvcConfigKeyName, func(data map[string]any) {
+		if kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy != nil {
+			featureGates, _ := data["featureGates"].(map[string]any)
+			if featureGates == nil {
+				featureGates = map[string]any{}
+				data["featureGates"] = featureGates
+			}
+			featureGates["monitoringIngressNetworkPolicy"] = *kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy
+		}
+		if monitoringNS != "" {
+			data["monitoringNamespace"] = monitoringNS
+		}
+	})
 }
 
 func updateCMJSONKey(cm *corev1.ConfigMap, key string, mutate func(map[string]any)) error {

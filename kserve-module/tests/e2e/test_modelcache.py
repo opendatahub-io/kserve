@@ -89,13 +89,22 @@ class TestModelCacheEnable:
             f"localModel.jobNamespace should be '{NAMESPACE}', got {cfg.get('jobNamespace')}"
         )
 
-        # Verify ModelCacheReady condition
-        cr = get_cr(kubectl)
-        conditions = {c["type"]: c for c in cr.get("status", {}).get("conditions", [])}
-        assert "ModelCacheReady" in conditions, "ModelCacheReady condition should exist"
-        assert conditions["ModelCacheReady"]["status"] == "True", (
-            f"ModelCacheReady should be True, got {conditions['ModelCacheReady']['status']}"
-        )
+        # Workload startup can change readiness after the fixture returns.
+        # Wait for status to converge, keeping persistent failures fatal.
+        def assert_model_cache_ready():
+            cr = get_cr(kubectl)
+            assert generation_matches(cr), "ModelCache generation not reconciled"
+            conditions = {
+                c["type"]: c for c in cr.get("status", {}).get("conditions", [])
+            }
+            assert "ModelCacheReady" in conditions, (
+                "ModelCacheReady condition should exist"
+            )
+            assert conditions["ModelCacheReady"]["status"] == "True", (
+                f"ModelCacheReady should be True, got {conditions['ModelCacheReady']['status']}"
+            )
+
+        wait_for(assert_model_cache_ready, timeout=TIMEOUT_120S, interval=5)
 
         # Localmodel workloads must be healthy. CrashLoopBackOff from missing
         # kserve-tls-distro-rolebinding subjects fails these checks on OpenShift.

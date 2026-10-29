@@ -227,31 +227,7 @@ func createKnativeService(
 											Drop: []corev1.Capability{corev1.Capability("ALL")},
 										},
 									},
-									VolumeMounts: []corev1.VolumeMount{
-										{
-											Name:      constants.ServiceCaBundleVolumeName,
-											MountPath: constants.ServiceCaBundleMountPath,
-										},
-									},
-									Env: []corev1.EnvVar{
-										{
-											Name:  "SSL_CERT_FILE",
-											Value: constants.ServiceCaBundleMountPath + "/" + constants.ServiceCaBundleCertFile,
-										},
-									},
 									ReadinessProbe: constants.GetRouterReadinessProbe(),
-								},
-							},
-							Volumes: []corev1.Volume{
-								{
-									Name: constants.ServiceCaBundleVolumeName,
-									VolumeSource: corev1.VolumeSource{
-										ConfigMap: &corev1.ConfigMapVolumeSource{
-											LocalObjectReference: corev1.LocalObjectReference{
-												Name: constants.OpenShiftServiceCaConfigMapName,
-											},
-										},
-									},
 								},
 							},
 							Affinity:                     graph.Spec.Affinity,
@@ -271,13 +247,12 @@ func createKnativeService(
 	// Only adding this env variable "PROPAGATE_HEADERS" if router's headers config has the key "propagate"
 	value, exists := config.Headers["propagate"]
 	if exists {
-		propagateEnv := corev1.EnvVar{
-			Name:  constants.RouterHeadersPropagateEnvVar,
-			Value: strings.Join(value, ","),
+		service.Spec.ConfigurationSpec.Template.Spec.PodSpec.Containers[0].Env = []corev1.EnvVar{
+			{
+				Name:  constants.RouterHeadersPropagateEnvVar,
+				Value: strings.Join(value, ","),
+			},
 		}
-		service.Spec.ConfigurationSpec.Template.Spec.PodSpec.Containers[0].Env = append(
-			service.Spec.ConfigurationSpec.Template.Spec.PodSpec.Containers[0].Env,
-			propagateEnv)
 	}
 	return service
 }

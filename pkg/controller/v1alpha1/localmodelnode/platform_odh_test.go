@@ -20,11 +20,14 @@ package localmodelnode
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -33,13 +36,139 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/ptr"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/credentials/s3"
+	pkgtypes "github.com/kserve/kserve/pkg/types"
 )
+
+func TestMountODHCustomCABundle(t *testing.T) {
+	oldConfig := storageInitializerConfig
+	t.Cleanup(func() { storageInitializerConfig = oldConfig })
+
+	const namespace = "ca-test-namespace"
+	const configuredPath = "/configured/custom-certs"
+	tests := []struct {
+		name          string
+		bundleData    map[string]string
+		env           []corev1.EnvVar
+		extraVolume   *corev1.Volume
+		wantMounted   bool
+		wantMountPath string
+	}{
+		{name: "bundle present", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, wantMounted: true, wantMountPath: configuredPath},
+		{name: "bundle absent"},
+		{name: "bundle empty", bundleData: map[string]string{constants.DefaultCaBundleFileName: "  \n"}},
+		{name: "wrong file key", bundleData: map[string]string{"odh-ca-bundle.crt": "test certificate"}},
+		{name: "explicit CA ConfigMap", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: "explicit-bundle"}}},
+		{name: "explicit AWS CA", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: s3.AWSCABundleConfigMap, Value: "explicit-bundle"}}},
+		{name: "explicit SSL certificate file", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: "SSL_CERT_FILE", Value: "/explicit/ca.pem"}}},
+		{name: "CA from ValueFrom", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: "SSL_CERT_FILE", ValueFrom: &corev1.EnvVarSource{FieldRef: &corev1.ObjectFieldSelector{FieldPath: "metadata.name"}}}}},
+		{name: "empty SSL certificate file", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: "SSL_CERT_FILE"}}, wantMounted: true, wantMountPath: configuredPath},
+		{name: "empty CA ConfigMap name", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleConfigMapNameEnvVarKey}}, wantMounted: true, wantMountPath: configuredPath},
+		{name: "existing mount path", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: "/existing/custom-certs"}}, wantMounted: true, wantMountPath: "/existing/custom-certs"},
+		{name: "empty mount path", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, env: []corev1.EnvVar{{Name: constants.CaBundleVolumeMountPathEnvVarKey}}, wantMounted: true, wantMountPath: configuredPath},
+		{name: "volume name collision", bundleData: map[string]string{constants.DefaultCaBundleFileName: "test certificate"}, extraVolume: &corev1.Volume{Name: CaBundleVolumeName, VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			storageInitializerConfig = &pkgtypes.StorageInitializerConfig{CaBundleVolumeMountPath: configuredPath}
+			scheme := runtime.NewScheme()
+			if err := corev1.AddToScheme(scheme); err != nil {
+				t.Fatal(err)
+			}
+			var objects []client.Object
+			if tt.bundleData != nil {
+				objects = append(objects, &corev1.ConfigMap{
+					ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: namespace},
+					Data:       tt.bundleData,
+				})
+			}
+			reader := fake.NewClientBuilder().WithScheme(scheme).WithObjects(objects...).Build()
+			reconciler := &LocalModelNodeReconciler{APIReader: reader, Log: ctrl.Log.WithName("ca-test")}
+			job := &batchv1.Job{
+				ObjectMeta: metav1.ObjectMeta{Namespace: namespace},
+				Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: "download", Env: append([]corev1.EnvVar(nil), tt.env...),
+						VolumeMounts: []corev1.VolumeMount{{Name: constants.PvcSourceMountName, MountPath: MountPath}},
+					}},
+					Volumes: []corev1.Volume{{Name: constants.PvcSourceMountName}},
+				}}},
+			}
+			if tt.extraVolume != nil {
+				job.Spec.Template.Spec.Volumes = append(job.Spec.Template.Spec.Volumes, *tt.extraVolume)
+			}
+			before := job.DeepCopy()
+			if err := reconciler.mountODHCustomCABundle(context.Background(), job); err != nil {
+				t.Fatal(err)
+			}
+			if !tt.wantMounted {
+				if !reflect.DeepEqual(job, before) {
+					t.Fatalf("job changed without a usable implicit CA bundle: %#v", job.Spec.Template.Spec)
+				}
+				return
+			}
+
+			pod := job.Spec.Template.Spec
+			if len(pod.Volumes) != len(before.Spec.Template.Spec.Volumes)+1 || len(pod.Containers[0].VolumeMounts) != 2 {
+				t.Fatalf("expected one CA volume and mount in addition to PVC: %#v", pod)
+			}
+			volume := pod.Volumes[len(pod.Volumes)-1]
+			if volume.Name != CaBundleVolumeName || volume.ConfigMap == nil || volume.ConfigMap.Name != odhCustomCABundleConfigMapName || volume.ConfigMap.Optional == nil || !*volume.ConfigMap.Optional {
+				t.Fatalf("unexpected CA ConfigMap volume: %#v", volume)
+			}
+			mount := pod.Containers[0].VolumeMounts[1]
+			if mount.Name != CaBundleVolumeName || mount.MountPath != tt.wantMountPath || !mount.ReadOnly {
+				t.Fatalf("unexpected CA mount: %#v", mount)
+			}
+			envValues := map[string]string{}
+			envCounts := map[string]int{}
+			for _, env := range pod.Containers[0].Env {
+				envValues[env.Name] = env.Value
+				envCounts[env.Name]++
+			}
+			if envValues[constants.CaBundleConfigMapNameEnvVarKey] != odhCustomCABundleConfigMapName ||
+				envValues[constants.CaBundleVolumeMountPathEnvVarKey] != tt.wantMountPath ||
+				envCounts[constants.CaBundleConfigMapNameEnvVarKey] != 1 ||
+				envCounts[constants.CaBundleVolumeMountPathEnvVarKey] != 1 {
+				t.Fatalf("unexpected CA environment: %#v", pod.Containers[0].Env)
+			}
+			once := job.DeepCopy()
+			if err := reconciler.mountODHCustomCABundle(context.Background(), job); err != nil || !reflect.DeepEqual(job, once) {
+				t.Fatalf("repeated CA injection changed job or failed: %v", err)
+			}
+		})
+	}
+}
+
+type failingCABundleReader struct{ client.Reader }
+
+func (f failingCABundleReader) Get(context.Context, client.ObjectKey, client.Object, ...client.GetOption) error {
+	return errors.New("ConfigMap read failed")
+}
+
+func TestMountODHCustomCABundleReadError(t *testing.T) {
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "ca-test-namespace"},
+		Spec: batchv1.JobSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: "download"}},
+		}}},
+	}
+	reconciler := &LocalModelNodeReconciler{APIReader: failingCABundleReader{}, Log: ctrl.Log.WithName("ca-test")}
+	if err := reconciler.mountODHCustomCABundle(context.Background(), job); err == nil {
+		t.Fatal("expected ConfigMap read error to stop Job creation and trigger reconcile retry")
+	}
+}
 
 var _ = Describe("LocalModelNode OCP platform hooks", func() {
 	const (
@@ -117,6 +246,138 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 	)
 
 	Context("When using OCP platform hooks", func() {
+		It("Should mount the ODH CA bundle on a Hugging Face download job", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			oldNodeName, oldWritable := nodeName, isModelRootWritable
+			DeferCleanup(func() {
+				nodeName = oldNodeName
+				isModelRootWritable = oldWritable
+			})
+			fsMock.clear()
+			fsHelper = fsMock
+			isModelRootWritable = func() bool { return true }
+
+			configMap := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: constants.InferenceServiceConfigMapName, Namespace: constants.KServeNamespace},
+				Data:       configs,
+			}
+			Expect(k8sClient.Create(ctx, configMap)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, configMap)).To(Succeed()) })
+
+			caBundle := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: modelCacheNamespace},
+				Data:       map[string]string{constants.DefaultCaBundleFileName: "test certificate"},
+			}
+			Expect(k8sClient.Create(ctx, caBundle)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, caBundle)).To(Succeed()) })
+
+			nodeName = "worker-hf-odh-ca"
+			const modelName = "hf-odh-ca-model"
+			const sourceURI = "hf://org/private-model"
+			localModelNode := &v1alpha1.LocalModelNode{
+				ObjectMeta: metav1.ObjectMeta{Name: nodeName},
+				Spec: v1alpha1.LocalModelNodeSpec{LocalModels: []v1alpha1.LocalModelInfo{{
+					SourceModelUri: sourceURI,
+					ModelName:      modelName,
+					NodeGroup:      "gpu",
+				}}},
+			}
+			Expect(k8sClient.Create(ctx, localModelNode)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, localModelNode)).To(Succeed()) })
+
+			jobs := &batchv1.JobList{}
+			Eventually(func() int {
+				err := k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace),
+					client.MatchingLabels{"model": modelName, "node": nodeName})
+				if err != nil {
+					return 0
+				}
+				return len(jobs.Items)
+			}, timeout, interval).Should(Equal(1))
+
+			job := jobs.Items[0]
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, &job)).To(Succeed()) })
+			Expect(job.Spec.Template.Spec.Containers).To(HaveLen(1))
+			container := job.Spec.Template.Spec.Containers[0]
+			Expect(container.Args[0]).To(Equal(sourceURI))
+			Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
+				Name: constants.PvcSourceMountName, MountPath: MountPath,
+			}))
+			Expect(job.Spec.Template.Spec.Volumes).To(ContainElement(HaveField("PersistentVolumeClaim.ClaimName", "hf-odh-ca-model-gpu")))
+			Expect(container.VolumeMounts).To(ContainElement(corev1.VolumeMount{
+				Name: CaBundleVolumeName, MountPath: constants.DefaultCaBundleVolumeMountPath, ReadOnly: true,
+			}))
+			Expect(container.Env).To(ContainElement(corev1.EnvVar{
+				Name: constants.CaBundleConfigMapNameEnvVarKey, Value: odhCustomCABundleConfigMapName,
+			}))
+			Expect(container.Env).To(ContainElement(corev1.EnvVar{
+				Name: constants.CaBundleVolumeMountPathEnvVarKey, Value: constants.DefaultCaBundleVolumeMountPath,
+			}))
+			Expect(job.Spec.Template.Spec.Volumes).To(ContainElement(And(
+				HaveField("Name", CaBundleVolumeName),
+				HaveField("ConfigMap.Name", odhCustomCABundleConfigMapName),
+				HaveField("ConfigMap.Optional", Equal(ptr.To(true))),
+			)))
+		})
+
+		It("Should keep default trust for an empty bundle and reject CA lookup errors before creating a Job", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			oldNodeName, oldJobNamespace, oldStorageConfig := nodeName, jobNamespace, storageInitializerConfig
+			DeferCleanup(func() {
+				nodeName, jobNamespace, storageInitializerConfig = oldNodeName, oldJobNamespace, oldStorageConfig
+			})
+			nodeName = "worker-ca-lookup"
+			jobNamespace = modelCacheNamespace
+			storageInitializerConfig = &pkgtypes.StorageInitializerConfig{Image: "kserve/storage-initializer:latest"}
+
+			clientset, err := kubernetes.NewForConfig(cfg)
+			Expect(err).NotTo(HaveOccurred())
+			reconciler := &LocalModelNodeReconciler{
+				Client: k8sClient, APIReader: k8sClient, Clientset: clientset,
+				Scheme: k8sClient.Scheme(), Log: ctrl.Log.WithName("ca-lookup-test"),
+			}
+			emptyModel := v1alpha1.LocalModelInfo{
+				SourceModelUri: "hf://org/empty-ca-model", ModelName: "empty-ca-model", NodeGroup: "gpu",
+			}
+			owner := &v1alpha1.LocalModelNode{
+				ObjectMeta: metav1.ObjectMeta{Name: "ca-lookup-owner"},
+				Spec:       v1alpha1.LocalModelNodeSpec{LocalModels: []v1alpha1.LocalModelInfo{emptyModel}},
+			}
+			Expect(k8sClient.Create(ctx, owner)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, owner)).To(Succeed()) })
+
+			emptyBundle := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: odhCustomCABundleConfigMapName, Namespace: modelCacheNamespace},
+				Data:       map[string]string{constants.DefaultCaBundleFileName: "  \n"},
+			}
+			Expect(k8sClient.Create(ctx, emptyBundle)).To(Succeed())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, emptyBundle)).To(Succeed()) })
+
+			job, err := reconciler.launchJob(ctx, *owner, emptyModel)
+			Expect(err).NotTo(HaveOccurred())
+			DeferCleanup(func() { Expect(k8sClient.Delete(ctx, job)).To(Succeed()) })
+			Expect(job.Spec.Template.Spec.Volumes).NotTo(ContainElement(HaveField("Name", CaBundleVolumeName)))
+			container := job.Spec.Template.Spec.Containers[0]
+			Expect(container.VolumeMounts).NotTo(ContainElement(HaveField("Name", CaBundleVolumeName)))
+			Expect(container.Env).NotTo(ContainElement(HaveField("Name", constants.CaBundleConfigMapNameEnvVarKey)))
+			Expect(container.Env).NotTo(ContainElement(HaveField("Name", constants.CaBundleVolumeMountPathEnvVarKey)))
+
+			reconciler.APIReader = failingCABundleReader{Reader: k8sClient}
+			failedModel := v1alpha1.LocalModelInfo{
+				SourceModelUri: "hf://org/unreadable-ca-model", ModelName: "unreadable-ca-model", NodeGroup: "gpu",
+			}
+			failedJob, err := reconciler.launchJob(ctx, *owner, failedModel)
+			Expect(failedJob).To(BeNil())
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("ConfigMap read failed"))
+			jobs := &batchv1.JobList{}
+			Expect(k8sClient.List(ctx, jobs, client.InNamespace(modelCacheNamespace),
+				client.MatchingLabels{"model": failedModel.ModelName, "node": owner.Name})).To(Succeed())
+			Expect(jobs.Items).To(BeEmpty())
+		})
+
 		It("Should create download job with cleared SubPath and explicit Args path", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			DeferCleanup(cancel)
@@ -196,6 +457,9 @@ var _ = Describe("LocalModelNode OCP platform hooks", func() {
 			Expect(container.Args).To(Equal([]string{sourceModelUri, filepath.Join(MountPath, "models", storageKey)}),
 				"Download destination should include storageKey subdirectory")
 			Expect(job.Spec.Template.Spec.ServiceAccountName).To(Equal("kserve-localmodelnode-agent"))
+			Expect(job.Spec.Template.Spec.Volumes).NotTo(ContainElement(HaveField("Name", CaBundleVolumeName)))
+			Expect(container.Env).NotTo(ContainElement(HaveField("Name", constants.CaBundleConfigMapNameEnvVarKey)))
+			Expect(container.Env).NotTo(ContainElement(HaveField("Name", constants.CaBundleVolumeMountPathEnvVarKey)))
 		})
 
 		It("Should create permission fix job with single container when filesystem is not writable", func() {

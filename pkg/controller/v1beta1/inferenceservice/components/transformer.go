@@ -157,6 +157,9 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 	}
 
 	podSpec := corev1.PodSpec(isvc.Spec.Transformer.PodSpec)
+	if err := injectTLSSecurityProfile(ctx, p.client, &podSpec); err != nil {
+		return ctrl.Result{}, errors.Wrap(err, "failed to inject TLS security profile into transformer")
+	}
 
 	// Add InferenceService name as environment variable to transformer container.
 	transformerContainerName := podSpec.Containers[0].Name
@@ -171,6 +174,7 @@ func (p *Transformer) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServ
 			return ctrl.Result{}, errors.Wrapf(err, "failed to add INFERENCE_SERVICE_NAME environment variable to container %s", transformerContainerName)
 		}
 	}
+	isvcutils.InjectComponentTracing(isvc.Spec.Tracing, isvc.Namespace, isvc.Name, "", "", string(v1beta1.TransformerComponent), &podSpec.Containers[0])
 
 	// Here we allow switch between knative and vanilla deployment
 	if p.deploymentMode == constants.Standard {
@@ -229,7 +233,7 @@ func (p *Transformer) reconcileTransformerRawDeployment(ctx context.Context, isv
 		storageSpec = &modelStorageSpec.StorageSpec
 	}
 
-	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, constants.InferenceServiceResource, *objectMeta, metav1.ObjectMeta{},
+	r, err := raw.NewRawKubeReconciler(ctx, p.client, p.clientset, p.scheme, *objectMeta, metav1.ObjectMeta{},
 		&isvc.Spec.Transformer.ComponentExtensionSpec, podSpec, nil, &isvc.Spec.Transformer.StorageUris, storageInitializerConfig, storageSpec, credentialBuilder, storageContainerSpec)
 	if err != nil {
 		return errors.Wrapf(err, "fails to create NewRawKubeReconciler for transformer")

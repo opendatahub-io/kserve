@@ -34,15 +34,14 @@ from kserve import (
 )
 import pytest
 
-from ..common.utils import KSERVE_TEST_NAMESPACE, predict_grpc
-from ..common.utils import predict_isvc
+from ..common.utils import predict_grpc, predict_isvc
 
 api_version = constants.KSERVE_V1BETA1
 
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
-async def test_raw_deployment_kserve(rest_v1_client, network_layer):
+async def test_raw_deployment_kserve(rest_v1_client, network_layer, test_namespace):
     suffix = str(uuid.uuid4())[1:6]
     service_name = "raw-sklearn-" + suffix
     annotations = dict()
@@ -66,7 +65,7 @@ async def test_raw_deployment_kserve(rest_v1_client, network_layer):
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=test_namespace,
             annotations=annotations,
             labels=labels,
         ),
@@ -77,20 +76,22 @@ async def test_raw_deployment_kserve(rest_v1_client, network_layer):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready(service_name, namespace=test_namespace)
     res = await predict_isvc(
         rest_v1_client,
         service_name,
         "./data/iris_input.json",
         network_layer=network_layer,
+        namespace=test_namespace,
     )
     assert res["predictions"] == [1, 1]
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
 @pytest.mark.raw
 @pytest.mark.asyncio(scope="session")
-async def test_raw_deployment_runtime_kserve(rest_v1_client, network_layer):
+async def test_raw_deployment_runtime_kserve(
+    rest_v1_client, network_layer, test_namespace
+):
     suffix = str(uuid.uuid4())[1:6]
     service_name = "raw-sklearn-runtime-" + suffix
     annotations = dict()
@@ -117,7 +118,7 @@ async def test_raw_deployment_runtime_kserve(rest_v1_client, network_layer):
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=test_namespace,
             annotations=annotations,
             labels=labels,
         ),
@@ -128,15 +129,15 @@ async def test_raw_deployment_runtime_kserve(rest_v1_client, network_layer):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready(service_name, namespace=test_namespace)
     res = await predict_isvc(
         rest_v1_client,
         service_name,
         "./data/iris_input.json",
         network_layer=network_layer,
+        namespace=test_namespace,
     )
     assert res["predictions"] == [1, 1]
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)
 
 
 @pytest.mark.grpc
@@ -145,8 +146,9 @@ async def test_raw_deployment_runtime_kserve(rest_v1_client, network_layer):
 @pytest.mark.skip(
     "The custom-model-grpc image fails in OpenShift with a permission denied error"
 )
-async def test_isvc_with_multiple_container_port(network_layer):
-    service_name = "raw-multiport-custom-model"
+async def test_isvc_with_multiple_container_port(network_layer, test_namespace):
+    suffix = str(uuid.uuid4())[1:6]
+    service_name = "raw-multiport-custom-model-" + suffix
     model_name = "custom-model"
 
     predictor = V1beta1PredictorSpec(
@@ -175,7 +177,7 @@ async def test_isvc_with_multiple_container_port(network_layer):
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
         metadata=client.V1ObjectMeta(
             name=service_name,
-            namespace=KSERVE_TEST_NAMESPACE,
+            namespace=test_namespace,
             annotations={"serving.kserve.io/deploymentMode": "Standard"},
         ),
         spec=V1beta1InferenceServiceSpec(predictor=predictor),
@@ -185,7 +187,7 @@ async def test_isvc_with_multiple_container_port(network_layer):
         config_file=os.environ.get("KUBECONFIG", "~/.kube/config")
     )
     kserve_client.create(isvc)
-    kserve_client.wait_isvc_ready(service_name, namespace=KSERVE_TEST_NAMESPACE)
+    kserve_client.wait_isvc_ready(service_name, namespace=test_namespace)
 
     with open("./data/custom_model_input.json") as json_file:
         data = json.load(json_file)
@@ -207,8 +209,8 @@ async def test_isvc_with_multiple_container_port(network_layer):
         payload=payload,
         model_name=model_name,
         network_layer=network_layer,
+        namespace=test_namespace,
     )
     fields = grpc_response.outputs[0].data
     grpc_output = ["%.3f" % value for value in fields]
     assert grpc_output == expected_output
-    kserve_client.delete(service_name, KSERVE_TEST_NAMESPACE)

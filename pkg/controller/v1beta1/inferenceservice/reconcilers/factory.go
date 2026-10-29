@@ -35,9 +35,8 @@ import (
 // WorkloadReconcilerParams contains parameters for workload reconciler creation
 type WorkloadReconcilerParams struct {
 	Client              client.Client
-	ClientSet           kubernetes.Interface
+	Clientset           kubernetes.Interface
 	Scheme              *runtime.Scheme
-	ResourceType        constants.ResourceType
 	ComponentMeta       metav1.ObjectMeta
 	WorkerComponentMeta metav1.ObjectMeta
 	ComponentExt        *v1beta1.ComponentExtensionSpec
@@ -86,9 +85,9 @@ func (f *ReconcilerFactory) CreateWorkloadReconciler(
 ) (WorkloadReconciler, error) {
 	switch deploymentMode {
 	case constants.Standard, constants.LegacyRawDeployment:
-		deploymentRec, err := deployment.NewDeploymentReconciler(
-			ctx, params.Client, params.ClientSet, params.Scheme, params.ResourceType, params.ComponentMeta,
-			params.WorkerComponentMeta, params.ComponentExt, params.PodSpec, params.WorkerPodSpec, params.DeployConfig,
+		deploymentRec, err := deployment.NewDeploymentReconciler(ctx,
+			params.Client, params.Clientset, params.Scheme, params.ComponentMeta, params.WorkerComponentMeta,
+			params.ComponentExt, params.PodSpec, params.WorkerPodSpec, params.DeployConfig,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create deployment reconciler: %w", err)
@@ -125,6 +124,9 @@ func (f *ReconcilerFactory) CreateIngressReconciler(
 ) (IngressReconciler, error) {
 	switch deploymentMode {
 	case constants.Standard, constants.LegacyRawDeployment:
+		if platformIngress, err := resolvePlatformIngressReconciler(params); err != nil || platformIngress != nil {
+			return platformIngress, err
+		}
 		if params.IngressConfig.EnableGatewayAPI {
 			// Gateway API HTTPRoute
 			return ingress.NewRawHTTPRouteReconciler(

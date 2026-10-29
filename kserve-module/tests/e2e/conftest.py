@@ -1,5 +1,6 @@
 """Shared fixtures for kserve-module E2E tests."""
 
+import json
 import shutil
 import subprocess
 import time
@@ -8,13 +9,13 @@ from dataclasses import dataclass
 import pytest
 import yaml
 
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
+MODULE_FINALIZER = "kserve-module.opendatahub.io/finalizer"
 TIMEOUT_300S = 300  # cold-start: first Kserve CR ready waits on operand image pulls
 TIMEOUT_120S = 120
 TIMEOUT_60S = 60
@@ -28,6 +29,7 @@ LLMISVC_CONFIG_RESOURCE = "llminferenceserviceconfigs.serving.kserve.io"
 
 OPERAND_DEPLOYMENTS_XKS = [
     LLMISVC_DEPLOYMENT,
+    "odh-model-controller",
 ]
 OPERAND_DEPLOYMENTS_OCP = [
     "kserve-controller-manager",
@@ -38,9 +40,51 @@ OPERAND_DEPLOYMENTS_OCP = [
 
 WVA_DEPLOYMENT = "workload-variant-autoscaler-controller-manager"
 WVA_CONFIGMAP = "workload-variant-autoscaler-saturation-scaling-config"
+MODELEXPRESS_DEPLOYMENT = "modelexpress-operator"
+MODELEXPRESS_CLUSTERROLES_XKS = ["modelexpress-operator"]
+MODELEXPRESS_CLUSTERROLES_OCP = ["modelexpress-operator", "modelexpress-operator-openshift"]
+MODELEXPRESS_CRDS = [
+    "modelexpressservers.modelexpress.opendatahub.io",
+    "modelmetadatas.modelexpress.nvidia.com",
+    "modelcacheentries.modelexpress.nvidia.com",
+]
 MODEL_CONTROLLER_DEPLOYMENT = "odh-model-controller"
 LOCALMODEL_CONTROLLER_DEPLOYMENT = "kserve-localmodel-controller-manager"
 LOCALMODEL_AGENT_DAEMONSET = "kserve-localmodelnode-agent"
+LLMISVC_CONFIG_READ_ROLEBINDING = "kserve-llmisvcconfig-read-access"
+
+RELEASE_TEST_NAMESPACE = "kserve-release-e2e"
+LLMISVC_SMOKE_NAME = "post-release-llmisvc-smoke"
+LLMISVC_SMOKE_TIMEOUT = 600
+
+# Webhook registration contract (RHOAIENG-82802). For each owner, the expected
+# Validating/Mutating webhook configs and the service its clientConfig must
+# target. Asserting the llmisvc service is llmisvc-webhook-server-service also
+# guards against regressing to the legacy shared kserve-webhook-server-service.
+LLMISVC_WEBHOOK_SERVICE = "llmisvc-webhook-server-service"
+KSERVE_WEBHOOK_SERVICE = "kserve-webhook-server-service"
+OMC_WEBHOOK_SERVICE = "odh-model-controller-webhook-service"
+
+# (kind, name); kind is "validating" or "mutating".
+LLMISVC_WEBHOOKS = [
+    ("mutating", "llminferenceservice.serving.kserve.io"),
+    ("validating", "llminferenceservice.serving.kserve.io"),
+    ("validating", "llminferenceserviceconfig.serving.kserve.io"),
+]
+KSERVE_WEBHOOKS = [
+    ("mutating", "inferenceservice.serving.kserve.io"),
+    ("validating", "inferenceservice.serving.kserve.io"),
+    ("validating", "clusterservingruntime.serving.kserve.io"),
+    ("validating", "inferencegraph.serving.kserve.io"),
+    ("validating", "servingruntime.serving.kserve.io"),
+    ("validating", "trainedmodel.serving.kserve.io"),
+]
+# omc is OCP-only today. PR #1798 adds omc to XKS with the mutating webhook only
+# (its overlays/xks deletes the validating one); add that gate when it merges.
+OMC_WEBHOOKS = [
+    ("mutating", "mutating.odh-model-controller.opendatahub.io"),
+    ("validating", "validating.odh-model-controller.opendatahub.io"),
+]
 
 KSERVE_CR_TEMPLATE = {
     "apiVersion": "components.platform.opendatahub.io/v1alpha1",
@@ -87,12 +131,60 @@ def _detect_openshift():
 # ---------------------------------------------------------------------------
 # Pytest hooks
 # ---------------------------------------------------------------------------
-def pytest_collection_modifyitems(config, items):
-    """Skip @pytest.mark.ocp_only tests on non-OpenShift clusters.
+def pytest_addoption(parser):
+    """Add upgrade phase flags matching opendatahub-tests upgrade suite."""
+    group = parser.getgroup("upgrade")
+    group.addoption(
+        "--pre-upgrade",
+        action="store_true",
+        default=False,
+        help="Run only @pytest.mark.pre_upgrade tests",
+    )
+    group.addoption(
+        "--post-upgrade",
+        action="store_true",
+        default=False,
+        help="Run only @pytest.mark.post_upgrade tests",
+    )
 
-    Runs at collection time — before any fixture setup — so expensive
-    fixtures like apply_kserve_cr never execute on vanilla-k8s clusters.
-    """
+
+def pytest_configure(config):
+    """Track whether any pre-upgrade test failed (skip baseline capture)."""
+    config._pre_upgrade_test_failed = False  # type: ignore[attr-defined]
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Record pre-upgrade failures so baseline capture can be skipped."""
+    outcome = yield
+    report = outcome.get_result()
+    if report.failed and "pre_upgrade" in item.keywords:
+        item.config._pre_upgrade_test_failed = True  # type: ignore[attr-defined]
+
+
+def pytest_collection_modifyitems(config, items):
+    """Filter upgrade tests by phase and skip OCP-only tests on vanilla k8s."""
+    pre_upgrade = config.getoption("--pre-upgrade")
+    post_upgrade = config.getoption("--post-upgrade")
+    if pre_upgrade and post_upgrade:
+        raise pytest.UsageError("Use only one of --pre-upgrade or --post-upgrade")
+
+    if pre_upgrade or post_upgrade:
+        phase_marker = "pre_upgrade" if pre_upgrade else "post_upgrade"
+        skip_other = pytest.mark.skip(
+            reason=f"Not selected for --{phase_marker.replace('_', '-')}"
+        )
+        for item in items:
+            if phase_marker not in item.keywords:
+                item.add_marker(skip_other)
+    else:
+        skip_upgrade = pytest.mark.skip(
+            reason="Upgrade test (use --pre-upgrade or --post-upgrade)"
+        )
+        for item in items:
+            if "pre_upgrade" in item.keywords or "post_upgrade" in item.keywords:
+                item.add_marker(skip_upgrade)
+
     is_ocp, _ = _detect_openshift()
     if is_ocp:
         return
@@ -109,6 +201,40 @@ def pytest_collection_modifyitems(config, items):
 def operand_deployments(is_openshift):
     """Return the expected operand deployments for the detected platform."""
     return OPERAND_DEPLOYMENTS_OCP if is_openshift else OPERAND_DEPLOYMENTS_XKS
+
+
+@dataclass(frozen=True)
+class ExpectedWebhook:
+    """A webhook config the operator must register, and where it must point."""
+
+    kind: str  # "validating" or "mutating"
+    name: str
+    service: str
+    namespace: str
+
+    @property
+    def resource(self):
+        """kubectl resource type, e.g. validatingwebhookconfiguration."""
+        return f"{self.kind}webhookconfiguration"
+
+
+def expected_webhooks(is_openshift):
+    """Return [ExpectedWebhook, ...] the platform must register.
+
+    Mirrors operand_deployments(is_openshift): XKS registers llmisvc webhooks
+    only; OCP adds kserve-controller and odh-model-controller. The operator
+    renders every component into the applications namespace, so each webhook's
+    clientConfig.service must live in NAMESPACE. See RHOAIENG-82802.
+    """
+
+    def build(service, entries):
+        return [ExpectedWebhook(k, n, service, NAMESPACE) for k, n in entries]
+
+    webhooks = build(LLMISVC_WEBHOOK_SERVICE, LLMISVC_WEBHOOKS)
+    if is_openshift:
+        webhooks += build(KSERVE_WEBHOOK_SERVICE, KSERVE_WEBHOOKS)
+        webhooks += build(OMC_WEBHOOK_SERVICE, OMC_WEBHOOKS)
+    return webhooks
 
 
 def is_cr_ready(cr):
@@ -155,6 +281,22 @@ def get_cr(kubectl_bin, name=KSERVE_CR_NAME, check=True):
 def cr_exists(kubectl_bin, name=KSERVE_CR_NAME):
     """Check if the Kserve CR already exists."""
     return get_cr(kubectl_bin, name, check=False) is not None
+
+
+def get_webhook_config(kubectl_bin, resource_type, name):
+    """Fetch a cluster-scoped webhook config as a dict, or None if absent."""
+    return get_resource(kubectl_bin, resource_type, name)
+
+
+def get_resource(kubectl_bin, resource_type, name, namespace=None):
+    """Fetch a resource as a dict, or None if absent."""
+    cmd = [kubectl_bin, "get", resource_type, name, "-o", "yaml"]
+    if namespace:
+        cmd.extend(["-n", namespace])
+    result = run(cmd, check=False)
+    if result.returncode != 0:
+        return None
+    return yaml.safe_load(result.stdout)
 
 
 def trigger_reconcile(kubectl_bin, name=KSERVE_CR_NAME, trigger_id=None):
@@ -233,6 +375,23 @@ def _poll_cr(kubectl_bin, name, predicate, timeout, msg):
             return cr
         time.sleep(5)
     raise TimeoutError(msg)
+
+
+def _model_cache_ready_for_current_generation(cr):
+    """Require successful provisioning and ModelCache readiness for this spec."""
+    if not generation_matches(cr):
+        return False
+
+    # The controller can advance status.observedGeneration on a failed apply,
+    # while ModelCacheReady still reflects the prior generation. Require
+    # ProvisioningSucceeded=True before trusting that dependent condition.
+    conditions = {
+        condition.get("type"): condition
+        for condition in cr.get("status", {}).get("conditions", [])
+    }
+    provisioning = conditions.get("ProvisioningSucceeded", {})
+    model_cache = conditions.get("ModelCacheReady", {})
+    return provisioning.get("status") == "True" and model_cache.get("status") == "True"
 
 
 def get_worker_node(kubectl_bin, is_openshift=True):
@@ -331,9 +490,56 @@ def wait_for_kserve_cleanup(
                 "--for=delete",
                 f"kserve/{name}",
                 f"--timeout={timeout}s",
-            ]
+            ],
+            timeout=timeout + 10,
         )
-    _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
+    _wait_for_managed_resources_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S)
+
+
+def force_delete_kserve_cr(kubectl_bin, is_openshift=False):
+    """Fast teardown: drop the module finalizer so the CR is deleted without
+    running the (correct but slow) well-known-config cleanup. The cleanup path
+    itself is exercised by the dedicated deletion tests, so every other test's
+    teardown does not need to pay for it."""
+    if cr_exists(kubectl_bin):
+        run(
+            [
+                kubectl_bin,
+                "delete",
+                "kserve",
+                KSERVE_CR_NAME,
+                "--ignore-not-found",
+                "--wait=false",
+            ],
+            check=False,
+        )
+        cr = get_cr(kubectl_bin, check=False) or {}
+        finalizers = cr.get("metadata", {}).get("finalizers", []) or []
+        if MODULE_FINALIZER in finalizers:
+            remaining = [f for f in finalizers if f != MODULE_FINALIZER]
+            patch = json.dumps(
+                [
+                    {"op": "test", "path": "/metadata/finalizers", "value": finalizers},
+                    {
+                        "op": "replace",
+                        "path": "/metadata/finalizers",
+                        "value": remaining,
+                    },
+                ]
+            )
+            run(
+                [
+                    kubectl_bin,
+                    "patch",
+                    "kserve",
+                    KSERVE_CR_NAME,
+                    "--type=json",
+                    "-p",
+                    patch,
+                ],
+                check=False,
+            )
+    wait_for_kserve_cleanup(kubectl_bin, is_openshift=is_openshift)
 
 
 def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
@@ -356,7 +562,9 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
     raise TimeoutError(f"deployment {name} not Available within {timeout}s")
 
 
-def wait_for_daemonset_ready(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
+def wait_for_daemonset_ready(
+    kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S
+):
     """Wait until a DaemonSet has at least one ready pod."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -371,6 +579,24 @@ def wait_for_daemonset_ready(kubectl_bin, name, namespace=NAMESPACE, timeout=TIM
                 return ds
         time.sleep(5)
     raise TimeoutError(f"daemonset {name} has no ready pods within {timeout}s")
+
+
+def ensure_configmap(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S):
+    """Ensure a ConfigMap exists, triggering reconcile if needed."""
+    if resource_exists(kubectl_bin, "configmap", name, namespace=namespace):
+        return
+
+    trigger_reconcile(kubectl_bin)
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if resource_exists(kubectl_bin, "configmap", name, namespace=namespace):
+            return
+        time.sleep(5)
+
+    raise TimeoutError(
+        f"configmap {name} not found within {timeout}s after reconcile trigger"
+    )
 
 
 def dump_modelcache_workload_diagnostics(kubectl_bin, namespace=NAMESPACE):
@@ -454,26 +680,114 @@ def wait_for_deployment_gone(
     kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S
 ):
     """Wait until a deployment no longer exists."""
+    wait_for_resource_gone(
+        kubectl_bin, "deployment", name, namespace=namespace, timeout=timeout
+    )
+
+
+def wait_for_resource_gone(
+    kubectl_bin, resource, name, namespace=None, timeout=TIMEOUT_60S
+):
+    """Wait until a named Kubernetes resource no longer exists."""
+    command = [kubectl_bin, "wait", "--for=delete", f"{resource}/{name}"]
+    if namespace:
+        command.extend(["-n", namespace])
+    command.append(f"--timeout={timeout}s")
     result = run(
-        [
-            kubectl_bin,
-            "wait",
-            "--for=delete",
-            f"deployment/{name}",
-            "-n",
-            namespace,
-            f"--timeout={timeout}s",
-        ],
+        command,
         check=False,
     )
-    if result.returncode != 0 and "not found" not in result.stderr.lower():
-        raise RuntimeError(f"wait_for_deployment_gone failed: {result.stderr}")
+    if result.returncode != 0 and not any(
+        message in result.stderr.lower()
+        for message in ("not found", "no matching resources")
+    ):
+        raise RuntimeError(f"wait_for_resource_gone failed: {result.stderr}")
 
 
-def _wait_for_managed_deployments_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
-    """Wait until managed deployments are cleaned up by garbage collection."""
+def dump_llmisvc_diagnostics(kubectl_bin, name, namespace):
+    """Print LLMISVC status/pods/events so Ready timeouts are debuggable."""
+    print(f"\n=== LLMISVC diagnostics: {namespace}/{name} ===")
+    for args in (
+        ["get", "llminferenceservice", name, "-n", namespace, "-o", "yaml"],
+        ["get", "pods,deploy,svc", "-n", namespace, "-o", "wide"],
+        ["get", "httproute,gateway,inferencepool", "-n", namespace, "-o", "wide"],
+        ["get", "events", "-n", namespace, "--sort-by=.lastTimestamp"],
+    ):
+        result = run([kubectl_bin, *args], check=False)
+        print(f"--- oc {' '.join(args)} ---")
+        print(result.stdout or result.stderr)
+
+
+def wait_for_llm_inference_service_ready(
+    kubectl_bin, name, namespace, timeout=LLMISVC_SMOKE_TIMEOUT
+):
+    """Poll until LLMInferenceService status shows Ready=True."""
+
+    def _ready():
+        result = run(
+            [
+                kubectl_bin,
+                "get",
+                "llminferenceservice",
+                name,
+                "-n",
+                namespace,
+                "-o",
+                "jsonpath={.status.conditions[?(@.type=='Ready')].status}",
+            ],
+            check=False,
+        )
+        assert result.stdout.strip() == "True", (
+            f"LLMInferenceService {name} Ready={result.stdout.strip()!r} "
+            f"(want True): {result.stderr}"
+        )
+
+    try:
+        wait_for(_ready, timeout=timeout, interval=10)
+    except AssertionError:
+        dump_llmisvc_diagnostics(kubectl_bin, name, namespace)
+        raise
+
+
+def create_release_test_namespace(kubectl_bin, name=RELEASE_TEST_NAMESPACE):
+    """Create an isolated namespace for post-release serving smoke tests."""
+    ns_yaml = yaml.safe_dump(
+        {
+            "apiVersion": "v1",
+            "kind": "Namespace",
+            "metadata": {
+                "name": name,
+                "labels": {
+                    "kserve-managed": "true",
+                    "opendatahub.io/dashboard": "true",
+                    # Same PSS as upgrade e2e so the CPU LLMISVC workload can run.
+                    "pod-security.kubernetes.io/enforce": "privileged",
+                    "pod-security.kubernetes.io/audit": "privileged",
+                    "pod-security.kubernetes.io/warn": "privileged",
+                },
+            },
+        }
+    )
+    run([kubectl_bin, "apply", "-f", "-"], input_text=ns_yaml)
+
+
+def _wait_for_managed_resources_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60S):
+    """Wait until managed resources are cleaned up by garbage collection."""
     for dep in operand_deployments(is_openshift):
         wait_for_deployment_gone(kubectl_bin, dep, timeout=timeout)
+
+    # These owned resources must also be gone before another test recreates the
+    # singleton Kserve CR. In particular, the module deploys RoleBindings before
+    # Deployments; a stale RoleBinding being garbage-collected can abort the
+    # whole apply before ModelCache workloads are reached.
+    for resource, name in (
+        ("rolebinding", LLMISVC_CONFIG_READ_ROLEBINDING),
+        ("deployment", LOCALMODEL_CONTROLLER_DEPLOYMENT),
+        ("daemonset", LOCALMODEL_AGENT_DAEMONSET),
+    ):
+        wait_for_resource_gone(
+            kubectl_bin, resource, name, namespace=NAMESPACE, timeout=timeout
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -494,18 +808,66 @@ def kubectl(cluster_info):
     return cluster_info.kubectl
 
 
-@pytest.fixture
-def apply_kserve_cr(kubectl, cluster_info):
+def _kserve_cr_lifecycle(kubectl, cluster_info):
     """Create a Kserve CR and delete after test."""
     created = not cr_exists(kubectl)
     cr = create_kserve_cr(kubectl)
+    ensure_configmap(kubectl, "inferenceservice-config", namespace=NAMESPACE)
     yield cr
     if created:
-        run(
-            [kubectl, "delete", "kserve", KSERVE_CR_NAME, "--ignore-not-found"],
-            check=False,
-        )
-        wait_for_kserve_cleanup(kubectl, is_openshift=cluster_info.is_openshift)
+        force_delete_kserve_cr(kubectl, is_openshift=cluster_info.is_openshift)
+
+
+@pytest.fixture
+def apply_kserve_cr(kubectl, cluster_info):
+    yield from _kserve_cr_lifecycle(kubectl, cluster_info)
+
+
+@pytest.fixture
+def apply_kserve_cr_with_external_dependencies(kubectl, cluster_info):
+    external_dependencies = [
+        {
+            "resource": "runtimeclasses",
+            "name": "kata-e2e",
+            "manifest": {
+                "apiVersion": "node.k8s.io/v1",
+                "kind": "RuntimeClass",
+                "metadata": {"name": "kata-e2e"},
+                "handler": "kata-e2e",
+            },
+        },
+    ]
+
+    created = []
+
+    if cluster_info.is_openshift:
+        for dependency in external_dependencies:
+            if resource_exists(
+                kubectl,
+                dependency["resource"],
+                dependency["name"],
+                namespace=dependency.get("namespace"),
+            ):
+                continue
+
+            run(
+                [kubectl, "apply", "-f", "-"],
+                input_text=yaml.safe_dump(dependency["manifest"]),
+            )
+            created.append(dependency)
+
+    yield from _kserve_cr_lifecycle(kubectl, cluster_info)
+    for dependency in reversed(created):
+        command = [
+            kubectl,
+            "delete",
+            dependency["resource"],
+            dependency["name"],
+            "--ignore-not-found",
+        ]
+        if dependency.get("namespace"):
+            command.extend(["-n", dependency["namespace"]])
+        run(command, check=False)
 
 
 @pytest.fixture
@@ -521,19 +883,10 @@ def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
         _poll_cr(
             kubectl,
             KSERVE_CR_NAME,
-            generation_matches,
+            _model_cache_ready_for_current_generation,
             TIMEOUT_120S,
-            f"ModelCache enable not reconciled within {TIMEOUT_120S}s",
-        )
-        _poll_cr(
-            kubectl,
-            KSERVE_CR_NAME,
-            lambda cr: any(
-                c.get("type") == "ModelCacheReady" and c.get("status") == "True"
-                for c in cr.get("status", {}).get("conditions", [])
-            ),
-            TIMEOUT_120S,
-            f"ModelCacheReady not True within {TIMEOUT_120S}s",
+            f"ModelCache provisioning and readiness not successful within "
+            f"{TIMEOUT_120S}s",
         )
         # Explicit localmodel workload readiness: CrashLoopBackOff from missing
         # TLS RBAC subjects fails these waits and dumps pod logs/events.
@@ -546,9 +899,13 @@ def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
                 c["type"]: c for c in cr.get("status", {}).get("conditions", [])
             }
             mc = conditions.get("ModelCacheReady", {})
+            provisioning = conditions.get("ProvisioningSucceeded", {})
             print(
                 f"ModelCacheReady status={mc.get('status')} "
-                f"reason={mc.get('reason')} message={mc.get('message')}"
+                f"reason={mc.get('reason')} message={mc.get('message')}\n"
+                f"ProvisioningSucceeded status={provisioning.get('status')} "
+                f"reason={provisioning.get('reason')} "
+                f"message={provisioning.get('message')}"
             )
         dump_modelcache_workload_diagnostics(kubectl)
         raise
@@ -569,7 +926,9 @@ TEST_PLATFORM_VERSION = "99.0.0"
 
 def platform_configmap_exists(kubectl_bin):
     """Check if the platform version ConfigMap already exists."""
-    return resource_exists(kubectl_bin, "configmap", PLATFORM_VERSION_CM, namespace=NAMESPACE)
+    return resource_exists(
+        kubectl_bin, "configmap", PLATFORM_VERSION_CM, namespace=NAMESPACE
+    )
 
 
 @pytest.fixture
@@ -582,12 +941,14 @@ def ensure_platform_configmap(kubectl, apply_kserve_cr):
     already_existed = platform_configmap_exists(kubectl)
 
     if not already_existed:
-        cm_yaml = yaml.safe_dump({
-            "apiVersion": "v1",
-            "kind": "ConfigMap",
-            "metadata": {"name": PLATFORM_VERSION_CM, "namespace": NAMESPACE},
-            "data": {"platformVersion": TEST_PLATFORM_VERSION},
-        })
+        cm_yaml = yaml.safe_dump(
+            {
+                "apiVersion": "v1",
+                "kind": "ConfigMap",
+                "metadata": {"name": PLATFORM_VERSION_CM, "namespace": NAMESPACE},
+                "data": {"platformVersion": TEST_PLATFORM_VERSION},
+            }
+        )
         run([kubectl, "apply", "-f", "-"], input_text=cm_yaml)
         _poll_cr(
             kubectl,
@@ -604,6 +965,32 @@ def ensure_platform_configmap(kubectl, apply_kserve_cr):
 
     if not already_existed:
         run(
-            [kubectl, "delete", "configmap", PLATFORM_VERSION_CM, "-n", NAMESPACE, "--ignore-not-found"],
+            [
+                kubectl,
+                "delete",
+                "configmap",
+                PLATFORM_VERSION_CM,
+                "-n",
+                NAMESPACE,
+                "--ignore-not-found",
+            ],
             check=False,
         )
+
+
+@pytest.fixture
+def release_test_namespace(kubectl):
+    """Namespace for post-release LLMInferenceService smoke tests."""
+    create_release_test_namespace(kubectl)
+    yield RELEASE_TEST_NAMESPACE
+    run(
+        [
+            kubectl,
+            "delete",
+            "namespace",
+            RELEASE_TEST_NAMESPACE,
+            "--ignore-not-found",
+            "--wait=false",
+        ],
+        check=False,
+    )

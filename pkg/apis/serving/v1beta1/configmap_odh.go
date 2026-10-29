@@ -22,14 +22,27 @@ import (
 	"encoding/json"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 const OpenShiftConfigName = "openshiftConfig"
 
 // +kubebuilder:object:generate=false
 type OpenShiftConfig struct {
-	ModelcachePermissionFixImage string `json:"modelcachePermissionFixImage,omitempty"`
-	OvmsVersioningImage          string `json:"ovmsVersioningImage,omitempty"`
+	ModelcachePermissionFixImage string                        `json:"modelcachePermissionFixImage,omitempty"`
+	OvmsVersioningImage          string                        `json:"ovmsVersioningImage,omitempty"`
+	AuditLoggingProfile          constants.AuditLoggingProfile `json:"auditLoggingProfile,omitempty"`
+}
+
+// +kubebuilder:object:generate=false
+type OauthConfig struct {
+	Image                  string `json:"image"`
+	CpuLimit               string `json:"cpuLimit"`
+	CpuRequest             string `json:"cpuRequest"`
+	MemoryLimit            string `json:"memoryLimit"`
+	MemoryRequest          string `json:"memoryRequest"`
+	UpstreamTimeoutSeconds string `json:"upstreamTimeoutSeconds,omitempty"`
 }
 
 func NewOpenShiftConfig(isvcConfigMap *corev1.ConfigMap) (*OpenShiftConfig, error) {

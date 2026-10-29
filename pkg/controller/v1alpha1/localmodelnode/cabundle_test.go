@@ -19,6 +19,7 @@ package localmodelnode
 import (
 	"errors"
 	"fmt"
+	"reflect"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -86,6 +87,7 @@ func TestMountCaBundleVolume_WithoutEnvVar(t *testing.T) {
 		},
 	}
 	volumes := []corev1.Volume{}
+	envBefore := append([]corev1.EnvVar{}, container.Env...)
 
 	reconciler.mountCaBundleVolume(container, &volumes)
 
@@ -94,6 +96,9 @@ func TestMountCaBundleVolume_WithoutEnvVar(t *testing.T) {
 	}
 	if len(container.VolumeMounts) != 0 {
 		t.Fatalf("expected 0 volume mounts when no CA bundle env, got %d", len(container.VolumeMounts))
+	}
+	if !reflect.DeepEqual(container.Env, envBefore) {
+		t.Errorf("expected container env unchanged, got %+v", container.Env)
 	}
 }
 
@@ -105,11 +110,15 @@ func TestMountCaBundleVolume_EmptyValue(t *testing.T) {
 		},
 	}
 	volumes := []corev1.Volume{}
+	envBefore := append([]corev1.EnvVar{}, container.Env...)
 
 	reconciler.mountCaBundleVolume(container, &volumes)
 
 	if len(volumes) != 0 {
 		t.Fatalf("expected 0 volumes for empty configmap name, got %d", len(volumes))
+	}
+	if !reflect.DeepEqual(container.Env, envBefore) {
+		t.Errorf("expected container env unchanged, got %+v", container.Env)
 	}
 }
 

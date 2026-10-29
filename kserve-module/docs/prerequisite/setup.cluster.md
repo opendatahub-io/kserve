@@ -51,6 +51,7 @@ make e2e-setup-kserve-module
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `KSERVE_NAMESPACE` | `opendatahub` | Target namespace |
+| `MONITORING_NAMESPACE` | `KSERVE_NAMESPACE` | XKS monitoring and collector Service namespace |
 | `PLATFORM` | `xks` | Platform type - `xks` or `ocp` (automatically detect) |
 | `E2E_IMG` | (unset) | Controller image to use (falls back to the kustomize default if omitted) |
 | `SKIP_DEPS` | `false` | Skip dependency installation, deploy the operator only |

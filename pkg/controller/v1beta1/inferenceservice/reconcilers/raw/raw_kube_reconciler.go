@@ -28,6 +28,7 @@ import (
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/autoscaler"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/ingress"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/otel"
+	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/credentials"
 	kserveTypes "github.com/kserve/kserve/pkg/types"
 	"github.com/kserve/kserve/pkg/webhook/admission/pod"
@@ -60,7 +61,6 @@ func NewRawKubeReconciler(ctx context.Context,
 	client client.Client,
 	clientset kubernetes.Interface,
 	scheme *runtime.Scheme,
-	resourceType constants.ResourceType,
 	componentMeta metav1.ObjectMeta,
 	workerComponentMeta metav1.ObjectMeta,
 	componentExt *v1beta1.ComponentExtensionSpec,
@@ -194,9 +194,8 @@ func NewRawKubeReconciler(ctx context.Context,
 		deploymentMode,
 		reconcilers.WorkloadReconcilerParams{
 			Client:              client,
-			ClientSet:           clientset,
+			Clientset:           clientset,
 			Scheme:              scheme,
-			ResourceType:        resourceType,
 			ComponentMeta:       componentMeta,
 			WorkerComponentMeta: workerComponentMeta,
 			ComponentExt:        componentExt,
@@ -301,4 +300,17 @@ func (r *RawKubeReconciler) Reconcile(ctx context.Context, owner metav1.Object) 
 	}
 
 	return deploymentList, nil
+}
+
+// CleanupOrphans delegates cleanup for the supplied scope to each sub-reconciler.
+func (r *RawKubeReconciler) CleanupOrphans(ctx context.Context, scope isvcutils.OrphanScope) error {
+	errs := []error{
+		r.Workload.CleanupOrphans(ctx, scope),
+		r.Service.CleanupOrphans(ctx, scope),
+		r.Scaler.CleanupOrphans(ctx, scope),
+	}
+	if r.OtelCollector != nil {
+		errs = append(errs, r.OtelCollector.CleanupOrphans(ctx, scope))
+	}
+	return errors.Join(errs...)
 }

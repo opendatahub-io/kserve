@@ -1,5 +1,6 @@
 # Build the manager binary
-FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS deps
+FROM registry.access.redhat.com/ubi9/go-toolset:1.26 AS deps
+ENV GOTOOLCHAIN=auto
 # distro: UBI go-toolset does not add GOPATH/bin to PATH
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
@@ -21,7 +22,7 @@ COPY cmd/${CMD}/ cmd/${CMD}/
 COPY pkg/    pkg/
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -tags "${GOTAGS}" -a -o localmodelnode-agent ./cmd/${CMD}
+    CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -tags "${GOTAGS}" -o localmodelnode-agent ./cmd/${CMD}
 
 # ---- License stage (parallel with build on BuildKit) ----
 FROM deps AS license

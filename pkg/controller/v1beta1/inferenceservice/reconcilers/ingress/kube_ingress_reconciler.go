@@ -145,14 +145,17 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 		return ctrl.Result{}, err
 	}
 
-	if authEnabled && isvc.Spec.Transformer == nil {
-		// When auth is enabled and the entry point is the predictor (which carries
-		// the auth proxy sidecar), the OAuth proxy port takes precedence over any
+	if authEnabled {
+		// When auth is enabled, the HTTPS entry-point port takes precedence over any
 		// port set by createAddress (e.g. :8080 for headless services).
-		// Transformer entry points are excluded because the transformer does not
-		// carry the auth proxy — it communicates with the predictor over TLS instead.
+		// The predictor entry point carries the auth proxy sidecar (OauthProxyPort);
+		// the transformer entry point serves native HTTPS itself (TransformerHTTPSPort).
 		host := getRawServiceHost(isvc)
-		isvc.Status.Address.URL.Host = host + ":" + strconv.Itoa(constants.OauthProxyPort)
+		if isvc.Spec.Transformer != nil {
+			isvc.Status.Address.URL.Host = host + ":" + strconv.Itoa(int(constants.TransformerHTTPSPort))
+		} else {
+			isvc.Status.Address.URL.Host = host + ":" + strconv.Itoa(constants.OauthProxyPort)
+		}
 		isvc.Status.Address.URL.Scheme = "https"
 	}
 
@@ -192,8 +195,14 @@ func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.In
 			Scheme: "http",
 			Path:   "",
 		}
-		if authEnabled && isvc.Spec.Transformer == nil {
-			url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
+		if authEnabled {
+			if isvc.Spec.Transformer != nil {
+				// Transformer entry point serves native HTTPS on TransformerHTTPSPort.
+				url.Host += ":" + strconv.Itoa(int(constants.TransformerHTTPSPort))
+			} else {
+				// Predictor entry point carries the auth proxy on OauthProxyPort.
+				url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
+			}
 			url.Scheme = "https"
 		}
 	}

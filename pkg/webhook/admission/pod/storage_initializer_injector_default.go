@@ -19,13 +19,11 @@ limitations under the License.
 package pod
 
 import (
-	"fmt"
-
-	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	corev1 "k8s.io/api/core/v1"
 )
 
-// getOVMSVersioningImage is a stub for non-distro builds.
-// OVMS versioning injection is only available in distro builds.
-func getOVMSVersioningImage(openshiftConfig *v1beta1.OpenShiftConfig) (string, error) {
-	return "", fmt.Errorf("OVMS versioning injection is not supported in non-distro builds")
+// postInjectStorageInitializer is a no-op in non-distro builds.
+// OVMS auto-versioning is only available in distro builds.
+func (mi *StorageInitializerInjector) postInjectStorageInitializer(pod *corev1.Pod) error {
+	return nil
 }
