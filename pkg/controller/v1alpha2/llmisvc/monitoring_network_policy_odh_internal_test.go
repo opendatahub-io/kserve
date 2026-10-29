@@ -26,6 +26,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -254,12 +255,14 @@ func TestReconcileNetworkPoliciesPropagatesTracingServiceErrors(t *testing.T) {
 	}
 
 	wantErr := errors.New("transient OTLP Service read failure")
+	serviceReadErr := wantErr
 	fakeClient := clientfake.NewClientBuilder().
 		WithScheme(scheme).
+		WithRESTMapper(networkPolicyTestRESTMapper()).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if _, ok := obj.(*corev1.Service); ok {
-					return wantErr
+				if _, ok := obj.(*corev1.Service); ok && serviceReadErr != nil {
+					return serviceReadErr
 				}
 				return c.Get(ctx, key, obj, opts...)
 			},
@@ -278,9 +281,14 @@ func TestReconcileNetworkPoliciesPropagatesTracingServiceErrors(t *testing.T) {
 			ExporterEndpoint: ptr.To("http://jaeger.observability.svc:4317"),
 		}},
 	}
+	// Start with a default-mode service before tracing opt-in. The failure
+	// path must remove unrestricted egress without losing its ingress grant.
+	if err := fakeClient.Create(t.Context(), expectedAllowAllNetworkPolicy(llmSvc)); err != nil {
+		t.Fatal(err)
+	}
 	reconciler := &LLMISVCReconciler{
 		Client:        fakeClient,
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: record.NewFakeRecorder(20),
 	}
 
 	err := reconciler.reconcileNetworkPolicies(context.Background(), llmSvc, nil)
@@ -293,5 +301,31 @@ func TestReconcileNetworkPoliciesPropagatesTracingServiceErrors(t *testing.T) {
 	}
 	if len(denyAll.Spec.Egress) != 0 || !reflect.DeepEqual(denyAll.Spec.PolicyTypes, []netv1.PolicyType{netv1.PolicyTypeEgress}) {
 		t.Fatalf("egress policy is not explicit deny-all: %#v", denyAll.Spec)
+	}
+	allowIngress := &netv1.NetworkPolicy{}
+	if err := fakeClient.Get(t.Context(), client.ObjectKeyFromObject(expectedAllowAllNetworkPolicy(llmSvc)), allowIngress); err != nil {
+		t.Fatalf("tracing failure removed ingress allowance: %v", err)
+	}
+	if !reflect.DeepEqual(allowIngress.Spec, expectedAllowAllIngressNetworkPolicy(llmSvc).Spec) {
+		t.Fatalf("tracing failure must preserve ingress without granting egress: %#v", allowIngress.Spec)
+	}
+
+	// A retry installs tracing egress and removes the deny-all fallback, while
+	// preserving the ingress-only grant.
+	serviceReadErr = nil
+	if err := reconciler.reconcileNetworkPolicies(t.Context(), llmSvc, nil); err != nil {
+		t.Fatalf("tracing recovery failed: %v", err)
+	}
+	if err := fakeClient.Get(t.Context(), client.ObjectKey{Name: tracingNetworkPolicyName(llmSvc), Namespace: llmSvc.Namespace}, &netv1.NetworkPolicy{}); err != nil {
+		t.Fatalf("tracing egress not restored: %v", err)
+	}
+	if err := fakeClient.Get(t.Context(), client.ObjectKeyFromObject(denyAll), &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("deny-all fallback remained after recovery: %v", err)
+	}
+	if err := fakeClient.Get(t.Context(), client.ObjectKeyFromObject(allowIngress), allowIngress); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(allowIngress.Spec, expectedAllowAllIngressNetworkPolicy(llmSvc).Spec) {
+		t.Fatalf("tracing recovery changed ingress allowance or granted unrestricted egress: %#v", allowIngress.Spec)
 	}
 }
