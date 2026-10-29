@@ -21,6 +21,7 @@ const (
 	KserveComponentName             = "kserve"
 	OdhModelControllerComponentName = "modelcontroller"
 	WVAComponentName                = "wva"
+	ModelExpressComponentName       = "modelexpress"
 	ModelCacheComponentName         = "modelcache"
 	ObservabilityComponentName      = "observability"
 	ConsoleDashboardsComponentName  = "console-dashboards"
@@ -33,6 +34,8 @@ const (
 	ModelControllerSourcePath           = "overlays/odh"
 	ModelControllerSourcePathXKS        = "overlays/xks"
 	WVAManifestSourcePathOCP            = "overlays/namespace-scoped/openshift"
+	ModelExpressManifestSourcePath      = "overlays/odh"
+	ModelExpressManifestSourcePathXKS   = "overlays/odh-xks"
 	ObservabilityManifestSourcePath     = "monitoring/llmisvc/dashboards"
 	ConsoleDashboardsManifestSourcePath = "monitoring/llmisvc/dashboards-odc"
 
@@ -43,6 +46,8 @@ const (
 	odhModelControllerDeployment   = "odh-model-controller"
 	modelServingAPIDeployment      = "model-serving-api"
 	wvaControllerDeployment        = "workload-variant-autoscaler-controller-manager"
+	variantAutoscalingCRDName      = "variantautoscalings.llmd.ai"
+	modelExpressOperatorDeployment = "modelexpress-operator"
 
 	// Console dashboards target namespace
 	consoleDashboardsNamespace = "openshift-config-managed"
@@ -55,12 +60,22 @@ const (
 	platformVersionConfigMapKey = "platformVersion"
 
 	// ConfigMap keys
-	kserveConfigMapName     = "inferenceservice-config"
-	ingressConfigKeyName    = "ingress"
-	serviceConfigKeyName    = "service"
-	configHashAnnotationKey = "kserve-module/config-hash"
-	oauthProxyConfigKeyName = "oauthProxy"
-	openshiftConfigKeyName  = "openshiftConfig"
+	kserveConfigMapName               = "inferenceservice-config"
+	autoscalingWVAControllerConfigKey = "autoscaling-wva-controller-config"
+	ingressConfigKeyName              = "ingress"
+	serviceConfigKeyName              = "service"
+	configHashAnnotationKey           = "kserve-module/config-hash"
+	oauthProxyConfigKeyName           = "oauthProxy"
+	openshiftConfigKeyName            = "openshiftConfig"
+	llmisvcConfigKeyName              = "llmisvc"
+
+	// KServe-owned RHCL TelemetryPolicy for LLMInferenceService OCSF audit events.
+	telemetryPolicyGVKName         = "telemetrypolicies.extensions.kuadrant.io"
+	telemetryPolicyName            = "kserve-llmisvc-ocsf-audit"
+	telemetryPolicyManagedLabel    = "kserve-module.opendatahub.io/managed"
+	telemetryPolicyComponentLabel  = "kserve-module.opendatahub.io/component"
+	telemetryPolicyOwnerAnnotation = "kserve-module.opendatahub.io/owner"
+	telemetryPolicyComponentValue  = "llmisvc-ocsf-audit"
 
 	// LLMInferenceServiceConfig versioning
 	wellKnownAnnotationKey   = "serving.kserve.io/well-known-config"

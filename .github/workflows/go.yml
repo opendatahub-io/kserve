@@ -33,7 +33,7 @@ jobs:
     test:
         name: Test
         runs-on: ubuntu-latest
-        timeout-minutes: 25
+        timeout-minutes: 50
         steps:
 
             - name: Check out code into the Go module directory

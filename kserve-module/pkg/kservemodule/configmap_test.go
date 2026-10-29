@@ -16,6 +16,8 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
@@ -60,6 +62,39 @@ func TestCustomizeKserveConfigMap_AddsHashToDeployment(t *testing.T) {
 	g.Expect(deploy.Spec.Template.Annotations[configHashAnnotationKey]).ShouldNot(BeEmpty())
 }
 
+func TestCustomizeKserveConfigMap_StripsWVAKeyWhenDisabled(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := buildTestResourcesWithWVAConfig(t)
+	kserve := buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil)
+
+	result, err := customizeKserveConfigMap(resources, kserve)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data).ShouldNot(HaveKey(autoscalingWVAControllerConfigKey))
+	g.Expect(cm.Data).Should(HaveKey(ingressConfigKeyName))
+}
+
+func TestCustomizeKserveConfigMap_StripsWVAKeyEvenWhenManaged(t *testing.T) {
+	g := NewWithT(t)
+
+	resources := buildTestResourcesWithWVAConfig(t)
+	kserve := buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil)
+	kserve.Spec.WVA.ManagementState = common.Managed
+
+	result, err := customizeKserveConfigMap(resources, kserve)
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	// isWVAEnabled is always false in 3.6, so leftover Managed YAML still
+	// must not keep autoscaling-wva-controller-config in the inference ConfigMap.
+	g.Expect(cm.Data).ShouldNot(HaveKey(autoscalingWVAControllerConfigKey))
+	g.Expect(cm.Data).Should(HaveKey(ingressConfigKeyName))
+}
+
 func TestCustomizeKserveConfigMap_NoConfigMap(t *testing.T) {
 	g := NewWithT(t)
 
@@ -93,6 +128,27 @@ func TestCustomizeKserveConfigMap_EnableTLS_True(t *testing.T) {
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(cm.Data[ingressConfigKeyName]).Should(ContainSubstring(`"enableLLMInferenceServiceTLS": true`))
+}
+
+func TestCustomizeKserveConfigMap_MonitoringIngressNetworkPolicy(t *testing.T) {
+	g := NewWithT(t)
+
+	t.Setenv("MONITORING_NAMESPACE", "custom-ods-monitoring")
+
+	resources := buildTestResources(t)
+	enabled := true
+	result, err := customizeKserveConfigMap(resources, &platformv1alpha1.Kserve{
+		Spec: platformv1alpha1.KserveSpec{
+			RawDeploymentServiceConfig:                 platformv1alpha1.KserveRawHeadless,
+			EnableLLMMonitoringIngressNetworkPolicy:    &enabled,
+		},
+	})
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data[llmisvcConfigKeyName]).Should(ContainSubstring(`"monitoringIngressNetworkPolicy": true`))
+	g.Expect(cm.Data[llmisvcConfigKeyName]).Should(ContainSubstring(`"monitoringNamespace": "custom-ods-monitoring"`))
 }
 
 func TestCustomizeKserveConfigMap_EnableTLS_False(t *testing.T) {
@@ -432,6 +488,18 @@ func buildTestKserveWithAuditProfile(rawSvc platformv1alpha1.RawServiceConfig, e
 			AuditLoggingProfile:          auditLoggingProfile,
 		},
 	}
+}
+
+func buildTestResourcesWithWVAConfig(t *testing.T) []unstructured.Unstructured {
+	t.Helper()
+	resources := buildTestResources(t)
+	g := NewWithT(t)
+	idx, cm, err := getIndexedResource[corev1.ConfigMap](resources, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	cm.Data[autoscalingWVAControllerConfigKey] = `{"prometheus":{"url":"http://thanos"}}`
+	resources, err = replaceResourceAtIndex(resources, idx, cm)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	return resources
 }
 
 func buildTestResources(t *testing.T) []unstructured.Unstructured {

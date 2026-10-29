@@ -6,7 +6,9 @@ import (
 	. "github.com/onsi/gomega"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 )
 
 // Deterministic regression guard for RHOAIENG-88471.
@@ -129,4 +131,43 @@ func TestCRDNamePredicate_WithoutDynamicWatchNames_IsTheBug(t *testing.T) {
 	g.Expect(buggy.Create(event.CreateEvent{
 		Object: crdMeta("subscriptions.operators.coreos.com"),
 	})).To(BeTrue())
+}
+
+func TestSubscriptionWatchPredicate_MatchesWatchedPackages(t *testing.T) {
+	g := NewWithT(t)
+	pred := predicate.NewPredicateFuncs(isWatchedSubscription)
+
+	matching := &unstructured.Unstructured{Object: map[string]any{
+		"spec": map[string]any{"name": certManagerSubscription},
+	}}
+	matching.SetName("arbitrary-subscription-name")
+	g.Expect(pred.Create(event.CreateEvent{Object: matching})).To(BeTrue())
+
+	wrongPackage := matching.DeepCopy()
+	wrongPackage.Object["spec"].(map[string]any)["name"] = "unrelated-operator"
+	g.Expect(pred.Create(event.CreateEvent{Object: wrongPackage})).To(BeFalse())
+}
+
+func TestClusterExtensionWatchPredicate_MatchesWatchedCatalogPackages(t *testing.T) {
+	g := NewWithT(t)
+	pred := predicate.NewPredicateFuncs(isWatchedClusterExtension)
+
+	matching := &unstructured.Unstructured{Object: map[string]any{
+		"spec": map[string]any{
+			"source": map[string]any{
+				"sourceType": "Catalog",
+				"catalog":    map[string]any{"packageName": certManagerSubscription},
+			},
+		},
+	}}
+	matching.SetName("arbitrary-extension-name")
+	g.Expect(pred.Create(event.CreateEvent{Object: matching})).To(BeTrue())
+
+	wrongPackage := matching.DeepCopy()
+	wrongPackage.Object["spec"].(map[string]any)["source"].(map[string]any)["catalog"].(map[string]any)["packageName"] = "unrelated-operator"
+	g.Expect(pred.Create(event.CreateEvent{Object: wrongPackage})).To(BeFalse())
+
+	nonCatalog := matching.DeepCopy()
+	nonCatalog.Object["spec"].(map[string]any)["source"].(map[string]any)["sourceType"] = "Bundle"
+	g.Expect(pred.Create(event.CreateEvent{Object: nonCatalog})).To(BeFalse())
 }

@@ -103,6 +103,18 @@ wait_for_crd() {
   oc wait --for=condition=Established --timeout="$timeout" "crd/$crd"
 }
 
+# Check whether any served version of a CRD declares a given top-level .spec property.
+# Used to feature-detect optional operator capabilities (e.g. a newer RHCL build) so setup
+# can enable them when present and stay a no-op on older builds.
+# Usage: crd_has_spec_field <crd-name> <field>
+#   <crd-name> : full CRD name (e.g. authorinos.operator.authorino.kuadrant.io)
+#   <field>    : property name under .spec (e.g. enableLoggingFields)
+crd_has_spec_field() {
+  local crd="$1"
+  local field="$2"
+  oc get crd "${crd}" -o jsonpath="{.spec.versions[*].schema.openAPIV3Schema.properties.spec.properties.${field}}" 2>/dev/null | grep -q .
+}
+
 # Poll until GET /apis/<group>/<version> lists the given resource (apiserver discovery).
 # Stronger than CRD Established alone for admission paths that resolve owner GVK via REST mapping.
 # Usage: wait_for_api_discovery <group/version> <resource-name> [timeout_seconds]
@@ -207,6 +219,27 @@ wait_for_subscription_csv() {
   echo "CSVs in namespace ${namespace}:"
   oc get csv -n "$namespace" 2>/dev/null || true
   return 1
+}
+
+# Print the version of the CSV an OLM Subscription has installed, as bare semver (no "v" prefix).
+# Prefers the CSV's spec.version (validated as semver by OLM) and falls back to deriving it from the
+# CSV name (<package>.v<version>, e.g. rhcl-operator.v1.4.3) when spec.version is empty. Prints nothing
+# and returns 1 when the Subscription, its installedCSV or a parseable version is missing, so callers
+# can treat "unknown" explicitly instead of comparing an empty string.
+# Usage: get_subscription_installed_version <subscription-name> <namespace>
+get_subscription_installed_version() {
+  local sub_name=${1:?subscription name is required}
+  local namespace=${2:?namespace is required}
+  local csv_name version
+  csv_name=$(oc get subscription "${sub_name}" -n "${namespace}" \
+    -o jsonpath='{.status.installedCSV}' 2>/dev/null) || csv_name=""
+  [[ -n "${csv_name}" ]] || return 1
+  version=$(oc get csv "${csv_name}" -n "${namespace}" \
+    -o jsonpath='{.spec.version}' 2>/dev/null) || version=""
+  [[ -n "${version}" ]] || version="${csv_name#"${sub_name}."}"
+  version="${version#v}"
+  [[ "${version}" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)? ]] || return 1
+  echo "${version}"
 }
 
 readonly VALID_DEPLOYMENT_PROFILES=(raw serverless llm-d)

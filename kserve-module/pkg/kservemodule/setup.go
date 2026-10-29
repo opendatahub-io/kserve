@@ -39,21 +39,49 @@ var dependencyCRDSuffixes = []string{
 }
 
 var dependencyCRDNames = map[string]bool{
-	"leaderworkersets.operator.openshift.io": true,
-	"subscriptions.operators.coreos.com":     true,
-	"persesdashboards.perses.dev":            true,
+	"clusterextensions.olm.operatorframework.io": true,
+	"leaderworkersets.operator.openshift.io":     true,
+	"subscriptions.operators.coreos.com":         true,
+	"persesdashboards.perses.dev":                true,
 }
 
-var watchedSubscriptions = map[string]bool{
+var watchedOperatorPackages = map[string]bool{
 	rhclSubscription:        true,
 	certManagerSubscription: true,
 	lwsSubscription:         true,
 	cmaSubscription:         true,
 }
 
+func isWatchedSubscription(obj client.Object) bool {
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return false
+	}
+
+	packageName, found, err := unstructured.NestedString(u.Object, "spec", "name")
+	return err == nil && found && watchedOperatorPackages[packageName]
+}
+
+func isWatchedClusterExtension(obj client.Object) bool {
+	u, ok := obj.(*unstructured.Unstructured)
+	if !ok {
+		return false
+	}
+
+	sourceType, found, err := unstructured.NestedString(u.Object, "spec", "source", "sourceType")
+	if err != nil || !found || sourceType != "Catalog" {
+		return false
+	}
+	packageName, found, err := unstructured.NestedString(u.Object, "spec", "source", "catalog", "packageName")
+	return err == nil && found && watchedOperatorPackages[packageName]
+}
+
 type dynamicWatch struct {
-	groupKind  schema.GroupKind
-	gvk        schema.GroupVersionKind
+	groupKind schema.GroupKind
+	gvk       schema.GroupVersionKind
+	// crdName overrides the regular-plural derivation for CRDs such as
+	// TelemetryPolicy, whose plural is not <kind>s.
+	crdName    string
 	filterFn   func(*unstructured.Unstructured) bool
 	predicates []predicate.Predicate
 	// selfInstalled marks a watch whose CRD this module installs itself. Such a
@@ -99,6 +127,23 @@ func (r *KserveModuleReconciler) buildDynamicWatches() []*dynamicWatch {
 			predicates: []predicate.Predicate{predicate.GenerationChangedPredicate{}},
 			filterFn: func(u *unstructured.Unstructured) bool {
 				return u.GetName() == monitoringCRName
+			},
+		},
+		{
+			// RHCL owns this optional API. Watching it lets KServe repair drift in
+			// its policy, and the CRD watch below causes this watch to be registered
+			// automatically when RHCL 1.5.1 becomes available later.
+			groupKind: telemetryPolicyGVK.GroupKind(),
+			gvk:       telemetryPolicyGVK,
+			crdName:   telemetryPolicyGVKName,
+			predicates: []predicate.Predicate{predicate.Or(
+				predicate.GenerationChangedPredicate{},
+				predicate.LabelChangedPredicate{},
+				predicate.AnnotationChangedPredicate{},
+			)},
+			filterFn: func(u *unstructured.Unstructured) bool {
+				return u.GetName() == telemetryPolicyName ||
+					u.GetLabels()[telemetryPolicyComponentLabel] == telemetryPolicyComponentValue
 			},
 		},
 	}
@@ -196,18 +241,26 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		subObj.SetGroupVersionKind(schema.GroupVersionKind{Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription"})
 		b.Watches(subObj,
 			handler.EnqueueRequestsFromMapFunc(mapToKserve),
-			builder.WithPredicates(predicate.NewPredicateFuncs(func(o client.Object) bool {
-				u, ok := o.(*unstructured.Unstructured)
-				if !ok {
-					return false
-				}
-				return watchedSubscriptions[u.GetName()]
-			})),
+			builder.WithPredicates(predicate.NewPredicateFuncs(isWatchedSubscription)),
+		)
+	}
+
+	// ClusterExtension CRD is present when OLMv1 is installed. Watch catalog
+	// package requests because the resource name is not the package identity.
+	clusterExtensionGK := schema.GroupKind{Group: "olm.operatorframework.io", Kind: "ClusterExtension"}
+	if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), clusterExtensionGK); err == nil {
+		clusterExtensionObj := &unstructured.Unstructured{}
+		clusterExtensionObj.SetGroupVersionKind(schema.GroupVersionKind{
+			Group: "olm.operatorframework.io", Version: "v1", Kind: "ClusterExtension",
+		})
+		b.Watches(clusterExtensionObj,
+			handler.EnqueueRequestsFromMapFunc(mapToKserve),
+			builder.WithPredicates(predicate.NewPredicateFuncs(isWatchedClusterExtension)),
 		)
 	}
 
 	for _, dw := range r.dynamicWatches {
-		if err := cluster.CustomResourceDefinitionExists(context.Background(), mgr.GetAPIReader(), dw.groupKind); err != nil {
+		if err := r.dynamicWatchCRDExists(context.Background(), mgr.GetAPIReader(), dw); err != nil {
 			continue
 		}
 		obj := &unstructured.Unstructured{}
@@ -263,7 +316,7 @@ func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) boo
 		// Read through to the API server: a just-installed CRD is not yet in the
 		// cached client's store, so a cached check would miss it and the watch
 		// would never register.
-		if err := cluster.CustomResourceDefinitionExists(ctx, reader, dw.groupKind); err != nil {
+		if err := r.dynamicWatchCRDExists(ctx, reader, dw); err != nil {
 			// A self-installed CRD is guaranteed to exist once installed; if the
 			// check does not see it yet (not Established, cache lag), keep the
 			// caller requeuing until it does. An absent external CRD is expected.
@@ -380,9 +433,30 @@ func (r *KserveModuleReconciler) crdWatchPredicate() predicate.Predicate {
 func (r *KserveModuleReconciler) dynamicWatchCRDNames() map[string]bool {
 	names := make(map[string]bool, len(r.dynamicWatches))
 	for _, dw := range r.dynamicWatches {
-		names[crdResourceName(dw.groupKind)] = true
+		name := dw.crdName
+		if name == "" {
+			name = crdResourceName(dw.groupKind)
+		}
+		names[name] = true
 	}
 	return names
+}
+
+func (r *KserveModuleReconciler) dynamicWatchCRDExists(ctx context.Context, reader client.Reader, dw *dynamicWatch) error {
+	if dw.crdName == "" {
+		return cluster.CustomResourceDefinitionExists(ctx, reader, dw.groupKind)
+	}
+
+	crd := &apiextensionsv1.CustomResourceDefinition{}
+	if err := reader.Get(ctx, client.ObjectKey{Name: dw.crdName}, crd); err != nil {
+		return err
+	}
+	for _, condition := range crd.Status.Conditions {
+		if condition.Type == apiextensionsv1.Established && condition.Status == apiextensionsv1.ConditionTrue {
+			return nil
+		}
+	}
+	return fmt.Errorf("CRD %s is not established", dw.crdName)
 }
 
 func crdResourceName(gk schema.GroupKind) string {

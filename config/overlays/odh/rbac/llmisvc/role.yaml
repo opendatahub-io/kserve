@@ -5,6 +5,14 @@ metadata:
   name: kserve-llmisvc-distro-role
 rules:
 - apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
   - monitoring.coreos.com
   resources:
   - podmonitors
@@ -52,6 +60,14 @@ rules:
   - security.openshift.io
   resourceNames:
   - openshift-ai-llminferenceservice-scc
+  resources:
+  - securitycontextconstraints
+  verbs:
+  - use
+- apiGroups:
+  - security.openshift.io
+  resourceNames:
+  - openshift-ai-llmisvc-confidential-bare-metal
   resources:
   - securitycontextconstraints
   verbs:

@@ -146,10 +146,9 @@ func (r *InferenceGraphReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	forceStopRuntime := utils.GetForceStopRuntime(graph)
 
-	configMap, err := r.Clientset.CoreV1().ConfigMaps(constants.KServeNamespace).Get(ctx, constants.InferenceServiceConfigMapName, metav1.GetOptions{})
+	configMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, r.Clientset)
 	if err != nil {
-		r.Log.Error(err, "Failed to find config map", "name", constants.InferenceServiceConfigMapName)
-		return reconcile.Result{}, err
+		return reconcile.Result{}, errors.Wrapf(err, "fails to get InferenceService config map")
 	}
 	if stop, err := r.reconcilePlatformFinalizer(ctx, graph); err != nil || stop {
 		return reconcile.Result{}, err

@@ -64,6 +64,7 @@ func SetupTestEnv(ctx context.Context) *TestEnv {
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	CreateCRD(ctx, cli, "operators.coreos.com", "v1alpha1", "Subscription", apiextensionsv1.NamespaceScoped)
+	CreateCRD(ctx, cli, "olm.operatorframework.io", "v1", "ClusterExtension", apiextensionsv1.ClusterScoped)
 
 	workDir := ginkgo.GinkgoT().TempDir()
 	WriteMinimalManifests(workDir)
@@ -109,6 +110,7 @@ metadata:
   name: inferenceservice-config
   namespace: opendatahub
 data:
+  confidentialBareMetal: '{"luksResourceId":"kbs:///default/kserve-luks-password/key","initData":""}'
   ingress: "{}"
   service: "{}"
   oauthProxy: '{"image":"registry.example.com/oauth-proxy:latest","memoryRequest":"64Mi","memoryLimit":"128Mi","cpuRequest":"100m","cpuLimit":"200m"}'
@@ -159,6 +161,45 @@ spec:
       openAPIV3Schema:
         type: object
 `
+	modelExpressManifest := `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: modelexpress-operator
+  namespace: opendatahub
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: modelexpress-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: modelexpress-operator
+    spec:
+      containers:
+      - name: operator
+        image: quay.io/opendatahub/odh-modelexpress-operator:latest
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: modelexpressservers.modelexpress.opendatahub.io
+spec:
+  group: modelexpress.opendatahub.io
+  scope: Namespaced
+  names:
+    plural: modelexpressservers
+    singular: modelexpressserver
+    kind: ModelExpressServer
+    listKind: ModelExpressServerList
+  versions:
+  - name: v1alpha1
+    served: true
+    storage: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        x-kubernetes-preserve-unknown-fields: true
+`
 	observabilityManifest := `apiVersion: perses.dev/v1alpha2
 kind: PersesDashboard
 metadata:
@@ -185,6 +226,8 @@ data:
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePath), modelCtrlManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.OdhModelControllerComponentName, kservemodule.ModelControllerSourcePathXKS), modelCtrlManifest)
 	writeKustomizeDir(filepath.Join(workDir, kservemodule.WVAComponentName, kservemodule.WVAManifestSourcePathOCP), wvaManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.ModelExpressComponentName, kservemodule.ModelExpressManifestSourcePath), modelExpressManifest)
+	writeKustomizeDir(filepath.Join(workDir, kservemodule.ModelExpressComponentName, kservemodule.ModelExpressManifestSourcePathXKS), modelExpressManifest)
 }
 
 func writeKustomizeDir(dir, manifest string) {

@@ -1,0 +1,127 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-confidential-bare-metal
+spec:
+  annotations:
+    io.katacontainers.config.runtime.create_container_timeout: "900"
+  template:
+    runtimeClassName: kata-cc-nvidia-gpu
+    serviceAccountName: coco-cc-storage
+    shareProcessNamespace: true
+    containers:
+    - name: main
+      env:
+      - name: DATA_DIR
+        value: /mnt/models
+      - name: BASH_ENV
+        value: /opt/cc-storage/link.sh
+      - name: LD_LIBRARY_PATH
+        value: /usr/lib64
+      - name: LD_PRELOAD
+        value: /usr/lib64/libcuda.so.1
+      - name: VLLM_USE_V2_MODEL_RUNNER
+        value: "0"
+      securityContext:
+        privileged: true
+        allowPrivilegeEscalation: true
+        runAsNonRoot: false
+        runAsUser: 0
+        readOnlyRootFilesystem: false
+      volumeMounts:
+      - name: cc-storage-link
+        mountPath: /opt/cc-storage
+        readOnly: true
+      resources:
+        requests:
+          nvidia.com/pgpu: "1"
+        limits:
+          nvidia.com/pgpu: "1"
+    volumes:
+    # Each LLMInferenceService must supply a luks-block volume that references
+    # an existing PVC in its own namespace. KServe does not create storage.
+    - name: cc-storage-link
+      configMap:
+        name: cc-storage-link
+    # All scratch paths stay in protected guest memory; weights use LUKS.
+    - name: dshm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 1Gi
+    - name: home
+      emptyDir:
+        medium: Memory
+        sizeLimit: 1Gi
+    - name: model-cache
+      emptyDir:
+        medium: Memory
+        sizeLimit: 1Gi
+    - name: tmp-dir
+      emptyDir:
+        medium: Memory
+        sizeLimit: 1Gi
+    initContainers:
+    - name: format-disk
+      image: REPLACE_IMAGE
+      restartPolicy: Always
+      command: [/bin/bash, /opt/cc-storage/format-disk.sh]
+      securityContext:
+        privileged: true
+        allowPrivilegeEscalation: true
+        runAsNonRoot: false
+        runAsUser: 0
+      volumeMounts:
+      - name: cc-storage-link
+        mountPath: /opt/cc-storage
+        readOnly: true
+      - name: dshm
+        mountPath: /dev/shm
+      volumeDevices:
+      - name: luks-block
+        devicePath: /dev/block-device
+    - name: check-ready
+      image: REPLACE_IMAGE
+      command: [/usr/local/bin/luks-helper, wait-ready]
+      securityContext:
+        privileged: true
+        allowPrivilegeEscalation: true
+        runAsNonRoot: false
+        runAsUser: 0
+      volumeMounts:
+      - name: dshm
+        mountPath: /dev/shm
+    - name: storage-initializer
+      image: REPLACE_IMAGE
+      command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        . /opt/cc-storage/link.sh
+        export TMPDIR="$DATA_DIR" HOME="$DATA_DIR" HF_HOME="$DATA_DIR" HF_HUB_CACHE="$DATA_DIR"
+        exec /storage-initializer/scripts/initializer-entrypoint "$@"
+      - initializer-entrypoint
+      securityContext:
+        privileged: true
+        allowPrivilegeEscalation: true
+        runAsNonRoot: false
+        runAsUser: 0
+        readOnlyRootFilesystem: false
+      volumeMounts:
+      - name: cc-storage-link
+        mountPath: /opt/cc-storage
+        readOnly: true
+      - name: dshm
+        mountPath: /dev/shm
+      env:
+      - name: DATA_DIR
+        value: /mnt/models
+      resources:
+        requests:
+          cpu: "1"
+          memory: 2Gi
+        limits:
+          cpu: "4"
+          memory: 8Gi
+  storageInitializer:
+    enabled: false

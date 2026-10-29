@@ -36,11 +36,102 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 	. "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc/fixture"
 )
 
 var _ = Describe("LLMInferenceService Monitoring NetworkPolicy", func() {
 	Context("NetworkPolicy Reconciliation", func() {
+		BeforeEach(func(ctx SpecContext) {
+			EnableMonitoringIngressNetworkPolicy(ctx, envTest.Client)
+		})
+
+		It("should not create the NetworkPolicy when the monitoring ingress gate is off", func(ctx SpecContext) {
+			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+				cfg.FeatureGates.MonitoringIngressNetworkPolicy = false
+			})
+
+			svcName := "test-llm-netpol-gate-off"
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			Consistently(func(g Gomega, ctx context.Context) {
+				err := envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
+					Namespace: testNs.Name,
+				}, &netv1.NetworkPolicy{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should remove its NetworkPolicy when the monitoring ingress gate is turned off", func(ctx SpecContext) {
+			svcName := "test-llm-netpol-gate-turned-off"
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			waitForMonitoringNetworkPolicy(ctx, testNs.Name, svcName)
+
+			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+				cfg.FeatureGates.MonitoringIngressNetworkPolicy = false
+			})
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				err := envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
+					Namespace: testNs.Name,
+				}, &netv1.NetworkPolicy{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("should leave a same-name NetworkPolicy it does not own alone when the gate is off", func(ctx SpecContext) {
+			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+				cfg.FeatureGates.MonitoringIngressNetworkPolicy = false
+			})
+
+			svcName := "test-llm-netpol-gate-off-foreign"
+			testNs := NewTestNamespace(ctx, envTest)
+			userNP := &netv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
+					Namespace: testNs.Name,
+				},
+				Spec: netv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "user-owned"}},
+					PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
+				},
+			}
+			Expect(envTest.Create(ctx, userNP)).To(Succeed())
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				event := findEvent(ctx, envTest.Client, llmSvc, "MonitoringNetworkPolicyNotOwned")
+				g.Expect(event).NotTo(BeNil())
+				g.Expect(event.Type).To(Equal(corev1.EventTypeWarning))
+			}).WithContext(ctx).Should(Succeed())
+
+			preserved := &netv1.NetworkPolicy{}
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: userNP.Name, Namespace: testNs.Name}, preserved)).To(Succeed())
+			Expect(preserved.UID).To(Equal(userNP.UID))
+			Expect(preserved.OwnerReferences).To(BeEmpty())
+		})
+
 		It("should create a per-service NetworkPolicy allowing Prometheus scraping when llmisvc is created", func(ctx SpecContext) {
 			// given
 			GinkgoT().Setenv("MONITORING_NAMESPACE", "test-monitoring-ns")
@@ -81,7 +172,6 @@ var _ = Describe("LLMInferenceService Monitoring NetworkPolicy", func() {
 				"test-monitoring-ns",
 				"openshift-monitoring",
 				"openshift-user-workload-monitoring",
-				"redhat-ods-monitoring",
 			))
 			Expect(prometheusRule.Ports).To(HaveLen(2))
 			Expect(prometheusRule.Ports).To(ContainElements(
@@ -117,6 +207,111 @@ var _ = Describe("LLMInferenceService Monitoring NetworkPolicy", func() {
 			Expect(intraNamespaceRule.From).To(HaveLen(1))
 			Expect(intraNamespaceRule.From[0].PodSelector.MatchLabels).To(BeEmpty())
 			Expect(intraNamespaceRule.Ports).To(BeNil())
+		})
+
+		It("should continue monitoring reconciliation when the tracing policy has another owner", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmName := "test-llm-netpol-tracing-owner-conflict"
+			foreignOwner := &v1alpha2.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foreign-owner",
+					Namespace: testNs.Name,
+					UID:       types.UID("foreign-owner-uid"),
+				},
+			}
+			foreignOwnerRef := *metav1.NewControllerRef(foreignOwner, v1alpha2.LLMInferenceServiceGVK)
+			tracingNP := &netv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      kmeta.ChildName(llmName, "-otlp-egress"),
+					Namespace: testNs.Name,
+					OwnerReferences: []metav1.OwnerReference{
+						foreignOwnerRef,
+					},
+				},
+			}
+			Expect(envTest.Create(ctx, tracingNP)).To(Succeed())
+
+			llmSvc := LLMInferenceService(llmName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithAnnotations(map[string]string{constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true"}),
+			)
+			llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			waitForMonitoringNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+			Eventually(func(g Gomega, ctx context.Context) {
+				event := findEvent(ctx, envTest.Client, llmSvc, "TracingNetworkPolicyNotOwned")
+				g.Expect(event).NotTo(BeNil())
+				g.Expect(event.Type).To(Equal(corev1.EventTypeWarning))
+			}).WithContext(ctx).Should(Succeed())
+
+			preserved := &netv1.NetworkPolicy{}
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: tracingNP.Name, Namespace: testNs.Name}, preserved)).To(Succeed())
+			Expect(preserved.OwnerReferences).To(Equal([]metav1.OwnerReference{foreignOwnerRef}))
+		})
+
+		It("should continue monitoring reconciliation when opt-in is removed and the tracing policy has another owner", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmName := "test-llm-netpol-tracing-owner-conflict-cleanup"
+			foreignOwner := &v1alpha2.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "foreign-owner",
+					Namespace: testNs.Name,
+					UID:       types.UID("foreign-owner-uid"),
+				},
+			}
+			foreignOwnerRef := *metav1.NewControllerRef(foreignOwner, v1alpha2.LLMInferenceServiceGVK)
+			tracingNP := &netv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            kmeta.ChildName(llmName, "-otlp-egress"),
+					Namespace:       testNs.Name,
+					OwnerReferences: []metav1.OwnerReference{foreignOwnerRef},
+				},
+			}
+			Expect(envTest.Create(ctx, tracingNP)).To(Succeed())
+
+			llmSvc := LLMInferenceService(llmName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithAnnotations(map[string]string{constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true"}),
+			)
+			llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+			monitoringNP := waitForMonitoringNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+			var initialWarningCount int32
+			Eventually(func(g Gomega, ctx context.Context) {
+				event := findEvent(ctx, envTest.Client, llmSvc, "TracingNetworkPolicyNotOwned")
+				g.Expect(event).NotTo(BeNil())
+				initialWarningCount = event.Count
+			}).WithContext(ctx).Should(Succeed())
+
+			// Removing the opt-in takes the tracing policy through the cleanup path.
+			Expect(updateLLMInferenceServiceWithRetry(ctx, testNs.Name, llmSvc.Name, func(updated *v1alpha2.LLMInferenceService) {
+				delete(updated.Annotations, constants.EnableTracingEgressNetworkPolicyAnnotationKey)
+			})).To(Succeed())
+
+			// Deleting the monitoring policy forces another reconciliation while the
+			// foreign tracing policy is still present.
+			Expect(envTest.Delete(ctx, monitoringNP)).To(Succeed())
+			Eventually(func(g Gomega, ctx context.Context) {
+				recreated := &netv1.NetworkPolicy{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{Name: monitoringNP.Name, Namespace: testNs.Name}, recreated)).To(Succeed())
+				g.Expect(recreated.UID).NotTo(Equal(monitoringNP.UID))
+			}).WithContext(ctx).Should(Succeed())
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				event := findEvent(ctx, envTest.Client, llmSvc, "TracingNetworkPolicyNotOwned")
+				g.Expect(event).NotTo(BeNil())
+				g.Expect(event.Type).To(Equal(corev1.EventTypeWarning))
+				g.Expect(event.Count).To(BeNumerically(">", initialWarningCount))
+			}).WithContext(ctx).Should(Succeed())
+
+			preserved := &netv1.NetworkPolicy{}
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: tracingNP.Name, Namespace: testNs.Name}, preserved)).To(Succeed())
+			Expect(preserved.OwnerReferences).To(Equal([]metav1.OwnerReference{foreignOwnerRef}))
 		})
 
 		It("should include RHOAI monitoring without dropping OpenShift defaults when MONITORING_NAMESPACE is unset", func(ctx SpecContext) {

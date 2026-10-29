@@ -18,17 +18,19 @@ import (
 )
 
 type componentConfig struct {
-	name          string
-	manifestName  string // overrides name for manifest directory lookup; defaults to name if empty
-	sourcePath    string
-	sourcePathXKS string
-	imageMap      map[string]string
-	extraParams   func(kserve *platformv1alpha1.Kserve) map[string]string
-	postRender    func(ctx context.Context, r *KserveModuleReconciler,
+	name              string
+	manifestName      string // overrides name for manifest directory lookup; defaults to name if empty
+	sourcePath        string
+	sourcePathXKS     string
+	certManagerParams bool // writes the cert-manager keys into the xKS overlay's params.env
+	imageMap          map[string]string
+	extraParams       func(kserve *platformv1alpha1.Kserve) map[string]string
+	postRender        func(ctx context.Context, r *KserveModuleReconciler,
 		kserve *platformv1alpha1.Kserve,
 		resources []unstructured.Unstructured) ([]unstructured.Unstructured, error)
-	enabled      func(kserve *platformv1alpha1.Kserve) bool
-	extraCleanup func(ctx context.Context, r *KserveModuleReconciler) error
+	enabled         func(kserve *platformv1alpha1.Kserve) bool
+	extraCleanup    func(ctx context.Context, r *KserveModuleReconciler) error
+	removalBlockers func(ctx context.Context, r *KserveModuleReconciler) ([]string, error)
 }
 
 func (c componentConfig) dirName() string {
@@ -40,26 +42,37 @@ func (c componentConfig) dirName() string {
 
 var components = []componentConfig{
 	{
-		name:          KserveComponentName,
-		sourcePath:    KserveManifestSourcePath,
-		sourcePathXKS: KserveManifestSourcePathXKS,
-		imageMap:      kserveImageParamMap,
-		postRender:    kservePostRender,
+		name:              KserveComponentName,
+		sourcePath:        KserveManifestSourcePath,
+		sourcePathXKS:     KserveManifestSourcePathXKS,
+		certManagerParams: true,
+		imageMap:          kserveImageParamMap,
+		postRender:        kservePostRender,
 	},
 	{
-		name:        OdhModelControllerComponentName,
-		sourcePath:  ModelControllerSourcePath,
-		sourcePathXKS: ModelControllerSourcePathXKS,
-		imageMap:    modelControllerImageParamMap,
-		extraParams: modelControllerExtraParams,
-		postRender:  modelControllerPostRender,
+		name:              OdhModelControllerComponentName,
+		sourcePath:        ModelControllerSourcePath,
+		sourcePathXKS:     ModelControllerSourcePathXKS,
+		certManagerParams: true,
+		imageMap:          modelControllerImageParamMap,
+		extraParams:       modelControllerExtraParams,
+		postRender:        modelControllerPostRender,
 	},
 	{
-		name:       WVAComponentName,
-		sourcePath: WVAManifestSourcePathOCP,
-		imageMap:   wvaImageParamMap,
-		enabled:    isWVAEnabled,
-		postRender: wvaPostRender,
+		name:         WVAComponentName,
+		sourcePath:   WVAManifestSourcePathOCP,
+		imageMap:     map[string]string{},
+		enabled:      isWVAEnabled,
+		postRender:   wvaPostRender,
+		extraCleanup: cleanupWVAComponent,
+	},
+	{
+		name:            ModelExpressComponentName,
+		sourcePath:      ModelExpressManifestSourcePath,
+		sourcePathXKS:   ModelExpressManifestSourcePathXKS,
+		imageMap:        modelExpressImageParamMap,
+		enabled:         isModelExpressEnabled,
+		removalBlockers: modelExpressRemovalBlockers,
 	},
 	{
 		name:         ModelCacheComponentName,
@@ -99,7 +112,8 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
 	}
 
-	resources, err := customizeKserveConfigMap(resources, kserve)
+	var err error
+	resources, err = customizeKserveConfigMap(resources, kserve)
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
@@ -232,8 +246,17 @@ func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
 	return resources, nil
 }
 
-func isWVAEnabled(kserve *platformv1alpha1.Kserve) bool {
-	return kserve.Spec.WVA.ManagementState == common.Managed
+// isWVAEnabled always returns false: WVA is removed from the product in
+// RHOAI 3.6 (RHAISTRAT-2756). The WVA componentConfig entry is kept so
+// extraCleanup (cleanupWVAComponent) tears down leftovers on clusters
+// upgrading from 3.5. defaultCleanup cannot do this after the WVA overlay
+// is no longer cloned.
+func isWVAEnabled(_ *platformv1alpha1.Kserve) bool {
+	return false
+}
+
+func isModelExpressEnabled(kserve *platformv1alpha1.Kserve) bool {
+	return kserve.Spec.ModelExpress.ManagementState == common.Managed
 }
 
 func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]string {
