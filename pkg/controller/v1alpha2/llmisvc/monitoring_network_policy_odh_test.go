@@ -20,6 +20,7 @@ package llmisvc_test
 
 import (
 	"context"
+	"reflect"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -234,6 +235,74 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
 					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), name)
 				}
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("completes finalization with an ownerless legacy policy and preserves it", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService("test-llm-netpol-ownerless-legacy-cleanup",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+
+			legacy := &netv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      kmeta.ChildName(llmSvc.Name, "-prometheus-scraping"),
+					Namespace: testNs.Name,
+					Labels:    map[string]string{"test-owner": "foreign"},
+				},
+				Spec: netv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{},
+					PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
+					Ingress:     []netv1.NetworkPolicyIngressRule{{}},
+				},
+			}
+			DeferCleanup(func(ctx SpecContext) {
+				if err := envTest.Delete(ctx, legacy); err != nil && !apierrors.IsNotFound(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				testNs.DeleteAndWait(ctx, llmSvc)
+			})
+
+			ownedPolicyNames := []string{
+				kmeta.ChildName(llmSvc.Name, "-networkpolicy-workload"),
+				kmeta.ChildName(llmSvc.Name, "-networkpolicy-scheduler"),
+				kmeta.ChildName(llmSvc.Name, "-networkpolicy-tokenizer"),
+				kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress"),
+			}
+			for _, name := range ownedPolicyNames {
+				waitForNetworkPolicy(ctx, testNs.Name, name)
+			}
+			Expect(envTest.Create(ctx, legacy)).To(Succeed())
+			legacyBefore := &netv1.NetworkPolicy{}
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: legacy.Name, Namespace: legacy.Namespace}, legacyBefore)).To(Succeed())
+			Expect(legacyBefore.OwnerReferences).To(BeEmpty(), "legacy policy is intentionally ownerless")
+
+			// This must complete through the service finalizer despite the
+			// ownerless same-name policy. Envtest has no garbage collector, so
+			// the owned policies are verified after explicit controller cleanup.
+			testNs.DeleteAndWait(ctx, llmSvc)
+			Eventually(func(g Gomega, ctx context.Context) {
+				err := envTest.Get(ctx, types.NamespacedName{Name: llmSvc.Name, Namespace: testNs.Name}, &v1alpha2.LLMInferenceService{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "service finalization must complete")
+			}).WithContext(ctx).Should(Succeed())
+
+			allManagedPolicyNames := append(append([]string{}, ownedPolicyNames...),
+				kmeta.ChildName(llmSvc.Name, "-networkpolicy-allow-all"),
+				kmeta.ChildName(llmSvc.Name, "-otlp-egress"),
+			)
+			Eventually(func(g Gomega, ctx context.Context) {
+				for _, name := range allManagedPolicyNames {
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "owned policy %s must be removed", name)
+				}
+			}).WithContext(ctx).Should(Succeed())
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				legacyAfter := &netv1.NetworkPolicy{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{Name: legacy.Name, Namespace: legacy.Namespace}, legacyAfter)).To(Succeed())
+				g.Expect(reflect.DeepEqual(legacyAfter, legacyBefore)).To(BeTrue(), "ownerless foreign policy must remain unchanged")
 			}).WithContext(ctx).Should(Succeed())
 		})
 	})

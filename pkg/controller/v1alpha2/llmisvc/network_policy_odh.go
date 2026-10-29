@@ -20,6 +20,7 @@ package llmisvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -33,6 +34,7 @@ import (
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
@@ -63,6 +65,8 @@ const (
 )
 
 var networkPolicyDisabled, _ = env.GetBool(networkPolicyDisabledEnvVar, false)
+
+var errNetworkPolicyOwnershipConflict = errors.New("NetworkPolicy ownership conflict")
 
 func networkPolicyName(llmSvc *v1alpha2.LLMInferenceService, suffix string) string {
 	return kmeta.ChildName(llmSvc.GetName(), suffix)
@@ -611,10 +615,8 @@ func deleteOwnedNetworkPolicy(ctx context.Context, r *LLMISVCReconciler, llmSvc 
 		return err
 	}
 	if !metav1.IsControlledBy(current, llmSvc) {
-		// Never delete an object with the expected name that belongs to another
-		// controller. Surface the conflict instead: leaving the legacy broad
-		// policy additive would defeat the migration's least-privilege claim.
-		return fmt.Errorf("NetworkPolicy %s/%s is not controlled by LLMInferenceService %s/%s",
+		return fmt.Errorf("%w: NetworkPolicy %s/%s is not controlled by LLMInferenceService %s/%s",
+			errNetworkPolicyOwnershipConflict,
 			expected.GetNamespace(), expected.GetName(), llmSvc.GetNamespace(), llmSvc.GetName())
 	}
 	// Ownership was verified above. Pass a typed nil owner so lifecycle_crud.Delete
@@ -631,10 +633,15 @@ func reconcileLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, 
 
 	// Remove the former monitoring policy. It included a blanket same-namespace
 	// all-port ingress rule and must not remain additive after migration.
+	var legacyOwnershipConflict error
 	if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, &netv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{Name: legacyMonitoringNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()},
 	}); err != nil {
-		return fmt.Errorf("failed to remove legacy monitoring NetworkPolicy: %w", err)
+		if !errors.Is(err, errNetworkPolicyOwnershipConflict) {
+			return fmt.Errorf("failed to remove legacy monitoring NetworkPolicy: %w", err)
+		}
+		legacyOwnershipConflict = fmt.Errorf("failed to remove legacy monitoring NetworkPolicy: %w", err)
+		log.FromContext(ctx).Info("Deferring legacy monitoring NetworkPolicy ownership conflict until policy reconciliation completes", "error", err)
 	}
 
 	strict := config != nil && config.FeatureGates.StrictNetworkPolicy
@@ -646,28 +653,28 @@ func reconcileLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, 
 		// place to preserve ingress even if tracing reconciliation fails.
 		if !strict {
 			if err := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllIngressNetworkPolicy(llmSvc)); err != nil {
-				return err
+				return errors.Join(legacyOwnershipConflict, err)
 			}
 		} else if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllNetworkPolicy(llmSvc)); err != nil {
-			return fmt.Errorf("failed to remove default-mode allow-all NetworkPolicy: %w", err)
+			return errors.Join(legacyOwnershipConflict, fmt.Errorf("failed to remove default-mode allow-all NetworkPolicy: %w", err))
 		}
 		if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, expectedDefaultEgressNetworkPolicy(llmSvc)); err != nil {
-			return fmt.Errorf("failed to remove default LLMISVC egress NetworkPolicy: %w", err)
+			return errors.Join(legacyOwnershipConflict, fmt.Errorf("failed to remove default LLMISVC egress NetworkPolicy: %w", err))
 		}
 	}
 	if err := r.reconcileTracingNetworkPolicy(ctx, llmSvc); err != nil {
 		if tracingRequested {
 			if denyErr := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, expectedDenyAllEgressNetworkPolicy(llmSvc)); denyErr != nil {
-				return fmt.Errorf("failed to preserve fail-closed LLMISVC egress while tracing policy reconciliation failed: %w; tracing error: %w", denyErr, err)
+				return errors.Join(legacyOwnershipConflict, fmt.Errorf("failed to preserve fail-closed LLMISVC egress while tracing policy reconciliation failed: %w; tracing error: %w", denyErr, err))
 			}
 		}
-		return err
+		return errors.Join(legacyOwnershipConflict, err)
 	}
 
 	if strict {
-		return reconcileStrictNetworkPolicies(ctx, r, llmSvc, config, tracingRequested)
+		return errors.Join(legacyOwnershipConflict, reconcileStrictNetworkPolicies(ctx, r, llmSvc, config, tracingRequested))
 	}
-	return reconcileDefaultModeNetworkPolicies(ctx, r, llmSvc, tracingRequested)
+	return errors.Join(legacyOwnershipConflict, reconcileDefaultModeNetworkPolicies(ctx, r, llmSvc, tracingRequested))
 }
 
 // reconcileStrictNetworkPolicies enforces the least-privilege policy set:
@@ -756,6 +763,11 @@ func cleanupLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, ll
 	}
 	for _, policy := range policies {
 		if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, policy); err != nil {
+			if errors.Is(err, errNetworkPolicyOwnershipConflict) {
+				log.FromContext(ctx).Info("Skipping NetworkPolicy cleanup because it is not controlled by the LLMInferenceService",
+					"namespace", policy.GetNamespace(), "name", policy.GetName(), "service", llmSvc.GetNamespace()+"/"+llmSvc.GetName(), "error", err)
+				continue
+			}
 			return fmt.Errorf("failed to delete NetworkPolicy %s/%s: %w", policy.GetNamespace(), policy.GetName(), err)
 		}
 	}

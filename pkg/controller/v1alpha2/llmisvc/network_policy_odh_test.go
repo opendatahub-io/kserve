@@ -19,9 +19,12 @@ limitations under the License.
 package llmisvc
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -35,6 +38,7 @@ import (
 
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
@@ -192,6 +196,25 @@ func TestExpectedAllowAllNetworkPolicySelectsAllServicePodsAndAllowsAllTraffic(t
 
 func newNetworkPolicyTestClient(t *testing.T, objects ...client.Object) client.WithWatch {
 	t.Helper()
+	return clientfake.NewClientBuilder().
+		WithScheme(networkPolicyTestScheme(t)).
+		WithRESTMapper(networkPolicyTestRESTMapper()).
+		WithObjects(objects...).
+		Build()
+}
+
+func newNetworkPolicyTestClientWithInterceptor(t *testing.T, funcs interceptor.Funcs, objects ...client.Object) client.WithWatch {
+	t.Helper()
+	return clientfake.NewClientBuilder().
+		WithScheme(networkPolicyTestScheme(t)).
+		WithRESTMapper(networkPolicyTestRESTMapper()).
+		WithObjects(objects...).
+		WithInterceptorFuncs(funcs).
+		Build()
+}
+
+func networkPolicyTestScheme(t *testing.T) *runtime.Scheme {
+	t.Helper()
 	scheme := runtime.NewScheme()
 	if err := netv1.AddToScheme(scheme); err != nil {
 		t.Fatalf("failed to add NetworkPolicy scheme: %v", err)
@@ -199,7 +222,7 @@ func newNetworkPolicyTestClient(t *testing.T, objects ...client.Object) client.W
 	if err := v1alpha2.AddToScheme(scheme); err != nil {
 		t.Fatalf("failed to add LLMInferenceService scheme: %v", err)
 	}
-	return clientfake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(networkPolicyTestRESTMapper()).WithObjects(objects...).Build()
+	return scheme
 }
 
 func networkPolicyTestRESTMapper() meta.RESTMapper {
@@ -429,6 +452,462 @@ func TestCleanupNetworkPoliciesDeletesOwnedPoliciesDuringServiceDeletion(t *test
 	err := client.Get(t.Context(), types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}, remaining)
 	if !apierrors.IsNotFound(err) {
 		t.Fatalf("owned policy remained after cleanup: %v", err)
+	}
+}
+
+func TestDeleteOwnedNetworkPolicyHandlesMissingAndOwnedPolicies(t *testing.T) {
+	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "model", Namespace: "team-a", UID: "model-uid",
+	}}
+	expected := expectedDefaultEgressNetworkPolicy(service)
+
+	if err := deleteOwnedNetworkPolicy(t.Context(), &LLMISVCReconciler{Client: newNetworkPolicyTestClient(t)}, service, expected); err != nil {
+		t.Fatalf("missing policy should be treated as success: %v", err)
+	}
+
+	cl := newNetworkPolicyTestClient(t, expected)
+	if err := deleteOwnedNetworkPolicy(t.Context(), &LLMISVCReconciler{Client: cl}, service, expected); err != nil {
+		t.Fatalf("owned policy deletion failed: %v", err)
+	}
+	if err := cl.Get(t.Context(), client.ObjectKeyFromObject(expected), &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("owned policy remained after deletion: %v", err)
+	}
+}
+
+func TestDeleteOwnedNetworkPolicyRecognizesOwnershipConflictsWithoutMutation(t *testing.T) {
+	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "model", Namespace: "team-a", UID: "model-uid",
+	}}
+	foreignService := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "other-model", Namespace: service.Namespace, UID: "other-model-uid",
+	}}
+
+	ownerless := expectedDefaultEgressNetworkPolicy(service).DeepCopy()
+	ownerless.OwnerReferences = nil
+	foreign := expectedDefaultEgressNetworkPolicy(service).DeepCopy()
+	foreign.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(foreignService, v1alpha2.LLMInferenceServiceGVK)}
+
+	for _, tt := range []struct {
+		name   string
+		policy *netv1.NetworkPolicy
+	}{
+		{name: "ownerless", policy: ownerless},
+		{name: "foreign controller", policy: foreign},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cl := newNetworkPolicyTestClient(t, tt.policy)
+			before := &netv1.NetworkPolicy{}
+			if err := cl.Get(t.Context(), client.ObjectKeyFromObject(tt.policy), before); err != nil {
+				t.Fatalf("failed to read policy before deletion attempt: %v", err)
+			}
+
+			err := deleteOwnedNetworkPolicy(t.Context(), &LLMISVCReconciler{Client: cl}, service, tt.policy)
+			if !errors.Is(err, errNetworkPolicyOwnershipConflict) {
+				t.Fatalf("delete error = %v, want ownership conflict", err)
+			}
+			for _, detail := range []string{
+				"NetworkPolicy " + service.Namespace + "/" + tt.policy.Name,
+				"LLMInferenceService " + service.Namespace + "/" + service.Name,
+			} {
+				if !strings.Contains(err.Error(), detail) {
+					t.Fatalf("ownership conflict %q does not include %q", err, detail)
+				}
+			}
+
+			after := &netv1.NetworkPolicy{}
+			if err := cl.Get(t.Context(), client.ObjectKeyFromObject(tt.policy), after); err != nil {
+				t.Fatalf("conflicting policy was deleted: %v", err)
+			}
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("conflicting policy was mutated: before=%#v after=%#v", before, after)
+			}
+		})
+	}
+}
+
+func TestCleanupNetworkPoliciesContinuesPastFirstAndMiddleOwnershipConflicts(t *testing.T) {
+	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "model", Namespace: "team-a", UID: "model-uid",
+	}}
+	foreignService := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "other-model", Namespace: service.Namespace, UID: "other-model-uid",
+	}}
+	foreignLegacy := &netv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            legacyMonitoringNetworkPolicyName(service),
+			Namespace:       service.Namespace,
+			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(foreignService, v1alpha2.LLMInferenceServiceGVK)},
+		},
+		Spec: netv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
+			Ingress:     []netv1.NetworkPolicyIngressRule{{}},
+		},
+	}
+	ownerlessScheduler := expectedSchedulerNetworkPolicy(service, nil, nil)
+	ownerlessScheduler.OwnerReferences = nil
+	owned := []*netv1.NetworkPolicy{
+		expectedWorkloadNetworkPolicy(service, nil, nil, nil, nil),
+		expectedTokenizerNetworkPolicy(service),
+		expectedDefaultEgressNetworkPolicy(service),
+		expectedAllowAllNetworkPolicy(service),
+		expectedTracingNetworkPolicy(service, netv1.NetworkPolicyPeer{}, 0, false),
+	}
+	objects := make([]client.Object, 0, 2+len(owned))
+	objects = append(objects, foreignLegacy, ownerlessScheduler)
+	for _, policy := range owned {
+		objects = append(objects, policy)
+	}
+	cl := newNetworkPolicyTestClient(t, objects...)
+
+	conflicts := []*netv1.NetworkPolicy{foreignLegacy, ownerlessScheduler}
+	before := make([]*netv1.NetworkPolicy, len(conflicts))
+	for i, policy := range conflicts {
+		before[i] = &netv1.NetworkPolicy{}
+		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(policy), before[i]); err != nil {
+			t.Fatalf("failed to read conflicting policy %s: %v", policy.Name, err)
+		}
+	}
+
+	reconciler := &LLMISVCReconciler{Client: cl}
+	for attempt := range 2 {
+		if err := cleanupLLMISVCNetworkPolicies(t.Context(), reconciler, service); err != nil {
+			t.Fatalf("cleanup attempt %d failed on ownership conflicts: %v", attempt+1, err)
+		}
+	}
+
+	for i, policy := range conflicts {
+		after := &netv1.NetworkPolicy{}
+		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(policy), after); err != nil {
+			t.Fatalf("conflicting policy %s was deleted: %v", policy.Name, err)
+		}
+		if !reflect.DeepEqual(after, before[i]) {
+			t.Fatalf("conflicting policy %s was mutated: before=%#v after=%#v", policy.Name, before[i], after)
+		}
+	}
+	for _, policy := range owned {
+		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(policy), &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+			t.Fatalf("owned policy %s remained after cleanup: %v", policy.Name, err)
+		}
+	}
+}
+
+func TestDeleteAndCleanupNetworkPoliciesPropagateAPIErrors(t *testing.T) {
+	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "model", Namespace: "team-a", UID: "model-uid",
+	}}
+	legacy := &netv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{
+		Name: legacyMonitoringNetworkPolicyName(service), Namespace: service.Namespace,
+		OwnerReferences: []metav1.OwnerReference{
+			*metav1.NewControllerRef(service, v1alpha2.LLMInferenceServiceGVK),
+		},
+	}}
+
+	t.Run("get failure is not classified as ownership conflict", func(t *testing.T) {
+		getErr := errors.New("transient NetworkPolicy Get failure")
+		cl := newNetworkPolicyTestClientWithInterceptor(t, interceptor.Funcs{
+			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+				if _, ok := obj.(*netv1.NetworkPolicy); ok && key.Name == legacy.Name {
+					return getErr
+				}
+				return c.Get(ctx, key, obj, opts...)
+			},
+		}, legacy)
+		reconciler := &LLMISVCReconciler{Client: cl}
+		if err := deleteOwnedNetworkPolicy(t.Context(), reconciler, service, legacy); !errors.Is(err, getErr) {
+			t.Fatalf("delete error = %v, want Get error %v", err, getErr)
+		}
+		if err := cleanupLLMISVCNetworkPolicies(t.Context(), reconciler, service); !errors.Is(err, getErr) {
+			t.Fatalf("cleanup error = %v, want Get error %v", err, getErr)
+		}
+	})
+
+	t.Run("delete failure propagates through deletion and cleanup", func(t *testing.T) {
+		deleteErr := errors.New("transient NetworkPolicy Delete failure")
+		cl := newNetworkPolicyTestClientWithInterceptor(t, interceptor.Funcs{
+			Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+				if policy, ok := obj.(*netv1.NetworkPolicy); ok && policy.Name == legacy.Name {
+					return deleteErr
+				}
+				return c.Delete(ctx, obj, opts...)
+			},
+		}, legacy)
+		reconciler := &LLMISVCReconciler{Client: cl}
+		if err := deleteOwnedNetworkPolicy(t.Context(), reconciler, service, legacy); !errors.Is(err, deleteErr) {
+			t.Fatalf("delete error = %v, want API error %v", err, deleteErr)
+		}
+		if err := cleanupLLMISVCNetworkPolicies(t.Context(), reconciler, service); !errors.Is(err, deleteErr) {
+			t.Fatalf("cleanup error = %v, want API error %v", err, deleteErr)
+		}
+		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(legacy), &netv1.NetworkPolicy{}); err != nil {
+			t.Fatalf("policy unexpectedly disappeared despite Delete failure: %v", err)
+		}
+	})
+}
+
+func TestReconcileLLMISVCNetworkPoliciesAbortsOnLegacyAPIErrors(t *testing.T) {
+	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "model", Namespace: "team-a", UID: "model-uid",
+	}}
+	legacy := &netv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{
+		Name: legacyMonitoringNetworkPolicyName(service), Namespace: service.Namespace,
+		OwnerReferences: []metav1.OwnerReference{
+			*metav1.NewControllerRef(service, v1alpha2.LLMInferenceServiceGVK),
+		},
+	}}
+
+	for _, tt := range []struct {
+		name      string
+		getErr    error
+		deleteErr error
+	}{
+		{name: "Get failure", getErr: errors.New("legacy policy Get failed")},
+		{name: "Delete failure", deleteErr: errors.New("legacy policy Delete failed")},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			funcs := interceptor.Funcs{}
+			if tt.getErr != nil {
+				funcs.Get = func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+					if _, ok := obj.(*netv1.NetworkPolicy); ok && key.Name == legacy.Name {
+						return tt.getErr
+					}
+					return c.Get(ctx, key, obj, opts...)
+				}
+			}
+			if tt.deleteErr != nil {
+				funcs.Delete = func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+					if policy, ok := obj.(*netv1.NetworkPolicy); ok && policy.Name == legacy.Name {
+						return tt.deleteErr
+					}
+					return c.Delete(ctx, obj, opts...)
+				}
+			}
+			cl := newNetworkPolicyTestClientWithInterceptor(t, funcs, legacy)
+			r := &LLMISVCReconciler{Client: cl, EventRecorder: record.NewFakeRecorder(16)}
+
+			err := reconcileLLMISVCNetworkPolicies(t.Context(), r, service, &Config{})
+			wantErr := tt.getErr
+			if wantErr == nil {
+				wantErr = tt.deleteErr
+			}
+			if !errors.Is(err, wantErr) {
+				t.Fatalf("reconcile error = %v, want immediate legacy API error %v", err, wantErr)
+			}
+			if errors.Is(err, errNetworkPolicyOwnershipConflict) {
+				t.Fatalf("real API error was misclassified as an ownership conflict: %v", err)
+			}
+			if err := cl.Get(t.Context(), client.ObjectKeyFromObject(expectedAllowAllNetworkPolicy(service)), &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+				t.Fatalf("baseline policy was created despite legacy API error: %v", err)
+			}
+		})
+	}
+}
+
+func TestReconcileLLMISVCNetworkPoliciesDefersLegacyConflictUntilBaselineExists(t *testing.T) {
+	for _, strict := range []bool{false, true} {
+		t.Run(fmt.Sprintf("strict-%t", strict), func(t *testing.T) {
+			service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+				Name: "model", Namespace: "team-a", UID: "model-uid",
+			}}
+			legacy := &netv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      legacyMonitoringNetworkPolicyName(service),
+					Namespace: service.Namespace,
+					Labels:    map[string]string{"test-owner": "unowned"},
+				},
+				Spec: netv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{},
+					PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
+					Ingress:     []netv1.NetworkPolicyIngressRule{{}},
+				},
+			}
+			cl := newNetworkPolicyTestClient(t, legacy)
+			before := &netv1.NetworkPolicy{}
+			if err := cl.Get(t.Context(), client.ObjectKeyFromObject(legacy), before); err != nil {
+				t.Fatal(err)
+			}
+			r := &LLMISVCReconciler{Client: cl, EventRecorder: record.NewFakeRecorder(32)}
+			config := &Config{FeatureGates: FeatureGates{StrictNetworkPolicy: strict}}
+
+			err := reconcileLLMISVCNetworkPolicies(t.Context(), r, service, config)
+			if !errors.Is(err, errNetworkPolicyOwnershipConflict) {
+				t.Fatalf("reconcile error = %v, want deferred legacy ownership conflict", err)
+			}
+			for _, name := range []string{
+				"NetworkPolicy " + service.Namespace + "/" + legacy.Name,
+				"LLMInferenceService " + service.Namespace + "/" + service.Name,
+			} {
+				if !strings.Contains(err.Error(), name) {
+					t.Fatalf("reconcile error %q does not include %q", err, name)
+				}
+			}
+
+			after := &netv1.NetworkPolicy{}
+			if err := cl.Get(t.Context(), client.ObjectKeyFromObject(legacy), after); err != nil {
+				t.Fatalf("legacy policy was deleted: %v", err)
+			}
+			if !reflect.DeepEqual(after, before) {
+				t.Fatalf("legacy policy was mutated: before=%#v after=%#v", before, after)
+			}
+
+			baselineNames := []string{allowAllNetworkPolicyName(service)}
+			if strict {
+				baselineNames = []string{
+					workloadNetworkPolicyName(service), schedulerNetworkPolicyName(service),
+					tokenizerNetworkPolicyName(service), egressNetworkPolicyName(service),
+				}
+			}
+			for _, name := range baselineNames {
+				policy := &netv1.NetworkPolicy{}
+				if err := cl.Get(t.Context(), types.NamespacedName{Name: name, Namespace: service.Namespace}, policy); err != nil {
+					t.Fatalf("baseline policy %s was not created: %v", name, err)
+				}
+				if !metav1.IsControlledBy(policy, service) {
+					t.Fatalf("baseline policy %s was not created as service-owned", name)
+				}
+			}
+		})
+	}
+}
+
+func TestReconcileLLMISVCNetworkPoliciesJoinsDeferredLegacyConflictWithLaterError(t *testing.T) {
+	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "model", Namespace: "team-a", UID: "model-uid",
+	}}
+	legacy := &netv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{
+		Name: legacyMonitoringNetworkPolicyName(service), Namespace: service.Namespace,
+	}}
+	createErr := errors.New("baseline NetworkPolicy Create failed")
+	cl := newNetworkPolicyTestClientWithInterceptor(t, interceptor.Funcs{
+		Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
+			if policy, ok := obj.(*netv1.NetworkPolicy); ok && policy.Name == allowAllNetworkPolicyName(service) {
+				return createErr
+			}
+			return c.Create(ctx, obj, opts...)
+		},
+	}, legacy)
+	r := &LLMISVCReconciler{Client: cl, EventRecorder: record.NewFakeRecorder(16)}
+
+	err := reconcileLLMISVCNetworkPolicies(t.Context(), r, service, &Config{})
+	if !errors.Is(err, errNetworkPolicyOwnershipConflict) {
+		t.Fatalf("reconcile error %v does not contain deferred ownership conflict", err)
+	}
+	if !errors.Is(err, createErr) {
+		t.Fatalf("reconcile error %v does not contain later baseline failure", err)
+	}
+}
+
+func TestReconcileLLMISVCNetworkPoliciesDoesNotAdoptActivePolicyConflict(t *testing.T) {
+	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "model", Namespace: "team-a", UID: "model-uid",
+	}}
+	foreignService := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "other-model", Namespace: service.Namespace, UID: "other-model-uid",
+	}}
+	foreignActivePolicy := expectedAllowAllNetworkPolicy(service).DeepCopy()
+	foreignActivePolicy.OwnerReferences = []metav1.OwnerReference{
+		*metav1.NewControllerRef(foreignService, v1alpha2.LLMInferenceServiceGVK),
+	}
+	cl := newNetworkPolicyTestClient(t, foreignActivePolicy)
+	before := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), client.ObjectKeyFromObject(foreignActivePolicy), before); err != nil {
+		t.Fatal(err)
+	}
+	r := &LLMISVCReconciler{Client: cl, EventRecorder: record.NewFakeRecorder(16)}
+
+	err := reconcileLLMISVCNetworkPolicies(t.Context(), r, service, &Config{})
+	if err == nil {
+		t.Fatal("active-policy ownership conflict was not returned")
+	}
+	if errors.Is(err, errNetworkPolicyOwnershipConflict) {
+		t.Fatalf("active-policy conflict was incorrectly classified as a deferrable legacy conflict: %v", err)
+	}
+	after := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), client.ObjectKeyFromObject(foreignActivePolicy), after); err != nil {
+		t.Fatalf("foreign active policy was deleted: %v", err)
+	}
+	if !reflect.DeepEqual(after, before) {
+		t.Fatalf("foreign active policy was mutated/adopted: before=%#v after=%#v", before, after)
+	}
+}
+
+func TestReconcileTracingConflictFailsClosedAndPreservesIngress(t *testing.T) {
+	endpoint := "https://collector.example.com:4317"
+	service := &v1alpha2.LLMInferenceService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "model", Namespace: "team-a", UID: "model-uid",
+			Annotations: map[string]string{
+				constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true",
+			},
+		},
+		Spec: v1alpha2.LLMInferenceServiceSpec{Tracing: &v1alpha2.TracingSpec{ExporterEndpoint: &endpoint}},
+	}
+	legacy := &netv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: legacyMonitoringNetworkPolicyName(service), Namespace: service.Namespace},
+		Spec: netv1.NetworkPolicySpec{
+			PodSelector: metav1.LabelSelector{},
+			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
+			Ingress:     []netv1.NetworkPolicyIngressRule{{}},
+		},
+	}
+	foreignService := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name: "other-model", Namespace: service.Namespace, UID: "other-model-uid",
+	}}
+	foreignTracing := expectedTracingNetworkPolicy(service, netv1.NetworkPolicyPeer{}, 0, false)
+	foreignTracing.OwnerReferences = []metav1.OwnerReference{
+		*metav1.NewControllerRef(foreignService, v1alpha2.LLMInferenceServiceGVK),
+	}
+	// This foreign additive grant is deliberately retained; the test verifies
+	// error visibility and the controller's fallback, not traffic isolation.
+	foreignTracing.Spec.Egress = []netv1.NetworkPolicyEgressRule{{}}
+	objects := []client.Object{legacy, expectedAllowAllNetworkPolicy(service), foreignTracing}
+	cl := newNetworkPolicyTestClient(t, objects...)
+	legacyBefore := &netv1.NetworkPolicy{}
+	foreignBefore := &netv1.NetworkPolicy{}
+	for _, item := range []struct {
+		object *netv1.NetworkPolicy
+		before *netv1.NetworkPolicy
+	}{{legacy, legacyBefore}, {foreignTracing, foreignBefore}} {
+		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(item.object), item.before); err != nil {
+			t.Fatal(err)
+		}
+	}
+	r := &LLMISVCReconciler{Client: cl, EventRecorder: record.NewFakeRecorder(32)}
+
+	err := reconcileLLMISVCNetworkPolicies(t.Context(), r, service, &Config{})
+	if !errors.Is(err, errNetworkPolicyOwnershipConflict) {
+		t.Fatalf("reconcile error %v does not contain deferred legacy conflict", err)
+	}
+	var tracingConflict *tracingNetworkPolicyNotOwnedError
+	if !errors.As(err, &tracingConflict) {
+		t.Fatalf("reconcile error %v does not contain active tracing ownership conflict", err)
+	}
+
+	allowIngress := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), client.ObjectKeyFromObject(expectedAllowAllNetworkPolicy(service)), allowIngress); err != nil {
+		t.Fatalf("ingress policy was not preserved: %v", err)
+	}
+	if !reflect.DeepEqual(allowIngress.Spec, expectedAllowAllIngressNetworkPolicy(service).Spec) {
+		t.Fatalf("tracing conflict did not preserve default-mode ingress safely: %#v", allowIngress.Spec)
+	}
+	denyEgress := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), client.ObjectKey{Name: egressNetworkPolicyName(service), Namespace: service.Namespace}, denyEgress); err != nil {
+		t.Fatalf("fail-closed egress policy was not installed: %v", err)
+	}
+	if len(denyEgress.Spec.Egress) != 0 || !reflect.DeepEqual(denyEgress.Spec.PolicyTypes, []netv1.PolicyType{netv1.PolicyTypeEgress}) {
+		t.Fatalf("egress fallback is not explicit deny-all: %#v", denyEgress.Spec)
+	}
+	for _, item := range []struct {
+		object *netv1.NetworkPolicy
+		before *netv1.NetworkPolicy
+	}{{legacy, legacyBefore}, {foreignTracing, foreignBefore}} {
+		after := &netv1.NetworkPolicy{}
+		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(item.object), after); err != nil {
+			t.Fatalf("conflicting policy %s was deleted: %v", item.object.Name, err)
+		}
+		if !reflect.DeepEqual(after, item.before) {
+			t.Fatalf("conflicting policy %s was mutated: before=%#v after=%#v", item.object.Name, item.before, after)
+		}
 	}
 }
 
