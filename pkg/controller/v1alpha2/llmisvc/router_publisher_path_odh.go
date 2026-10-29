@@ -95,7 +95,7 @@ func findPublisherPathCollisions(self *v1alpha2.LLMInferenceService, route *gwap
 	for i := range others {
 		other := &others[i]
 		if other.Namespace != self.Namespace || other.Name == self.Name ||
-			other.DeletionTimestamp != nil || sameRoutingGroup(self, other) ||
+			other.DeletionTimestamp != nil ||
 			otherModelNamesOverlap(selfModelNames, other) {
 			continue
 		}
@@ -132,7 +132,7 @@ func peerPublishesPath(peer *v1alpha2.LLMInferenceService, path string) bool {
 	if len(peer.Status.Addresses) > 0 {
 		return false
 	}
-	if peer.Spec.Router != nil && peer.Spec.Router.Route != nil && peer.Spec.Router.Route.HTTP.HasRefs() {
+	if peer.Spec.Router == nil || peer.Spec.Router.Route == nil || peer.Spec.Router.Route.HTTP.HasRefs() {
 		return false
 	}
 	return normalizedPublisherPath(peer.Namespace, resolveModelName(peer)) == path

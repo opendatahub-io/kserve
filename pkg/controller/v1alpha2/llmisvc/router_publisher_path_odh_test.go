@@ -141,6 +141,10 @@ func TestNormalizePublisherPathMatches_LeavesOtherModelPaths(t *testing.T) {
 	assert.Equal(t, regex, *route.Spec.Rules[0].Matches[1].Path.Value)
 }
 
+func withManagedRoute(svc *v1alpha2.LLMInferenceService) {
+	svc.Spec.Router = &v1alpha2.RouterSpec{Route: &v1alpha2.GatewayRoutesSpec{}}
+}
+
 func TestFindPublisherPathCollisions(t *testing.T) {
 	statusAtPath := func(path string) func(*v1alpha2.LLMInferenceService) {
 		return func(svc *v1alpha2.LLMInferenceService) {
@@ -174,7 +178,7 @@ func TestFindPublisherPathCollisions(t *testing.T) {
 			self:  newLLMISVC("a", withModelName("/app/root")),
 			route: routeAtPath("/publishers/default/models/app/root"),
 			others: []v1alpha2.LLMInferenceService{
-				newLLMISVC("b", withModelName("app/root")),
+				newLLMISVC("b", withModelName("app/root"), withManagedRoute),
 			},
 			want: []string{"b"},
 		},
@@ -201,7 +205,18 @@ func TestFindPublisherPathCollisions(t *testing.T) {
 			self:  newLLMISVC("a", withModelName("/app/root")),
 			route: routeAtPath("/publishers/default/models/app/root"),
 			others: []v1alpha2.LLMInferenceService{
-				newLLMISVC("b", withModelName("/app/root")),
+				newLLMISVC("b", withModelName("/app/root"), withManagedRoute),
+			},
+		},
+		{
+			name:  "peer without a managed route or advertised path does not collide",
+			self:  newLLMISVC("a", withModelName("/app/root")),
+			route: routeAtPath("/publishers/default/models/app/root"),
+			others: []v1alpha2.LLMInferenceService{
+				newLLMISVC("b", withModelName("app/root")),
+				newLLMISVC("c", withModelName("app/root"), func(svc *v1alpha2.LLMInferenceService) {
+					svc.Spec.Router = &v1alpha2.RouterSpec{}
+				}),
 			},
 		},
 		{
@@ -209,15 +224,32 @@ func TestFindPublisherPathCollisions(t *testing.T) {
 			self:  newLLMISVC("a", withModelName("/app/root")),
 			route: &gwapiv1.HTTPRoute{},
 			others: []v1alpha2.LLMInferenceService{
-				newLLMISVC("b", withModelName("app/root")),
+				newLLMISVC("b", withModelName("app/root"), withManagedRoute),
 			},
 		},
 		{
-			name:  "same routing group is excluded",
+			name:  "distinct model identities in the same routing group collide",
 			self:  newLLMISVC("a", withModelName("/app/root"), withGroup("group")),
 			route: routeAtPath("/publishers/default/models/app/root"),
 			others: []v1alpha2.LLMInferenceService{
 				newLLMISVC("b", withModelName("app/root"), withGroup("group")),
+			},
+			want: []string{"b"},
+		},
+		{
+			name:  "shared model identity in the same routing group is excluded",
+			self:  newLLMISVC("a", withModelName("/app/root"), withGroup("group")),
+			route: routeAtPath("/publishers/default/models/app/root"),
+			others: []v1alpha2.LLMInferenceService{
+				newLLMISVC("b", withModelName("/app/root"), withGroup("group")),
+			},
+		},
+		{
+			name:  "deleting peer is excluded",
+			self:  newLLMISVC("a", withModelName("/app/root")),
+			route: routeAtPath("/publishers/default/models/app/root"),
+			others: []v1alpha2.LLMInferenceService{
+				newLLMISVC("b", withModelName("app/root"), withManagedRoute, withDeleting()),
 			},
 		},
 	}
@@ -232,7 +264,7 @@ func TestFindPublisherPathCollisions(t *testing.T) {
 
 func TestWarnPublisherPathCollisions(t *testing.T) {
 	self := newLLMISVC("a", withModelName("/app/root"))
-	peer := newLLMISVC("b", withModelName("app/root"))
+	peer := newLLMISVC("b", withModelName("app/root"), withManagedRoute)
 	route := &gwapiv1.HTTPRoute{Spec: gwapiv1.HTTPRouteSpec{Rules: []gwapiv1.HTTPRouteRule{{
 		Matches: []gwapiv1.HTTPRouteMatch{{Path: &gwapiv1.HTTPPathMatch{
 			Value: ptr.To("/publishers/default/models/app/root"),
