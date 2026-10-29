@@ -195,7 +195,6 @@ var _ = Describe("LLMInferenceService Monitoring", func() {
 				}, clusterRoleBinding)
 				return err != nil && apierrors.IsNotFound(err)
 			}).WithContext(ctx).Should(BeTrue(), "monitoring ClusterRoleBinding should be deleted")
-
 		})
 	})
 })
@@ -212,6 +211,7 @@ var _ = Describe("Scheduler ServiceMonitor", func() {
 		llmSvc := LLMInferenceService(svcName,
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedScheduler(),
 		)
 		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
@@ -231,6 +231,27 @@ var _ = Describe("Scheduler ServiceMonitor", func() {
 		Expect(endpoint.TLSConfig.CA.Secret.Name).To(Equal(kmeta.ChildName(svcName, "-kserve-self-signed-certs")))
 		Expect(endpoint.TLSConfig.ServerName).ToNot(BeNil())
 		Expect(*endpoint.TLSConfig.ServerName).To(HaveSuffix(".svc"))
+		expectSchedulerMetricsProtocol(ctx, svcName, testNs.Name, "https")
+	})
+
+	It("declares and monitors HTTP when metrics TLS is disabled", func(ctx SpecContext) {
+		PatchIngressConfigKey(ctx, envTest.Client, "enableLLMInferenceServiceTLS", false)
+		DeferCleanup(func(ctx context.Context) {
+			PatchIngressConfigKey(ctx, envTest.Client, "enableLLMInferenceServiceTLS", true)
+		})
+		svcName := "sched-mon-http"
+		testNs := NewTestNamespace(ctx, envTest)
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedScheduler(),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+		sm := waitForPerServiceSchedulerMonitor(ctx, svcName, testNs.Name)
+		Expect(sm.Spec.Endpoints[0].Scheme).To(HaveValue(Equal(monitoringv1.Scheme("http"))))
+		Expect(sm.Spec.Endpoints[0].TLSConfig).To(BeNil())
+		expectSchedulerMetricsProtocol(ctx, svcName, testNs.Name, "http")
 	})
 
 	It("asserts a ServerName the certificate actually carries", func(ctx SpecContext) {
@@ -719,4 +740,17 @@ func assertPodMonitorGone(ctx context.Context, name, nsName string) {
 		err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: nsName}, pm)
 		return apierrors.IsNotFound(err)
 	}).WithContext(ctx).Should(BeTrue(), "PodMonitor %s should not exist", name)
+}
+
+func expectSchedulerMetricsProtocol(ctx context.Context, name, namespace, protocol string) {
+	Eventually(func(g Gomega, ctx context.Context) {
+		service := &corev1.Service{}
+		g.Expect(envTest.Get(ctx, types.NamespacedName{
+			Name: kmeta.ChildName(name, "-epp-service"), Namespace: namespace,
+		}, service)).To(Succeed())
+		g.Expect(service.Spec.Ports).To(ContainElement(SatisfyAll(
+			HaveField("Name", "metrics"),
+			HaveField("AppProtocol", HaveValue(Equal(protocol))),
+		)))
+	}).WithContext(ctx).Should(Succeed())
 }

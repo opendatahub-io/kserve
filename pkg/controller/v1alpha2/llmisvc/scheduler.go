@@ -337,6 +337,7 @@ func (r *LLMISVCReconciler) expectedSchedulerService(ctx context.Context, llmSvc
 		})
 
 		svc.Spec.Ports = servicePorts
+		configureSchedulerMetricsProtocol(svc, podSpec)
 	}
 
 	log.FromContext(ctx).V(2).Info("Expected router EPP service", "service", svc)
