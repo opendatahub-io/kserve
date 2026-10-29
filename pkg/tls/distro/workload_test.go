@@ -130,8 +130,8 @@ func TestCurveIDsFromNames(t *testing.T) {
 	if got := CurveIDsFromNames(groups, false); got != "23,29,4588,4587,4589" {
 		t.Fatalf("CurveIDsFromNames(non-FIPS) = %q, want %q", got, "23,29,4588,4587,4589")
 	}
-	if got := CurveIDsFromNames(groups, true); got != "23,4587,4589" {
-		t.Fatalf("CurveIDsFromNames(FIPS) = %q, want %q", got, "23,4587,4589")
+	if got := CurveIDsFromNames(groups, true); got != "23,4588,4587,4589" {
+		t.Fatalf("CurveIDsFromNames(FIPS) = %q, want %q", got, "23,4588,4587,4589")
 	}
 }
 
@@ -148,7 +148,7 @@ func TestWorkloadArgsFromSettingsRejectsGroupsWithoutSupportedCurve(t *testing.T
 func TestWorkloadArgsFromSettingsRejectsGroupsWithoutFIPSApprovedCurve(t *testing.T) {
 	settings := Settings{ProfileSpec: configv1.TLSProfileSpec{
 		MinTLSVersion: configv1.VersionTLS13,
-		Groups:        []configv1.TLSGroup{configv1.TLSGroupX25519, configv1.TLSGroupX25519MLKEM768},
+		Groups:        []configv1.TLSGroup{configv1.TLSGroupX25519},
 	}}
 	if _, err := workloadArgsFromSettings(settings, true); err == nil {
 		t.Fatal("expected an error when no configured group is approved in FIPS mode")
@@ -240,7 +240,11 @@ func TestResolveWorkloadArgsStrictGroups(t *testing.T) {
 			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileCustomType, Custom: &configv1.CustomTLSProfile{
 				TLSProfileSpec: configv1.TLSProfileSpec{
 					MinTLSVersion: configv1.VersionTLS13,
-					Groups:        []configv1.TLSGroup{configv1.TLSGroupSecP256r1, configv1.TLSGroupX25519},
+					Groups: []configv1.TLSGroup{
+						configv1.TLSGroupSecP256r1,
+						configv1.TLSGroupX25519,
+						configv1.TLSGroupX25519MLKEM768,
+					},
 				},
 			}},
 		},
@@ -250,8 +254,8 @@ func TestResolveWorkloadArgsStrictGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.MinVersion != "VersionTLS13" || got.CurveIDs != "23" {
-		t.Fatalf("ResolveWorkloadArgs() = %+v, want strict-FIPS TLS 1.3 with supported group 23", got)
+	if got.MinVersion != "VersionTLS13" || got.CurveIDs != "23,4588" {
+		t.Fatalf("ResolveWorkloadArgs() = %+v, want strict-FIPS TLS 1.3 with supported groups 23,4588", got)
 	}
 }
 

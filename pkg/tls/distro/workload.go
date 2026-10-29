@@ -76,10 +76,13 @@ var goCurveIDs = map[string]uint16{
 	string(configv1.TLSGroupSecP384r1MLKEM1024): uint16(tls.SecP384r1MLKEM1024),
 }
 
+// Keep this list aligned with crypto/tls.allowedCurvePreferencesFIPS for the
+// Go toolchain used to build the workload proxy.
 var fipsApprovedCurveIDs = map[uint16]struct{}{
 	uint16(tls.CurveP256):          {},
 	uint16(tls.CurveP384):          {},
 	uint16(tls.CurveP521):          {},
+	uint16(tls.X25519MLKEM768):     {},
 	uint16(tls.SecP256r1MLKEM768):  {},
 	uint16(tls.SecP384r1MLKEM1024): {},
 }
