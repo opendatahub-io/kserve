@@ -1,0 +1,24 @@
+# Bare-metal CoCo provisioning is an OpenShift-only preset.
+$patch: delete
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: openshift-ai-llmisvc-confidential-bare-metal
+---
+$patch: delete
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openshift-ai-llmisvc-confidential-bare-metal
+---
+$patch: delete
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kserve-confidential-bare-metal-resources
+---
+$patch: delete
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-confidential-bare-metal

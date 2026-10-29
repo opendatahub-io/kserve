@@ -110,6 +110,7 @@ metadata:
   name: inferenceservice-config
   namespace: opendatahub
 data:
+  confidentialBareMetal: '{"luksResourceId":"kbs:///default/kserve-luks-password/key","initData":""}'
   ingress: "{}"
   service: "{}"
   oauthProxy: '{"image":"registry.example.com/oauth-proxy:latest","memoryRequest":"64Mi","memoryLimit":"128Mi","cpuRequest":"100m","cpuLimit":"200m"}'

@@ -46,14 +46,15 @@ type AuditLoggingProfile string
 
 // Midstream networking constants
 const (
-	ODHKserveRawAuth                                   = "security.opendatahub.io/enable-auth"
-	ODHKserveAuditLoggingProfile                       = "observability.opendatahub.io/audit-logging-profile"
-	AuditLoggingProfileNone        AuditLoggingProfile = "none"
-	AuditLoggingProfileMetadata    AuditLoggingProfile = "metadata"
-	ODHAuthProxyTypeAnnotation                         = "security.opendatahub.io/auth-proxy-type"
-	ODHRouteEnabled                                    = "exposed"
-	ServingCertSecretSuffix                            = "-serving-cert"
-	OpenshiftServingCertAnnotation                     = "service.beta.openshift.io/serving-cert-secret-name"
+	ODHKserveRawAuth                                           = "security.opendatahub.io/enable-auth"
+	ODHKserveAuditLoggingProfile                               = "observability.opendatahub.io/audit-logging-profile"
+	AuditLoggingProfileNone                AuditLoggingProfile = "none"
+	AuditLoggingProfileMetadata            AuditLoggingProfile = "metadata"
+	ODHAuthProxyTypeAnnotation                                 = "security.opendatahub.io/auth-proxy-type"
+	ODHKserveAuthProxyTLSManagedAnnotation                     = "security.opendatahub.io/auth-proxy-tls-managed"
+	ODHRouteEnabled                                            = "exposed"
+	ServingCertSecretSuffix                                    = "-serving-cert"
+	OpenshiftServingCertAnnotation                             = "service.beta.openshift.io/serving-cert-secret-name"
 )
 
 // Midstream container names

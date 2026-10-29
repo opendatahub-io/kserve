@@ -92,6 +92,17 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		return err
 	}
 
+	if confidential := kserve.Spec.ConfidentialContainers; confidential != nil {
+		if err := updateCMJSONKey(cm, "confidentialBareMetal", func(data map[string]any) {
+			if confidential.LUKSResourceID != "" {
+				data["luksResourceId"] = confidential.LUKSResourceID
+			}
+			data["initData"] = confidential.InitData
+		}); err != nil {
+			return err
+		}
+	}
+
 	oauthProxy := kserve.Spec.OAuthProxy
 	if oauthProxy != nil && oauthProxy.Resources != nil {
 		if err := updateCMJSONKey(cm, oauthProxyConfigKeyName, func(data map[string]any) {
@@ -171,7 +182,39 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 		}
 	}
 
+	if err := updateLLMISVCConfigMapKey(cm, kserve); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+func updateLLMISVCConfigMapKey(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) error {
+	monitoringNS := os.Getenv("MONITORING_NAMESPACE")
+	if kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy == nil && monitoringNS == "" {
+		return nil
+	}
+
+	if cm.Data == nil {
+		cm.Data = map[string]string{}
+	}
+	if _, ok := cm.Data[llmisvcConfigKeyName]; !ok {
+		cm.Data[llmisvcConfigKeyName] = "{}"
+	}
+
+	return updateCMJSONKey(cm, llmisvcConfigKeyName, func(data map[string]any) {
+		if kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy != nil {
+			featureGates, _ := data["featureGates"].(map[string]any)
+			if featureGates == nil {
+				featureGates = map[string]any{}
+				data["featureGates"] = featureGates
+			}
+			featureGates["monitoringIngressNetworkPolicy"] = *kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy
+		}
+		if monitoringNS != "" {
+			data["monitoringNamespace"] = monitoringNS
+		}
+	})
 }
 
 func updateCMJSONKey(cm *corev1.ConfigMap, key string, mutate func(map[string]any)) error {

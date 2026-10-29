@@ -112,7 +112,8 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
 	}
 
-	resources, err := customizeKserveConfigMap(resources, kserve)
+	var err error
+	resources, err = customizeKserveConfigMap(resources, kserve)
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}

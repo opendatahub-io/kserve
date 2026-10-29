@@ -26,6 +26,7 @@ const (
 	ConditionModelCacheReady        = "ModelCacheReady"
 	ConditionDependenciesAvailable  = "DependenciesAvailable"
 	ConditionTracingConfigAvailable = "TracingConfigAvailable"
+	ConditionAuditLoggingReady      = "AuditLoggingReady"
 
 	// ReasonDeletionBlocked is the Degraded reason used when Kserve CR deletion
 	// is held back by resources that cannot yet be removed.
@@ -48,6 +49,24 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 		ConditionDependenciesAvailable,
 		ConditionTracingConfigAvailable,
 	)
+}
+
+func applyOCSFAuditLoggingCondition(condMgr *conditions.Manager, kserve *platformv1alpha1.Kserve, condition *auditLoggingCondition) {
+	if kserve.Spec.AuditLoggingProfile != platformv1alpha1.AuditProfileMetadata {
+		condMgr.MarkTrue(ConditionAuditLoggingReady,
+			conditions.WithReason(reasonAuditLoggingDisabled))
+		return
+	}
+	if condition == nil {
+		condMgr.MarkTrue(ConditionAuditLoggingReady,
+			conditions.WithReason(reasonAuditLoggingConfigured))
+		return
+	}
+	condMgr.MarkFalse(ConditionAuditLoggingReady,
+		conditions.WithSeverity(common.ConditionSeverityInfo),
+		conditions.WithReason(condition.reason),
+		conditions.WithMessage("%s", condition.message),
+		conditions.WithObservedGeneration(kserve.Generation))
 }
 
 func applyDependencyConditions(condMgr *conditions.Manager, result dependencyResult) {

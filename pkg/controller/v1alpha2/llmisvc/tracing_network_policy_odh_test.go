@@ -39,6 +39,10 @@ import (
 )
 
 var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
+	BeforeEach(func(ctx SpecContext) {
+		EnableMonitoringIngressNetworkPolicy(ctx, envTest.Client)
+	})
+
 	It("creates a comprehensive per-service OTLP egress policy", func(ctx SpecContext) {
 		testNs := NewTestNamespace(ctx, envTest)
 		collectorNs, collectorSvc := createOTLPTestService(ctx, testNs.Name, "otel-collector", map[string]string{"app": "otel-collector"}, 4317)

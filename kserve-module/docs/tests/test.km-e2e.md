@@ -78,27 +78,29 @@ PLATFORM=ocp make e2e-kserve-module-post-release
 ## Module upgrade e2e (RHOAIENG-82811)
 
 Validates that rolling the **kserve-module controller image** (base -> upgrade)
-does not disturb operand CRs or running services. The roll is triggered by the
-`e2e-roll-kserve-module` Make target (controller image update plus embedded
-manifest re-apply via `setup-cluster.sh --skip-deps`).
+does not disturb operand CRs or running services. CI also rolls the LLMISVC
+controller to an image built from the PR, so its webhook matches the PR manifests.
+The roll is triggered by the `e2e-roll-kserve-module` Make target (controller
+image update plus embedded manifest re-apply via `setup-cluster.sh --skip-deps`).
 
 | Ticket | Implementation |
 | --- | --- |
 | base = merge-base/main, upgrade = PR HEAD | CI builds `e2e-base` from base SHA + `e2e` from PR HEAD |
-| Part A: no disruption | Pre: deploy ISVC/LLMISVC, start background ISVC health probe, capture baseline. Post: verify module-controller upgrade image + new pod UID, probe clean, operand pods unchanged, controllers Available, Kserve Ready |
+| Part A: no disruption | Pre: deploy ISVC/LLMISVC, start background ISVC health probe, capture baseline. Post: verify module-controller and LLMISVC controller use PR images and new pod UIDs, probe clean, other operand pods unchanged, controllers Available, Kserve Ready |
 | Part B: new workloads | Post: create fresh ISVC + LLMISVC, verify Ready and serve |
-| CI two images | `.github/workflows/e2e-test-kserve-module.yml` |
+| CI images | `.github/workflows/e2e-test-kserve-module.yml` builds base and PR module images plus a PR LLMISVC controller image |
 
 Tests live in `kserve-module/tests/e2e/upgrade/test_upgrade.py`.
 
 Set `KSERVE_MODULE_UPGRADE_IMAGE` to the same ref passed as `E2E_IMG` to
-`e2e-roll-kserve-module` before running `post_upgrade` tests (GHA sets this
-automatically).
+`e2e-roll-kserve-module` before running `post_upgrade` tests. When rolling the
+LLMISVC controller too, set `LLMISVC_CONTROLLER_IMAGE` for the roll and the
+post-upgrade tests (GHA sets both automatically).
 
 ### CI flow (xks)
 
 ```text
-build base (main) + upgrade (PR) -> install base manifests -> pre_upgrade -> e2e-roll upgrade -> post_upgrade -> e2e-kserve-module
+build base module + PR module + PR LLMISVC -> install base manifests -> pre_upgrade -> e2e-roll upgrade with PR LLMISVC -> post_upgrade -> e2e-kserve-module
 ```
 
 ### Required CI guarantees (GitHub Actions xks)
@@ -109,7 +111,7 @@ build base (main) + upgrade (PR) -> install base manifests -> pre_upgrade -> e2e
 | Module-controller Deployment uses upgrade image after roll | Yes (`test_module_controller_rolled`, needs `KSERVE_MODULE_UPGRADE_IMAGE`) |
 | Module-controller pod UID changes after roll | Yes (`test_module_controller_rolled`) |
 | Kserve CR stays Ready with same UID | Yes |
-| Operand controller pods (kserve/llmisvc) keep same UID | Yes |
+| LLMISVC controller uses the PR image and its pod UID changes | Yes (`LLMISVC_CONTROLLER_IMAGE`) |
 | Operand controllers reach Available | Yes |
 | ISVC sklearn predict request (pre/post) | **No** - `ocp_only`; skipped on xks |
 | ISVC/LLMISVC workload pod UID survival | **No** - `ocp_only`; skipped on xks |
@@ -118,8 +120,8 @@ build base (main) + upgrade (PR) -> install base manifests -> pre_upgrade -> e2e
 | Part B: new ISVC/LLMISVC creation | **No** - `ocp_only`; skipped on xks |
 
 On xks (minikube CI), `ocp_only` tests are skipped because vanilla k8s lacks the
-OpenShift routes and serving stack those workloads need. Operand identity, Kserve
-Ready, and the module-controller image roll are still exercised.
+OpenShift routes and serving stack those workloads need. The LLMISVC controller
+image roll, Kserve Ready, and the module-controller image roll are still exercised.
 
 ### OpenShift serving continuity (not in required CI yet)
 

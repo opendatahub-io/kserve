@@ -16,6 +16,7 @@ kind: Component
 
 resources:
   - ../../../llmisvcconfig
+  - config-llm-confidential-bare-metal.yaml
 
 # Exclude the sglang template — SGLang is not a supported runtime in the product.
 patches:
