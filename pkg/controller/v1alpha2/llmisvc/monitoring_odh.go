@@ -20,6 +20,7 @@ package llmisvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
@@ -43,6 +44,11 @@ import (
 // When set to "true", the controller will skip creating PodMonitor/ServiceMonitor resources,
 // useful for clusters without the Prometheus Operator installed.
 var monitoringDisabled, _ = env.GetBool("LLMISVC_MONITORING_DISABLED", false)
+
+var legacySchedulerMonitorNames = [...]string{
+	"kserve-llm-isvc-scheduler-default",
+	"kserve-llm-isvc-scheduler",
+}
 
 // reconcileMonitoringResources reconciles all monitoring-related resources for an LLMInferenceService,
 // including RBAC permissions, Prometheus operator monitors for the llm-d scheduler and the vLLM engine.
@@ -171,7 +177,12 @@ func (r *LLMISVCReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSv
 		return nil
 	}
 
-	enableTLS := config == nil || config.EnableTLS
+	// The normal reconcile path returns on configuration load errors. Preserve existing
+	// monitors if another caller has not obtained that configuration yet.
+	if config == nil {
+		return errors.New("scheduler monitoring configuration is unavailable")
+	}
+	enableTLS := config.EnableTLS
 
 	monitor := r.expectedSchedulerMonitor(llmSvc, enableTLS)
 	if err := Reconcile[*v1alpha2.LLMInferenceService](ctx, r, llmSvc, &monitoringv1.ServiceMonitor{}, monitor, semanticServiceMonitorIsEqual); err != nil {
@@ -189,13 +200,49 @@ func (r *LLMISVCReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSv
 		return fmt.Errorf("failed to reconcile scheduler monitor %s/%s: %w", relabeledMonitor.GetNamespace(), relabeledMonitor.GetName(), err)
 	}
 
-	// Delete the legacy namespace-wide monitors these replaced. Idempotent via IgnoreNotFound.
-	for _, legacyName := range []string{"kserve-llm-isvc-scheduler-default", "kserve-llm-isvc-scheduler"} {
-		legacy := &monitoringv1.ServiceMonitor{}
-		legacy.Name = legacyName
-		legacy.Namespace = llmSvc.GetNamespace()
-		if err := client.IgnoreNotFound(r.Delete(ctx, legacy)); err != nil {
-			return fmt.Errorf("failed to delete legacy scheduler monitor %s/%s: %w", legacy.GetNamespace(), legacy.GetName(), err)
+	return r.cleanupLegacySchedulerMonitors(ctx, llmSvc.GetNamespace())
+}
+
+// cleanupLegacySchedulerMonitors keeps shared coverage until every active service
+// owns both replacements, including services that have not reconciled yet.
+func (r *LLMISVCReconciler) cleanupLegacySchedulerMonitors(ctx context.Context, namespace string) error {
+	monitors := &monitoringv1.ServiceMonitorList{}
+	if err := r.List(ctx, monitors, client.InNamespace(namespace)); err != nil {
+		return fmt.Errorf("list scheduler monitors for migration: %w", err)
+	}
+	byName := make(map[string]*monitoringv1.ServiceMonitor, len(monitors.Items))
+	for i := range monitors.Items {
+		byName[monitors.Items[i].Name] = &monitors.Items[i]
+	}
+	var legacy []*monitoringv1.ServiceMonitor
+	for _, name := range legacySchedulerMonitorNames {
+		if monitor := byName[name]; monitor != nil {
+			legacy = append(legacy, monitor)
+		}
+	}
+	if len(legacy) == 0 {
+		return nil
+	}
+
+	services := &v1alpha2.LLMInferenceServiceList{}
+	if err := r.List(ctx, services, client.InNamespace(namespace)); err != nil {
+		return fmt.Errorf("list services for scheduler monitor migration: %w", err)
+	}
+	for i := range services.Items {
+		service := &services.Items[i]
+		if !service.DeletionTimestamp.IsZero() || utils.GetForceStopRuntime(service) {
+			continue
+		}
+		for _, name := range legacySchedulerMonitorNames {
+			replacement := byName[kmeta.ChildName(service.Name, "-"+name)]
+			if replacement == nil || !replacement.DeletionTimestamp.IsZero() || !metav1.IsControlledBy(replacement, service) {
+				return nil
+			}
+		}
+	}
+	for _, monitor := range legacy {
+		if err := client.IgnoreNotFound(r.Delete(ctx, monitor)); err != nil {
+			return fmt.Errorf("delete legacy scheduler monitor %s/%s: %w", namespace, monitor.Name, err)
 		}
 	}
 	return nil
@@ -502,13 +549,8 @@ func (r *LLMISVCReconciler) cleanupMonitoringResources(ctx context.Context, llmS
 
 	// Per-service ServiceMonitors are owned via ownerReferences and collected by GC; only the
 	// legacy namespace-wide ones need deleting here.
-	for _, legacyName := range []string{"kserve-llm-isvc-scheduler-default", "kserve-llm-isvc-scheduler"} {
-		legacy := &monitoringv1.ServiceMonitor{}
-		legacy.Name = legacyName
-		legacy.Namespace = llmSvc.GetNamespace()
-		if err := client.IgnoreNotFound(r.Delete(ctx, legacy)); err != nil {
-			return fmt.Errorf("failed to delete legacy scheduler monitor %s/%s: %w", legacy.GetNamespace(), legacy.GetName(), err)
-		}
+	if err := r.cleanupLegacySchedulerMonitors(ctx, llmSvc.GetNamespace()); err != nil {
+		return err
 	}
 
 	serviceAccount := r.expectedMetricsReaderServiceAccount(llmSvc)
