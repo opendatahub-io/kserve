@@ -227,6 +227,7 @@ func (r *LLMISVCReconciler) reconcileHTTPRoutes(ctx context.Context, llmSvc *v1a
 		if perModelPaths, err = r.applyModelBasedRoutingOnly(ctx, llmSvc, cfg, expectedHTTPRoute); err != nil {
 			return nil, fmt.Errorf("failed to render HTTPRoute: %w", err)
 		}
+		normalizePublisherPathMatches(llmSvc, expectedHTTPRoute)
 	}
 
 	// Inject group members' backendRefs for traffic splitting.
@@ -276,6 +277,7 @@ func (r *LLMISVCReconciler) reconcileHTTPRoutes(ctx context.Context, llmSvc *v1a
 				strings.Join(collisions, ", "), llmSvc.Namespace,
 				llmSvc.Namespace, llmSvc.Name)
 		}
+		r.warnPublisherPathCollisions(llmSvc, expectedHTTPRoute, others.Items)
 
 		if err := Reconcile(ctx, r, llmSvc, &gwapiv1.HTTPRoute{}, expectedHTTPRoute, semanticHTTPRouteIsEqual); err != nil {
 			var invalid *apierrors.StatusError
