@@ -31,6 +31,7 @@ import (
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	"github.com/kserve/kserve/pkg/constants"
 )
 
 func TestNormalizePublisherPathMatches_ShippedRoute(t *testing.T) {
@@ -216,6 +217,16 @@ func TestFindPublisherPathCollisions(t *testing.T) {
 				newLLMISVC("b", withModelName("app/root")),
 				newLLMISVC("c", withModelName("app/root"), func(svc *v1alpha2.LLMInferenceService) {
 					svc.Spec.Router = &v1alpha2.RouterSpec{}
+				}),
+			},
+		},
+		{
+			name:  "force-stopped peer with a managed route and no address does not collide",
+			self:  newLLMISVC("a", withModelName("/app/root")),
+			route: routeAtPath("/publishers/default/models/app/root"),
+			others: []v1alpha2.LLMInferenceService{
+				newLLMISVC("b", withModelName("app/root"), withManagedRoute, func(svc *v1alpha2.LLMInferenceService) {
+					svc.Annotations = map[string]string{constants.StopAnnotationKey: "true"}
 				}),
 			},
 		},

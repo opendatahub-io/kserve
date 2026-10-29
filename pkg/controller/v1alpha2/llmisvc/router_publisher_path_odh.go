@@ -26,6 +26,7 @@ import (
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 // normalizePublisherPathMatches removes boundary slashes from the model name in
@@ -132,7 +133,8 @@ func peerPublishesPath(peer *v1alpha2.LLMInferenceService, path string) bool {
 	if len(peer.Status.Addresses) > 0 {
 		return false
 	}
-	if peer.Spec.Router == nil || peer.Spec.Router.Route == nil || peer.Spec.Router.Route.HTTP.HasRefs() {
+	if utils.GetForceStopRuntime(peer) || peer.Spec.Router == nil || peer.Spec.Router.Route == nil ||
+		peer.Spec.Router.Route.HTTP.HasRefs() {
 		return false
 	}
 	return normalizedPublisherPath(peer.Namespace, resolveModelName(peer)) == path
