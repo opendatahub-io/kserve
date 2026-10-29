@@ -239,8 +239,7 @@ func TestExpectedTracingNetworkPolicy(t *testing.T) {
 		t.Fatalf("unexpected owner references: %#v", got)
 	}
 	if got, want := np.Spec.PodSelector.MatchLabels, map[string]string{
-		constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
-		constants.KubernetesAppNameLabelKey: "svc-a",
+		networkPolicyServiceIDLabel: networkPolicyServiceID(llmSvc),
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("pod selector got %v want %v", got, want)
 	}

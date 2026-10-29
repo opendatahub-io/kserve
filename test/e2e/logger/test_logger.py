@@ -38,6 +38,7 @@ from kubernetes.client import V1ResourceRequirements
 from kubernetes.client import V1Container
 import pytest
 from ..common.utils import predict_isvc
+from .networkpolicy_helpers import allow_logger_ingress
 
 
 @pytest.mark.predictor
@@ -78,6 +79,7 @@ async def test_kserve_logger(
     kserve_client.wait_isvc_ready(msg_dumper, namespace=test_namespace)
 
     service_name = "isvc-logger"
+    allow_logger_ingress(kserve_client, msg_dumper, service_name, test_namespace)
     predictor = V1beta1PredictorSpec(
         min_replicas=1,
         logger=V1beta1LoggerSpec(

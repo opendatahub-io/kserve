@@ -172,7 +172,7 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 
 func updateLLMISVCConfigMapKey(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) error {
 	monitoringNS := os.Getenv("MONITORING_NAMESPACE")
-	if kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy == nil && monitoringNS == "" {
+	if kserve.Spec.EnableLLMInferenceServiceStrictNetworkPolicy == nil && monitoringNS == "" {
 		return nil
 	}
 
@@ -184,13 +184,13 @@ func updateLLMISVCConfigMapKey(cm *corev1.ConfigMap, kserve *platformv1alpha1.Ks
 	}
 
 	return updateCMJSONKey(cm, llmisvcConfigKeyName, func(data map[string]any) {
-		if kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy != nil {
+		if kserve.Spec.EnableLLMInferenceServiceStrictNetworkPolicy != nil {
 			featureGates, _ := data["featureGates"].(map[string]any)
 			if featureGates == nil {
 				featureGates = map[string]any{}
 				data["featureGates"] = featureGates
 			}
-			featureGates["monitoringIngressNetworkPolicy"] = *kserve.Spec.EnableLLMMonitoringIngressNetworkPolicy
+			featureGates["strictNetworkPolicy"] = *kserve.Spec.EnableLLMInferenceServiceStrictNetworkPolicy
 		}
 		if monitoringNS != "" {
 			data["monitoringNamespace"] = monitoringNS

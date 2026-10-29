@@ -130,7 +130,7 @@ func TestCustomizeKserveConfigMap_EnableTLS_True(t *testing.T) {
 	g.Expect(cm.Data[ingressConfigKeyName]).Should(ContainSubstring(`"enableLLMInferenceServiceTLS": true`))
 }
 
-func TestCustomizeKserveConfigMap_MonitoringIngressNetworkPolicy(t *testing.T) {
+func TestCustomizeKserveConfigMap_StrictNetworkPolicy(t *testing.T) {
 	g := NewWithT(t)
 
 	t.Setenv("MONITORING_NAMESPACE", "custom-ods-monitoring")
@@ -139,15 +139,15 @@ func TestCustomizeKserveConfigMap_MonitoringIngressNetworkPolicy(t *testing.T) {
 	enabled := true
 	result, err := customizeKserveConfigMap(resources, &platformv1alpha1.Kserve{
 		Spec: platformv1alpha1.KserveSpec{
-			RawDeploymentServiceConfig:                 platformv1alpha1.KserveRawHeadless,
-			EnableLLMMonitoringIngressNetworkPolicy:    &enabled,
+			RawDeploymentServiceConfig:                   platformv1alpha1.KserveRawHeadless,
+			EnableLLMInferenceServiceStrictNetworkPolicy: &enabled,
 		},
 	})
 	g.Expect(err).ShouldNot(HaveOccurred())
 
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
 	g.Expect(err).ShouldNot(HaveOccurred())
-	g.Expect(cm.Data[llmisvcConfigKeyName]).Should(ContainSubstring(`"monitoringIngressNetworkPolicy": true`))
+	g.Expect(cm.Data[llmisvcConfigKeyName]).Should(ContainSubstring(`"strictNetworkPolicy": true`))
 	g.Expect(cm.Data[llmisvcConfigKeyName]).Should(ContainSubstring(`"monitoringNamespace": "custom-ods-monitoring"`))
 }
 

@@ -41,6 +41,7 @@ from kubernetes.client import V1ResourceRequirements
 from kubernetes.client import V1Container
 import pytest
 from ..common.utils import predict_isvc
+from .networkpolicy_helpers import allow_logger_ingress
 
 
 annotations = {"serving.kserve.io/deploymentMode": "Standard"}
@@ -177,6 +178,8 @@ async def base_test(
     network_layer,
     namespace,
 ):
+    allow_logger_ingress(kserve_client, msg_dumper, service_name, namespace)
+
     isvc = V1beta1InferenceService(
         api_version=constants.KSERVE_V1BETA1,
         kind=constants.KSERVE_KIND_INFERENCESERVICE,
