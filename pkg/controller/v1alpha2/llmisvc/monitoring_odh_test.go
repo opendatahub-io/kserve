@@ -20,6 +20,8 @@ package llmisvc_test
 
 import (
 	"context"
+	"crypto/x509"
+	"encoding/pem"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
@@ -76,7 +78,7 @@ var _ = Describe("LLMInferenceService Monitoring", func() {
 			waitForVLLMEnginePodMonitor(ctx, svcName, testNs.Name)
 
 			// then - verify ServiceMonitor is created
-			expectedServiceMonitor := waitForSchedulerServiceMonitor(ctx, testNs.Name)
+			expectedServiceMonitor := waitForPerServiceSchedulerMonitor(ctx, svcName, testNs.Name)
 			Expect(expectedServiceMonitor.Spec.Endpoints).To(HaveLen(1))
 			Expect(expectedServiceMonitor.Spec.Endpoints[0].Port).To(Equal("metrics"))
 			Expect(expectedServiceMonitor.Spec.Endpoints[0].Authorization.Credentials.Name).To(Equal("kserve-metrics-reader-sa-secret"))
@@ -139,8 +141,9 @@ var _ = Describe("LLMInferenceService Monitoring", func() {
 					Namespace: testNs.Name,
 				}, expectedPodMonitor)).Should(Succeed())
 
+				// The second service's per-service scheduler ServiceMonitor must survive.
 				g.Expect(envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-llm-isvc-scheduler",
+					Name:      kmeta.ChildName(svcName+"-2", "-kserve-llm-isvc-scheduler-default"),
 					Namespace: testNs.Name,
 				}, expectedServiceMonitor)).Should(Succeed())
 			}).WithContext(ctx).Should(Succeed())
@@ -165,9 +168,8 @@ var _ = Describe("LLMInferenceService Monitoring", func() {
 			// when - delete the last (and only) service
 			Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
 
-			// then - RBAC resources and ServiceMonitor should be deleted
-			// Note: per-service PodMonitors are owned by ownerReference and cleaned up by
-			// Kubernetes GC in real clusters; envtest does not run GC so we omit that assertion.
+			// then - the namespace-scoped RBAC resources should be deleted. Per-service
+			// PodMonitors and ServiceMonitors are owner-GC'd, and envtest runs no GC.
 			Eventually(func(ctx context.Context) bool {
 				serviceAccount := &corev1.ServiceAccount{}
 				err := envTest.Get(ctx, types.NamespacedName{
@@ -193,16 +195,124 @@ var _ = Describe("LLMInferenceService Monitoring", func() {
 				}, clusterRoleBinding)
 				return err != nil && apierrors.IsNotFound(err)
 			}).WithContext(ctx).Should(BeTrue(), "monitoring ClusterRoleBinding should be deleted")
-
-			Eventually(func(ctx context.Context) bool {
-				serviceMonitor := &monitoringv1.ServiceMonitor{}
-				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      "kserve-llm-isvc-scheduler",
-					Namespace: testNs.Name,
-				}, serviceMonitor)
-				return err != nil && apierrors.IsNotFound(err)
-			}).WithContext(ctx).Should(BeTrue(), "monitoring ServiceMonitor should be deleted")
 		})
+	})
+})
+
+var _ = Describe("Scheduler ServiceMonitor", func() {
+	// The scheduler monitor is per-service, which is what makes its per-model CA and
+	// ServerName safe. A namespace-wide monitor carrying one model's values would fail
+	// hostname verification for every other model in the namespace.
+
+	It("is named, owned and selected per service, and verifies the scheduler certificate", func(ctx SpecContext) {
+		svcName := "sched-mon-per-service"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedScheduler(),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		sm := waitForPerServiceSchedulerMonitor(ctx, svcName, testNs.Name)
+
+		Expect(sm.OwnerReferences).To(HaveLen(1))
+		Expect(sm.OwnerReferences[0].Name).To(Equal(svcName))
+		// Without this the monitor matches every scheduler Service in the namespace.
+		Expect(sm.Spec.Selector.MatchLabels).To(HaveKeyWithValue("app.kubernetes.io/name", svcName))
+
+		endpoint := sm.Spec.Endpoints[0]
+		Expect(endpoint.Scheme).To(HaveValue(Equal(monitoringv1.Scheme("https"))))
+		Expect(endpoint.TLSConfig).ToNot(BeNil())
+		Expect(endpoint.TLSConfig.InsecureSkipVerify).To(BeNil(), "verification must not be skipped")
+		Expect(endpoint.TLSConfig.CA.Secret).ToNot(BeNil())
+		Expect(endpoint.TLSConfig.CA.Secret.Name).To(Equal(kmeta.ChildName(svcName, "-kserve-self-signed-certs")))
+		Expect(endpoint.TLSConfig.ServerName).ToNot(BeNil())
+		Expect(*endpoint.TLSConfig.ServerName).To(HaveSuffix(".svc"))
+		expectSchedulerMetricsProtocol(ctx, svcName, testNs.Name, "https")
+	})
+
+	It("declares and monitors HTTP when metrics TLS is disabled", func(ctx SpecContext) {
+		PatchIngressConfigKey(ctx, envTest.Client, "enableLLMInferenceServiceTLS", false)
+		DeferCleanup(func(ctx context.Context) {
+			PatchIngressConfigKey(ctx, envTest.Client, "enableLLMInferenceServiceTLS", true)
+		})
+		svcName := "sched-mon-http"
+		testNs := NewTestNamespace(ctx, envTest)
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedScheduler(),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+		sm := waitForPerServiceSchedulerMonitor(ctx, svcName, testNs.Name)
+		Expect(sm.Spec.Endpoints[0].Scheme).To(HaveValue(Equal(monitoringv1.Scheme("http"))))
+		Expect(sm.Spec.Endpoints[0].TLSConfig).To(BeNil())
+		expectSchedulerMetricsProtocol(ctx, svcName, testNs.Name, "http")
+	})
+
+	DescribeTable("follows the metrics listener when it overrides global TLS", func(ctx SpecContext, globalTLS bool, argument, protocol string) {
+		PatchIngressConfigKey(ctx, envTest.Client, "enableLLMInferenceServiceTLS", globalTLS)
+		DeferCleanup(func(ctx SpecContext) {
+			PatchIngressConfigKey(ctx, envTest.Client, "enableLLMInferenceServiceTLS", true)
+		})
+		testNs := NewTestNamespace(ctx, envTest)
+		llmSvc := LLMInferenceService("metrics-override",
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedScheduler(),
+		)
+		llmSvc.Spec.Router.Scheduler.Template = &corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Args: []string{argument}}}}
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+		expectSchedulerMetricsProtocol(ctx, llmSvc.Name, testNs.Name, protocol)
+		monitor := waitForPerServiceSchedulerMonitor(ctx, llmSvc.Name, testNs.Name)
+		endpoint := monitor.Spec.Endpoints[0]
+		Expect(endpoint.Scheme).To(HaveValue(Equal(monitoringv1.Scheme(protocol))))
+		if protocol == "https" {
+			Expect(endpoint.TLSConfig).ToNot(BeNil())
+			secret := &corev1.Secret{}
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: endpoint.TLSConfig.CA.Secret.Name, Namespace: testNs.Name}, secret)).To(Succeed())
+			Expect(secret.Data[endpoint.TLSConfig.CA.Secret.Key]).ToNot(BeEmpty())
+		} else {
+			Expect(endpoint.TLSConfig).To(BeNil())
+		}
+	},
+		Entry("HTTP override with global TLS enabled", true, "--metrics-cert-dir=", "http"),
+		Entry("HTTPS override with global TLS disabled", false, "--metrics-cert-dir=/var/run/kserve/tls", "https"),
+	)
+
+	It("asserts a ServerName the certificate actually carries", func(ctx SpecContext) {
+		svcName := "sched-mon-san-match"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedScheduler(),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		sm := waitForPerServiceSchedulerMonitor(ctx, svcName, testNs.Name)
+		serverName := *sm.Spec.Endpoints[0].TLSConfig.ServerName
+
+		secret := &corev1.Secret{}
+		Eventually(func(_ Gomega, ctx context.Context) error {
+			return envTest.Get(ctx, types.NamespacedName{
+				Name: kmeta.ChildName(svcName, "-kserve-self-signed-certs"), Namespace: testNs.Name,
+			}, secret)
+		}).WithContext(ctx).Should(Succeed())
+
+		block, _ := pem.Decode(secret.Data["tls.crt"])
+		Expect(block).ToNot(BeNil())
+		cert, err := x509.ParseCertificate(block.Bytes)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(cert.DNSNames).To(ContainElement(serverName),
+			"the asserted ServerName must be a SAN or every scrape fails verification")
 	})
 })
 
@@ -621,30 +731,28 @@ func waitForVLLMEnginePodMonitor(ctx context.Context, svcName, nsName string) {
 	}).WithContext(ctx).Should(Succeed())
 }
 
-// waitForSchedulerServiceMonitor waits until the shared scheduler ServiceMonitor appears and returns it.
-func waitForSchedulerServiceMonitor(ctx context.Context, nsName string) *monitoringv1.ServiceMonitor {
-	expectedServiceMonitor := &monitoringv1.ServiceMonitor{}
-	Eventually(func(_ Gomega, ctx context.Context) error {
-		return envTest.Get(ctx, types.NamespacedName{
-			Name:      "kserve-llm-isvc-scheduler",
-			Namespace: nsName,
-		}, expectedServiceMonitor)
-	}).WithContext(ctx).Should(Succeed())
-
-	return expectedServiceMonitor
-}
-
-// waitForAllMonitoringResources waits until the RBAC resources, per-service PodMonitor for svcName,
-// and the shared ServiceMonitor are all present.
+// waitForAllMonitoringResources waits until the namespace RBAC resources and both per-service
+// monitors for svcName are present.
 func waitForAllMonitoringResources(ctx context.Context, svcName, nsName string) {
 	waitForMetricsReaderServiceAccount(ctx, nsName)
 	waitForMetricsReaderSASecret(ctx, nsName)
 	waitForMetricsReaderRoleBinding(ctx, nsName)
 	waitForVLLMEnginePodMonitor(ctx, svcName, nsName)
-	waitForSchedulerServiceMonitor(ctx, nsName)
+	waitForPerServiceSchedulerMonitor(ctx, svcName, nsName)
 }
 
-// waitForPerServicePodMonitor waits for the per-service PodMonitor for svcName to appear and returns it.
+// waitForPerServiceSchedulerMonitor returns the per-service scheduler ServiceMonitor.
+func waitForPerServiceSchedulerMonitor(ctx context.Context, svcName, nsName string) *monitoringv1.ServiceMonitor {
+	sm := &monitoringv1.ServiceMonitor{}
+	Eventually(func(_ Gomega, ctx context.Context) error {
+		return envTest.Get(ctx, types.NamespacedName{
+			Name:      kmeta.ChildName(svcName, "-kserve-llm-isvc-scheduler-default"),
+			Namespace: nsName,
+		}, sm)
+	}).WithContext(ctx).Should(Succeed())
+	return sm
+}
+
 func waitForPerServicePodMonitor(ctx context.Context, svcName, nsName string) *monitoringv1.PodMonitor {
 	pm := &monitoringv1.PodMonitor{}
 	Eventually(func(_ Gomega, ctx context.Context) error {
@@ -664,4 +772,17 @@ func assertPodMonitorGone(ctx context.Context, name, nsName string) {
 		err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: nsName}, pm)
 		return apierrors.IsNotFound(err)
 	}).WithContext(ctx).Should(BeTrue(), "PodMonitor %s should not exist", name)
+}
+
+func expectSchedulerMetricsProtocol(ctx context.Context, name, namespace, protocol string) {
+	Eventually(func(g Gomega, ctx context.Context) {
+		service := &corev1.Service{}
+		g.Expect(envTest.Get(ctx, types.NamespacedName{
+			Name: kmeta.ChildName(name, "-epp-service"), Namespace: namespace,
+		}, service)).To(Succeed())
+		g.Expect(service.Spec.Ports).To(ContainElement(SatisfyAll(
+			HaveField("Name", "metrics"),
+			HaveField("AppProtocol", HaveValue(Equal(protocol))),
+		)))
+	}).WithContext(ctx).Should(Succeed())
 }
