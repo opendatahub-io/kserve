@@ -573,17 +573,19 @@ def scale_deployment(kubectl_bin, name, replicas, namespace=NAMESPACE):
 def wait_for_deployment_scaled_down(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S):
     """Wait until a scaled-down deployment has no replica pods left.
 
-    status.replicas (not spec.replicas) reflects the pods the deployment
-    controller still has to terminate, so this confirms the old pod -- and
-    whatever reconcile it had in flight -- is actually gone.
+    Reads status.replicas and retries on a failed get, rather than reading the
+    failure as zero.
     """
     deadline = time.time() + timeout
     while time.time() < deadline:
-        current = get_jsonpath(
-            kubectl_bin, "deployment", name, "{.status.replicas}", namespace=namespace
+        result = run(
+            [kubectl_bin, "get", "deployment", name, "-n", namespace, "-o", "json"],
+            check=False,
         )
-        if not current or int(current) == 0:
-            return
+        if result.returncode == 0:
+            dep = json.loads(result.stdout)
+            if dep.get("status", {}).get("replicas", 0) == 0:
+                return
         time.sleep(2)
     raise TimeoutError(f"deployment {name} still has replicas after scaling to 0 within {timeout}s")
 

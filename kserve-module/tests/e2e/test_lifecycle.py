@@ -267,14 +267,11 @@ class TestManagementState:
         _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
                  f"observedGeneration not matching within {TIMEOUT_120S}s")
 
-        # extraCleanup runs on every reconcile, not just this one -- the
-        # controller's own status write after the patch above queues a second,
-        # invisible reconcile that can still be in flight once _poll_cr returns.
-        # Scale the controller to 0 so no reconcile of any kind can run while
-        # the leftovers are being created, then restore it to reconcile them.
-        scale_deployment(kubectl, OPERATOR_DEPLOYMENT, 0)
-        wait_for_deployment_scaled_down(kubectl, OPERATOR_DEPLOYMENT)
+        # extraCleanup runs on every reconcile, so pause the controller while
+        # the leftovers are created.
         try:
+            scale_deployment(kubectl, OPERATOR_DEPLOYMENT, 0)
+            wait_for_deployment_scaled_down(kubectl, OPERATOR_DEPLOYMENT)
             _seed_wva_extra_cleanup_leftovers(kubectl)
         finally:
             scale_deployment(kubectl, OPERATOR_DEPLOYMENT, 1)
@@ -455,11 +452,7 @@ class TestDeletionRecovery:
 def _seed_wva_extra_cleanup_leftovers(kubectl):
     """Create leftover 3.5 VA CRD and inferenceservice-config key extraCleanup should remove.
 
-    Caller must scale the controller to 0 first: WVA is always disabled in 3.6
-    (isWVAEnabled is hardcoded false), so extraCleanup runs on every reconcile,
-    not just when WVA is Removed. With the controller running, any reconcile
-    landing mid-seed deletes the CRD/CR before this function is done creating
-    them.
+    Caller must scale the controller to 0 first: nothing may reconcile mid-seed.
     """
     leftover_crd = (
         "apiVersion: apiextensions.k8s.io/v1\n"
@@ -498,9 +491,8 @@ def _seed_wva_extra_cleanup_leftovers(kubectl):
     assert resource_exists(kubectl, "variantautoscaling", "leftover-va",
                            namespace=NAMESPACE), \
         "VariantAutoscaling CR leftover must exist before extraCleanup"
-    # Patch the ConfigMap last so every leftover above is confirmed to exist
-    # first. The module owns and watches this ConfigMap, so this patch queues a
-    # reconcile the moment the controller is scaled back up.
+    # Patch the ConfigMap last: the module watches it, so this queues the
+    # reconcile that runs extraCleanup once the controller is scaled back up.
     run(
         [kubectl, "patch", "configmap", "inferenceservice-config", "-n", NAMESPACE,
          "--type", "merge", "-p",
