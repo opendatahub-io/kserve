@@ -46,6 +46,11 @@ import (
 
 func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builder.Builder) error {
 	b.Owns(&netv1.NetworkPolicy{}, builder.WithPredicates(childResourcesPredicate))
+	if !monitoringDisabled {
+		b.Watches(&corev1.ServiceAccount{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueOnServiceAccountChange(mgr.GetLogger())),
+			builder.WithPredicates(metricsReaderServiceAccountPredicate()))
+	}
 	if err := setupTracingServiceIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
@@ -80,6 +85,21 @@ func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builde
 	}
 
 	return nil
+}
+
+// metricsReaderServiceAccountPredicate triggers token reconciliation when the
+// shared metrics reader ServiceAccount is created or deleted. Updates to the
+// ServiceAccount do not change its UID and would cause unnecessary reconciles.
+func metricsReaderServiceAccountPredicate() predicate.Predicate {
+	isMetricsReader := func(obj client.Object) bool {
+		return obj != nil && obj.GetName() == "kserve-metrics-reader-sa"
+	}
+	return predicate.Funcs{
+		CreateFunc:  func(e event.CreateEvent) bool { return isMetricsReader(e.Object) },
+		DeleteFunc:  func(e event.DeleteEvent) bool { return isMetricsReader(e.Object) },
+		UpdateFunc:  func(event.UpdateEvent) bool { return false },
+		GenericFunc: func(event.GenericEvent) bool { return false },
+	}
 }
 
 // routeChangePredicate fires on Route events that could affect URL discovery:
