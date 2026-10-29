@@ -19,10 +19,14 @@ limitations under the License.
 package llmisvc
 
 import (
+	"context"
 	"slices"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	"knative.dev/pkg/kmeta"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -73,8 +77,8 @@ func normalizedPublisherPath(namespace, modelName string) string {
 
 // warnPublisherPathCollisions reports model names that are distinct for model
 // routing but resolve to the same publisher path after slash normalization.
-func (r *LLMISVCReconciler) warnPublisherPathCollisions(llmSvc *v1alpha2.LLMInferenceService, route *gwapiv1.HTTPRoute, others []v1alpha2.LLMInferenceService) {
-	collisions := findPublisherPathCollisions(llmSvc, route, others)
+func (r *LLMISVCReconciler) warnPublisherPathCollisions(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, route *gwapiv1.HTTPRoute, others []v1alpha2.LLMInferenceService) {
+	collisions := r.findPublisherPathCollisions(ctx, llmSvc, route, others)
 	if len(collisions) == 0 {
 		return
 	}
@@ -85,7 +89,7 @@ func (r *LLMISVCReconciler) warnPublisherPathCollisions(llmSvc *v1alpha2.LLMInfe
 		strings.Join(collisions, ", "), llmSvc.Namespace, llmSvc.Namespace, llmSvc.Name)
 }
 
-func findPublisherPathCollisions(self *v1alpha2.LLMInferenceService, route *gwapiv1.HTTPRoute, others []v1alpha2.LLMInferenceService) []string {
+func (r *LLMISVCReconciler) findPublisherPathCollisions(ctx context.Context, self *v1alpha2.LLMInferenceService, route *gwapiv1.HTTPRoute, others []v1alpha2.LLMInferenceService) []string {
 	path := normalizedPublisherPath(self.Namespace, resolveModelName(self))
 	if !hasPublisherPathMatch(route, path) {
 		return nil
@@ -100,7 +104,7 @@ func findPublisherPathCollisions(self *v1alpha2.LLMInferenceService, route *gwap
 			otherModelNamesOverlap(selfModelNames, other) {
 			continue
 		}
-		if peerPublishesPath(other, path) {
+		if r.peerPublishesPath(ctx, other, path) {
 			collisions = append(collisions, other.Name)
 		}
 	}
@@ -124,7 +128,10 @@ func hasPublisherPathMatch(route *gwapiv1.HTTPRoute, prefix string) bool {
 	return false
 }
 
-func peerPublishesPath(peer *v1alpha2.LLMInferenceService, path string) bool {
+func (r *LLMISVCReconciler) peerPublishesPath(ctx context.Context, peer *v1alpha2.LLMInferenceService, path string) bool {
+	if utils.GetForceStopRuntime(peer) {
+		return false
+	}
 	for _, address := range peer.Status.Addresses {
 		if address.URL != nil && address.URL.Path == path {
 			return true
@@ -133,8 +140,17 @@ func peerPublishesPath(peer *v1alpha2.LLMInferenceService, path string) bool {
 	if len(peer.Status.Addresses) > 0 {
 		return false
 	}
-	if utils.GetForceStopRuntime(peer) || peer.Spec.Router == nil || peer.Spec.Router.Route == nil ||
-		peer.Spec.Router.Route.HTTP.HasRefs() {
+	if peer.Spec.Router == nil || peer.Spec.Router.Route == nil {
+		// The stored spec may lack a router supplied by a baseRef. Check the
+		// managed route while address discovery has not populated status yet.
+		route := &gwapiv1.HTTPRoute{}
+		key := types.NamespacedName{Namespace: peer.Namespace, Name: kmeta.ChildName(peer.Name, "-kserve-route")}
+		if err := r.Get(ctx, key, route); err != nil {
+			return false
+		}
+		return metav1.IsControlledBy(route, peer) && hasPublisherPathMatch(route, path)
+	}
+	if peer.Spec.Router.Route.HTTP.HasRefs() {
 		return false
 	}
 	return normalizedPublisherPath(peer.Namespace, resolveModelName(peer)) == path

@@ -23,11 +23,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
+	"knative.dev/pkg/kmeta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -115,7 +120,8 @@ func TestNormalizePublisherPathMatches_SlashOnlyNameDropsPublisherRules(t *testi
 			assert.Equal(t, len(publisherRules), removed, "every shipped publisher rule must be checked")
 			assert.Equal(t, expected, route.Spec.Rules, "other paths and model-routing matches must remain")
 			assert.False(t, hasPublisherPathMatch(route, "/publishers/ns/models"), "no namespace-wide publisher catch-all")
-			assert.Empty(t, findPublisherPathCollisions(llmSvc, route, []v1alpha2.LLMInferenceService{
+			r := &LLMISVCReconciler{}
+			assert.Empty(t, r.findPublisherPathCollisions(t.Context(), llmSvc, route, []v1alpha2.LLMInferenceService{
 				newLLMISVC("peer", withModelName("other")),
 			}))
 		})
@@ -166,14 +172,67 @@ func TestFindPublisherPathCollisions(t *testing.T) {
 			}}},
 		}}}}
 	}
+	managedRoute := func(peerName, path string) *gwapiv1.HTTPRoute {
+		peer := newLLMISVC(peerName)
+		route := routeAtPath(path)
+		route.Name = kmeta.ChildName(peer.Name, "-kserve-route")
+		route.Namespace = peer.Namespace
+		route.OwnerReferences = []metav1.OwnerReference{*metav1.NewControllerRef(&peer, v1alpha2.LLMInferenceServiceGVK)}
+		return route
+	}
+	unownedRoute := managedRoute("b", "/publishers/default/models/app/root")
+	unownedRoute.OwnerReferences = nil
+	withBaseRef := func(svc *v1alpha2.LLMInferenceService) {
+		svc.Spec.BaseRefs = []corev1.LocalObjectReference{{Name: "route-preset"}}
+	}
 
 	tests := []struct {
 		name   string
 		self   v1alpha2.LLMInferenceService
 		route  *gwapiv1.HTTPRoute
 		others []v1alpha2.LLMInferenceService
+		routes []client.Object
 		want   []string
 	}{
+		{
+			name:  "baseRef route collides before peer has addresses",
+			self:  newLLMISVC("a", withModelName("/app/root")),
+			route: routeAtPath("/publishers/default/models/app/root"),
+			others: []v1alpha2.LLMInferenceService{
+				newLLMISVC("b", withModelName("app/root"), withBaseRef),
+			},
+			routes: []client.Object{managedRoute("b", "/publishers/default/models/app/root")},
+			want:   []string{"b"},
+		},
+		{
+			name:  "unowned route at the managed name does not collide",
+			self:  newLLMISVC("a", withModelName("/app/root")),
+			route: routeAtPath("/publishers/default/models/app/root"),
+			others: []v1alpha2.LLMInferenceService{
+				newLLMISVC("b", withModelName("app/root"), withBaseRef),
+			},
+			routes: []client.Object{unownedRoute},
+		},
+		{
+			name:  "baseRef route with a different publisher path does not collide",
+			self:  newLLMISVC("a", withModelName("/app/root")),
+			route: routeAtPath("/publishers/default/models/app/root"),
+			others: []v1alpha2.LLMInferenceService{
+				newLLMISVC("b", withModelName("app/root"), withBaseRef),
+			},
+			routes: []client.Object{managedRoute("b", "/publishers/default/models/other")},
+		},
+		{
+			name:  "force-stopped baseRef peer with managed route does not collide",
+			self:  newLLMISVC("a", withModelName("/app/root")),
+			route: routeAtPath("/publishers/default/models/app/root"),
+			others: []v1alpha2.LLMInferenceService{
+				newLLMISVC("b", withModelName("app/root"), withBaseRef, func(svc *v1alpha2.LLMInferenceService) {
+					svc.Annotations = map[string]string{constants.StopAnnotationKey: "true"}
+				}),
+			},
+			routes: []client.Object{managedRoute("b", "/publishers/default/models/app/root")},
+		},
 		{
 			name:  "slash-prefixed model collides with ordinary model before peer has status",
 			self:  newLLMISVC("a", withModelName("/app/root")),
@@ -267,7 +326,10 @@ func TestFindPublisherPathCollisions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := findPublisherPathCollisions(&tt.self, tt.route, tt.others)
+			scheme := runtime.NewScheme()
+			require.NoError(t, gwapiv1.Install(scheme))
+			r := &LLMISVCReconciler{Client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(tt.routes...).Build()}
+			got := r.findPublisherPathCollisions(t.Context(), &tt.self, tt.route, tt.others)
 			assert.Equal(t, tt.want, got)
 		})
 	}
@@ -284,7 +346,7 @@ func TestWarnPublisherPathCollisions(t *testing.T) {
 	recorder := record.NewFakeRecorder(1)
 	r := &LLMISVCReconciler{EventRecorder: recorder}
 
-	r.warnPublisherPathCollisions(&self, route, []v1alpha2.LLMInferenceService{peer})
+	r.warnPublisherPathCollisions(t.Context(), &self, route, []v1alpha2.LLMInferenceService{peer})
 
 	select {
 	case event := <-recorder.Events:

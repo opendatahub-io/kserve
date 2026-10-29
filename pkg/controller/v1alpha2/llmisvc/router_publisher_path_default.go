@@ -19,6 +19,8 @@ limitations under the License.
 package llmisvc
 
 import (
+	"context"
+
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -26,5 +28,5 @@ import (
 
 func normalizePublisherPathMatches(_ *v1alpha2.LLMInferenceService, _ *gwapiv1.HTTPRoute) {}
 
-func (r *LLMISVCReconciler) warnPublisherPathCollisions(_ *v1alpha2.LLMInferenceService, _ *gwapiv1.HTTPRoute, _ []v1alpha2.LLMInferenceService) {
+func (r *LLMISVCReconciler) warnPublisherPathCollisions(_ context.Context, _ *v1alpha2.LLMInferenceService, _ *gwapiv1.HTTPRoute, _ []v1alpha2.LLMInferenceService) {
 }
