@@ -19,11 +19,15 @@ limitations under the License.
 package llmisvc
 
 import (
+	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,6 +36,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
@@ -111,4 +116,47 @@ func monitoringTestClient(t *testing.T, objects ...client.Object) client.Client 
 	mapper := meta.NewDefaultRESTMapper([]schema.GroupVersion{monitoringv1.SchemeGroupVersion})
 	mapper.Add(monitoringv1.SchemeGroupVersion.WithKind("ServiceMonitor"), meta.RESTScopeNamespace)
 	return fake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(mapper).WithObjects(objects...).Build()
+}
+
+func TestMonitoringFinalizationWithoutServiceMonitorAPI(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		listError error
+		wantError bool
+	}{
+		{name: "removed CRD", listError: &meta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "monitoring.coreos.com", Kind: "ServiceMonitor"}}},
+		{name: "other list errors remain fatal", listError: errors.New("access denied"), wantError: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			model := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{Name: "last", Namespace: "models"}}
+			r := &LLMISVCReconciler{EventRecorder: record.NewFakeRecorder(20)}
+			account := r.expectedMetricsReaderServiceAccount(model)
+			scheme := runtime.NewScheme()
+			for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, netv1.AddToScheme, rbacv1.AddToScheme, v1alpha2.AddToScheme, monitoringv1.AddToScheme} {
+				if err := add(scheme); err != nil {
+					t.Fatal(err)
+				}
+			}
+			base := fake.NewClientBuilder().WithScheme(scheme).WithObjects(account).Build()
+			r.Client = interceptor.NewClient(base, interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+				if _, ok := list.(*monitoringv1.ServiceMonitorList); ok {
+					return tt.listError
+				}
+				return c.List(ctx, list, opts...)
+			}})
+			err := r.cleanupMonitoringResources(t.Context(), model)
+			if tt.wantError {
+				if !errors.Is(err, tt.listError) {
+					t.Fatalf("expected list failure to block cleanup got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := r.Get(t.Context(), client.ObjectKeyFromObject(account), &corev1.ServiceAccount{}); !apierrors.IsNotFound(err) {
+				t.Fatalf("missing monitoring CRD prevented shared account cleanup: %v", err)
+			}
+		})
+	}
 }

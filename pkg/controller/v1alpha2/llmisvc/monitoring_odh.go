@@ -27,6 +27,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/env"
@@ -207,6 +208,9 @@ func (r *LLMISVCReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSv
 func (r *LLMISVCReconciler) cleanupLegacySchedulerMonitors(ctx context.Context, namespace string) error {
 	monitors := &monitoringv1.ServiceMonitorList{}
 	if err := r.List(ctx, monitors, client.InNamespace(namespace)); err != nil {
+		if meta.IsNoMatchError(err) {
+			return nil
+		}
 		return fmt.Errorf("list scheduler monitors for migration: %w", err)
 	}
 	byName := make(map[string]*monitoringv1.ServiceMonitor, len(monitors.Items))
