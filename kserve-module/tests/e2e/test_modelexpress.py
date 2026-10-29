@@ -173,7 +173,10 @@ class TestModelExpressLifecycle:
                 assert AUTH_DELEGATOR_FINALIZER in finalizers, \
                     f"operator should add {AUTH_DELEGATOR_FINALIZER}, got {finalizers!r}"
 
-            wait_for(assert_finalizer_held, timeout=TIMEOUT_120S, interval=5)
+            # The finalizer is added only at the end of a successful reconcile,
+            # and the operator requeues config-class errors after 120s. Waiting
+            # 120s here leaves no room for a retry, so use the cold-start timeout.
+            wait_for(assert_finalizer_held, timeout=TIMEOUT_300S, interval=5)
 
             _set_state(kubectl, "Removed")
 

@@ -439,11 +439,6 @@ class TestDeletionRecovery:
 
 def _seed_wva_extra_cleanup_leftovers(kubectl):
     """Create leftover 3.5 VA CRD and inferenceservice-config key extraCleanup should remove."""
-    run(
-        [kubectl, "patch", "configmap", "inferenceservice-config", "-n", NAMESPACE,
-         "--type", "merge", "-p",
-         json.dumps({"data": {"autoscaling-wva-controller-config": "{}"}})],
-    )
     leftover_crd = (
         "apiVersion: apiextensions.k8s.io/v1\n"
         "kind: CustomResourceDefinition\n"
@@ -481,6 +476,15 @@ def _seed_wva_extra_cleanup_leftovers(kubectl):
     assert resource_exists(kubectl, "variantautoscaling", "leftover-va",
                            namespace=NAMESPACE), \
         "VariantAutoscaling CR leftover must exist before extraCleanup"
+    # Patch the ConfigMap last: the module owns and watches it, so this queues a
+    # reconcile. With WVA Removed, extraCleanup deletes the VA CRD and its CRs on
+    # that reconcile. Patching it before the assertions above races the cleanup
+    # against the seeding.
+    run(
+        [kubectl, "patch", "configmap", "inferenceservice-config", "-n", NAMESPACE,
+         "--type", "merge", "-p",
+         json.dumps({"data": {"autoscaling-wva-controller-config": "{}"}})],
+    )
 
 
 def _apply_leftover_wva_resources(kubectl):
