@@ -216,6 +216,9 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 	}
 
 	settings := settingsFromAPIServer(apiServer)
+	if !isKnownTLSAdherence(settings.Adherence) {
+		log.Info("Unknown TLS adherence policy, treating it as StrictAllComponents", "adherence", settings.Adherence)
+	}
 	profile := apiServer.Spec.TLSSecurityProfile
 	if !shouldHonorClusterTLSProfile(apiServer.Spec.TLSAdherence) {
 		profile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}

@@ -19,6 +19,7 @@ limitations under the License.
 package inferencegraph
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -27,6 +28,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	configv1 "github.com/openshift/api/config/v1"
+	"github.com/stretchr/testify/require"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -229,7 +236,9 @@ func TestCustomizeRouterPodSpec(t *testing.T) {
 	for _, tt := range scenarios {
 		t.Run(tt.name, func(t *testing.T) {
 			result := createInferenceGraphPodSpec(tt.graph, tt.config)
-			customizeRouterPodSpec(tt.graph, result)
+			if err := customizeRouterPodSpec(context.Background(), nil, tt.graph, result); err != nil {
+				t.Fatalf("customizeRouterPodSpec: %v", err)
+			}
 
 			if diff := cmp.Diff(tt.expected(odhTestGraphJSON(t, tt.graph)), result); diff != "" {
 				t.Errorf("unexpected router pod spec (-want +got): %v", diff)
@@ -241,17 +250,90 @@ func TestCustomizeRouterPodSpec(t *testing.T) {
 func TestCustomizeRouterPodSpecToleratesMissingPodSpec(t *testing.T) {
 	graph := odhTestGraph(map[string]string{constants.ODHKserveRawAuth: "true"}, "")
 
-	customizeRouterPodSpec(graph, nil)
+	if err := customizeRouterPodSpec(context.Background(), nil, graph, nil); err != nil {
+		t.Fatalf("nil pod spec: %v", err)
+	}
 
 	empty := &corev1.PodSpec{}
-	customizeRouterPodSpec(graph, empty)
+	if err := customizeRouterPodSpec(context.Background(), nil, graph, empty); err != nil {
+		t.Fatalf("empty pod spec: %v", err)
+	}
 	if diff := cmp.Diff(&corev1.PodSpec{}, empty); diff != "" {
 		t.Errorf("pod spec without containers should stay untouched (-want +got): %v", diff)
 	}
 
 	withoutProbe := &corev1.PodSpec{Containers: []corev1.Container{{Name: odhTestGraphName}}}
-	customizeRouterPodSpec(graph, withoutProbe)
+	if err := customizeRouterPodSpec(context.Background(), nil, graph, withoutProbe); err != nil {
+		t.Fatalf("pod spec without probe: %v", err)
+	}
 	if withoutProbe.Containers[0].ReadinessProbe != nil {
 		t.Errorf("readiness probe should not be created, got %v", withoutProbe.Containers[0].ReadinessProbe)
 	}
+}
+
+func TestCustomizeRouterPodSpecProjectsClusterTLSProfile(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	strictModern := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence:       configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileModernType},
+		},
+	}).Build()
+
+	podSpec := createInferenceGraphPodSpec(odhTestGraph(nil, ""), &odhTestRouterConfig)
+	require.NoError(t, customizeRouterPodSpec(context.Background(), strictModern, odhTestGraph(nil, ""), podSpec))
+
+	router := podSpec.Containers[0]
+	require.Equal(t, "--enable-tls", router.Args[0])
+	// The profile args follow the graph JSON argument.
+	require.Equal(t, "--tls-min-version", router.Args[len(router.Args)-2])
+	require.Equal(t, "VersionTLS13", router.Args[len(router.Args)-1])
+	// TLS 1.3 manages cipher selection internally, so no cipher flag is added.
+	require.NotContains(t, router.Args, "--tls-cipher-suites")
+}
+
+func TestCustomizeRouterPodSpecRollsPodTemplateOnProfileChange(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	profile := func(profileType configv1.TLSProfileType) client.Reader {
+		return fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+			ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+			Spec: configv1.APIServerSpec{
+				TLSAdherence:       configv1.TLSAdherencePolicyStrictAllComponents,
+				TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: profileType},
+			},
+		}).Build()
+	}
+
+	customize := func(reader client.Reader) []string {
+		podSpec := createInferenceGraphPodSpec(odhTestGraph(nil, ""), &odhTestRouterConfig)
+		require.NoError(t, customizeRouterPodSpec(context.Background(), reader, odhTestGraph(nil, ""), podSpec))
+		return podSpec.Containers[0].Args
+	}
+
+	// The router args are part of the pod template: changing the cluster
+	// profile changes the args, which rolls the deployment.
+	intermediateArgs := customize(profile(configv1.TLSProfileIntermediateType))
+	modernArgs := customize(profile(configv1.TLSProfileModernType))
+	require.NotEqual(t, intermediateArgs, modernArgs)
+	require.Contains(t, modernArgs, "VersionTLS13")
+	require.Contains(t, intermediateArgs, "VersionTLS12")
+}
+
+func TestCustomizeRouterPodSpecFailsClosedOnUnresolvableProfile(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	unavailable := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence:       configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileCustomType},
+		},
+	}).Build()
+
+	podSpec := createInferenceGraphPodSpec(odhTestGraph(nil, ""), &odhTestRouterConfig)
+	err := customizeRouterPodSpec(context.Background(), unavailable, odhTestGraph(nil, ""), podSpec)
+	require.Error(t, err)
 }

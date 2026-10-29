@@ -18,6 +18,7 @@ package distro
 
 import (
 	"context"
+	"crypto/fips140"
 	"crypto/tls"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // ResolveWorkloadArgs reads the cluster profile for a consumer workload. A
@@ -38,32 +40,35 @@ func ResolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLS
 	return args, err
 }
 
-// resolveWorkloadArgs also reports whether the OpenShift APIServer object was
-// readable. Consumers that apply an OpenShift profile directly can leave their
-// workloads untouched when the resource is unavailable, while Go proxies keep
-// using the hardened Intermediate fallback through ResolveWorkloadArgs.
+// resolveWorkloadArgs also reports whether the cluster adherence policy makes
+// workloads honor the OpenShift TLS profile. Consumers that apply the profile
+// directly leave their workloads untouched for NoOpinion and
+// LegacyAdheringComponentsOnly, while ResolveWorkloadArgs keeps returning the
+// Intermediate fallback for Go proxies.
 func resolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLSArgs, bool, error) {
 	if reader == nil {
-		args, err := workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]})
+		args, err := workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]}, true)
 		return args, false, err
 	}
 	apiServer := &configv1.APIServer{}
 	if err := reader.Get(ctx, client.ObjectKey{Name: apiServerName}, apiServer); err != nil {
 		if apierrors.IsNotFound(err) || apiMeta.IsNoMatchError(err) {
-			args, fallbackErr := workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]})
+			args, fallbackErr := workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]}, true)
 			return args, false, fallbackErr
 		}
 		return WorkloadTLSArgs{}, false, fmt.Errorf("reading APIServer TLS profile for workload: %w", err)
 	}
 	settings, err := workloadSettingsFromAPIServer(apiServer)
 	if err != nil {
-		return WorkloadTLSArgs{}, true, err
+		return WorkloadTLSArgs{}, false, err
 	}
-	// Pass the profile's supported groups to the workload. The workload's TLS
-	// runtime owns FIPS enforcement and intersects configured groups with the
-	// groups permitted by its active FIPS policy.
-	args, err := workloadArgsFromSettings(settings)
-	return args, true, err
+	if !isKnownTLSAdherence(settings.Adherence) {
+		logf.FromContext(ctx).Info("Unknown TLS adherence policy, treating it as StrictAllComponents", "adherence", settings.Adherence)
+	}
+	// The sidecar is a separate strict-FIPS binary; its curve policy must not
+	// depend on whether the manager process itself was built in FIPS mode.
+	args, err := workloadArgsFromSettings(settings, true)
+	return args, shouldHonorClusterTLSProfile(settings.Adherence), err
 }
 
 var goCurveIDs = map[string]uint16{
@@ -76,18 +81,30 @@ var goCurveIDs = map[string]uint16{
 	string(configv1.TLSGroupSecP384r1MLKEM1024): uint16(tls.SecP384r1MLKEM1024),
 }
 
+var fipsApprovedCurveIDs = map[uint16]struct{}{
+	uint16(tls.CurveP256):          {},
+	uint16(tls.CurveP384):          {},
+	uint16(tls.CurveP521):          {},
+	uint16(tls.SecP256r1MLKEM768):  {},
+	uint16(tls.SecP384r1MLKEM1024): {},
+}
+
 // CurveIDsFromNames converts OpenShift curve names to the numeric IDs used by
 // Go-based proxy flags, dropping names that are not supported by the consumer.
-// The consumer's TLS runtime applies any active FIPS restrictions.
-func CurveIDsFromNames(names []configv1.TLSGroup) string {
+func CurveIDsFromNames(names []configv1.TLSGroup, fipsMode bool) string {
 	ids := make([]string, 0, len(names))
 	for _, name := range names {
 		id, ok := goCurveIDs[string(name)]
-		if ok {
+		if ok && (!fipsMode || curveIDFIPSApproved(id)) {
 			ids = append(ids, strconv.FormatUint(uint64(id), 10))
 		}
 	}
 	return strings.Join(ids, ",")
+}
+
+func curveIDFIPSApproved(id uint16) bool {
+	_, ok := fipsApprovedCurveIDs[id]
+	return ok
 }
 
 func workloadSettingsFromAPIServer(apiServer *configv1.APIServer) (Settings, error) {
@@ -140,10 +157,10 @@ type WorkloadTLSArgs struct {
 // arguments for a consumer-side Go TLS proxy. The proxy does not resolve or
 // watch TLSSecurityProfile itself; its owner supplies these resolved values.
 func WorkloadArgsFromSettings(settings Settings) (WorkloadTLSArgs, error) {
-	return workloadArgsFromSettings(settings)
+	return workloadArgsFromSettings(settings, fips140.Enabled())
 }
 
-func workloadArgsFromSettings(settings Settings) (WorkloadTLSArgs, error) {
+func workloadArgsFromSettings(settings Settings, fipsMode bool) (WorkloadTLSArgs, error) {
 	minVersion := settings.ProfileSpec.MinTLSVersion
 	if minVersion == "" {
 		minVersion = "VersionTLS12"
@@ -155,7 +172,7 @@ func workloadArgsFromSettings(settings Settings) (WorkloadTLSArgs, error) {
 
 	args := WorkloadTLSArgs{MinVersion: string(minVersion)}
 	if len(settings.ProfileSpec.Groups) > 0 {
-		args.CurveIDs = CurveIDsFromNames(settings.ProfileSpec.Groups)
+		args.CurveIDs = CurveIDsFromNames(settings.ProfileSpec.Groups, fipsMode)
 		if args.CurveIDs == "" {
 			return WorkloadTLSArgs{}, fmt.Errorf("TLS profile specifies groups but none are supported by this workload (groups: %v)", settings.ProfileSpec.Groups)
 		}
