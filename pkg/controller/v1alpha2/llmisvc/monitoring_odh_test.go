@@ -254,6 +254,37 @@ var _ = Describe("Scheduler ServiceMonitor", func() {
 		expectSchedulerMetricsProtocol(ctx, svcName, testNs.Name, "http")
 	})
 
+	DescribeTable("follows the metrics listener when it overrides global TLS", func(ctx SpecContext, globalTLS bool, argument, protocol string) {
+		PatchIngressConfigKey(ctx, envTest.Client, "enableLLMInferenceServiceTLS", globalTLS)
+		DeferCleanup(func(ctx SpecContext) {
+			PatchIngressConfigKey(ctx, envTest.Client, "enableLLMInferenceServiceTLS", true)
+		})
+		testNs := NewTestNamespace(ctx, envTest)
+		llmSvc := LLMInferenceService("metrics-override",
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedScheduler(),
+		)
+		llmSvc.Spec.Router.Scheduler.Template = &corev1.PodSpec{Containers: []corev1.Container{{Name: "main", Args: []string{argument}}}}
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+		expectSchedulerMetricsProtocol(ctx, llmSvc.Name, testNs.Name, protocol)
+		monitor := waitForPerServiceSchedulerMonitor(ctx, llmSvc.Name, testNs.Name)
+		endpoint := monitor.Spec.Endpoints[0]
+		Expect(endpoint.Scheme).To(HaveValue(Equal(monitoringv1.Scheme(protocol))))
+		if protocol == "https" {
+			Expect(endpoint.TLSConfig).ToNot(BeNil())
+			secret := &corev1.Secret{}
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: endpoint.TLSConfig.CA.Secret.Name, Namespace: testNs.Name}, secret)).To(Succeed())
+			Expect(secret.Data[endpoint.TLSConfig.CA.Secret.Key]).ToNot(BeEmpty())
+		} else {
+			Expect(endpoint.TLSConfig).To(BeNil())
+		}
+	},
+		Entry("HTTP override with global TLS enabled", true, "--metrics-cert-dir=", "http"),
+		Entry("HTTPS override with global TLS disabled", false, "--metrics-cert-dir=/var/run/kserve/tls", "https"),
+	)
+
 	It("asserts a ServerName the certificate actually carries", func(ctx SpecContext) {
 		svcName := "sched-mon-san-match"
 		testNs := NewTestNamespace(ctx, envTest)
@@ -261,6 +292,7 @@ var _ = Describe("Scheduler ServiceMonitor", func() {
 		llmSvc := LLMInferenceService(svcName,
 			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 			WithModelURI("hf://facebook/opt-125m"),
+			WithManagedScheduler(),
 		)
 		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()

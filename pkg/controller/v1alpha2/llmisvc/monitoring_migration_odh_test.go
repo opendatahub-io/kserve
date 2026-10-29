@@ -39,7 +39,7 @@ import (
 func TestSchedulerMonitorWaitsForKnownConfig(t *testing.T) {
 	model := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{Name: "first", Namespace: "models", UID: "first"}}
 	r := &LLMISVCReconciler{EventRecorder: record.NewFakeRecorder(20)}
-	previous := r.expectedSchedulerMonitor(model, false)
+	previous := r.expectedSchedulerMonitor(model)
 	r.Client = monitoringTestClient(t, model, previous)
 	if err := r.reconcileSchedulerMonitor(t.Context(), model, nil); err == nil || !strings.Contains(err.Error(), "configuration is unavailable") {
 		t.Fatalf("missing configuration must defer reconciliation with an explicit error got %v", err)
@@ -74,7 +74,7 @@ func TestSchedulerMonitorMigrationWaitsForEveryService(t *testing.T) {
 			for i, name := range names {
 				objects = append(objects, &monitoringv1.ServiceMonitor{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "models"}})
 				if i < tt.replacements {
-					replacement := r.expectedSchedulerMonitor(second, true)
+					replacement := r.expectedSchedulerMonitor(second)
 					replacement.Name = "second-" + name
 					if tt.foreignOwner {
 						replacement.OwnerReferences[0].UID = "previous-instance"

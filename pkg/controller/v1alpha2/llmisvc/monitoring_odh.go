@@ -182,15 +182,14 @@ func (r *LLMISVCReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSv
 	if config == nil {
 		return errors.New("scheduler monitoring configuration is unavailable")
 	}
-	enableTLS := config.EnableTLS
 
-	monitor := r.expectedSchedulerMonitor(llmSvc, enableTLS)
+	monitor := r.expectedSchedulerMonitor(llmSvc)
 	if err := Reconcile[*v1alpha2.LLMInferenceService](ctx, r, llmSvc, &monitoringv1.ServiceMonitor{}, monitor, semanticServiceMonitorIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile scheduler monitor %s/%s: %w", monitor.GetNamespace(), monitor.GetName(), err)
 	}
 
 	// This is kept for backward compatibility, do not remove.
-	relabeledMonitor := r.expectedSchedulerMonitor(llmSvc, enableTLS, monitoringv1.RelabelConfig{
+	relabeledMonitor := r.expectedSchedulerMonitor(llmSvc, monitoringv1.RelabelConfig{
 		SourceLabels: []monitoringv1.LabelName{"__name__"},
 		Action:       "replace",
 		Replacement:  ptr.To("kserve_$1"),
@@ -419,14 +418,18 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 
 // expectedSchedulerMonitor returns the expected ServiceMonitor configuration for scraping
 // metrics from the llm-d scheduler. The scheduler requires authorization.
-func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferenceService, enableTLS bool, relabelConfigs ...monitoringv1.RelabelConfig) *monitoringv1.ServiceMonitor {
+func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferenceService, relabelConfigs ...monitoringv1.RelabelConfig) *monitoringv1.ServiceMonitor {
 	nameSuffix := "-kserve-llm-isvc-scheduler-default"
 	if len(relabelConfigs) > 0 {
 		nameSuffix = "-kserve-llm-isvc-scheduler"
 	}
 	scheme := ptr.To(monitoringv1.Scheme("http"))
 	var tlsConfig *monitoringv1.TLSConfig
-	if enableTLS {
+	var schedulerPod *corev1.PodSpec
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil {
+		schedulerPod = llmSvc.Spec.Router.Scheduler.Template
+	}
+	if schedulerMetricsTLSEnabled(schedulerPod) {
 		// Per-model trust material is only safe because this monitor is per-service.
 		// Targets are endpoint addresses and the certificate carries DNS SANs only, so the
 		// Service name is asserted; collectDNSNames guarantees it is present.

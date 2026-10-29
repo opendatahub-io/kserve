@@ -71,6 +71,14 @@ func TestSchedulerMetricsServiceProtocol(t *testing.T) {
 					t.Errorf("unexpected appProtocol on %s: %s", port.Name, *port.AppProtocol)
 				}
 			}
+			monitor := (&LLMISVCReconciler{}).expectedSchedulerMonitor(model)
+			endpoint := monitor.Spec.Endpoints[0]
+			if endpoint.Scheme == nil || string(*endpoint.Scheme) != tt.want {
+				t.Errorf("monitor scheme = %v, want %q", endpoint.Scheme, tt.want)
+			}
+			if (endpoint.TLSConfig != nil) != (tt.want == "https") {
+				t.Errorf("monitor TLS config does not match metrics protocol %q", tt.want)
+			}
 			if !found {
 				t.Fatal("scheduler Service has no metrics port")
 			}
@@ -78,5 +86,16 @@ func TestSchedulerMetricsServiceProtocol(t *testing.T) {
 				t.Fatal("protocol discovery mutated the scheduler spec")
 			}
 		})
+	}
+}
+
+func TestSchedulerMonitorMissingTemplate(t *testing.T) {
+	for _, router := range []*v1alpha2.RouterSpec{nil, {}, {Scheduler: &v1alpha2.SchedulerSpec{}}} {
+		model := &v1alpha2.LLMInferenceService{Spec: v1alpha2.LLMInferenceServiceSpec{Router: router}}
+		monitor := (&LLMISVCReconciler{}).expectedSchedulerMonitor(model)
+		endpoint := monitor.Spec.Endpoints[0]
+		if endpoint.Scheme == nil || *endpoint.Scheme != "http" || endpoint.TLSConfig != nil {
+			t.Fatal("missing scheduler template must not enable metrics TLS")
+		}
 	}
 }

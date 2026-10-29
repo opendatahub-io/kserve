@@ -30,6 +30,21 @@ import (
 // EPP's gRPC secure-serving flag does not enable TLS on the metrics listener.
 func configureSchedulerMetricsProtocol(service *corev1.Service, pod *corev1.PodSpec) {
 	protocol := "http"
+	if schedulerMetricsTLSEnabled(pod) {
+		protocol = "https"
+	}
+	for i := range service.Spec.Ports {
+		if service.Spec.Ports[i].Name == "metrics" {
+			service.Spec.Ports[i].AppProtocol = ptr.To(protocol)
+		}
+	}
+}
+
+// schedulerMetricsTLSEnabled reads the effective listener flag from the metrics container.
+func schedulerMetricsTLSEnabled(pod *corev1.PodSpec) bool {
+	if pod == nil {
+		return false
+	}
 	for _, container := range pod.Containers {
 		if !slices.ContainsFunc(container.Ports, func(port corev1.ContainerPort) bool {
 			return port.Name == "metrics"
@@ -50,14 +65,7 @@ func configureSchedulerMetricsProtocol(service *corev1.Service, pod *corev1.PodS
 				directory = args[i]
 			}
 		}
-		if directory != "" {
-			protocol = "https"
-		}
-		break
+		return directory != ""
 	}
-	for i := range service.Spec.Ports {
-		if service.Spec.Ports[i].Name == "metrics" {
-			service.Spec.Ports[i].AppProtocol = ptr.To(protocol)
-		}
-	}
+	return false
 }
