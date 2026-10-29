@@ -153,6 +153,10 @@ type KserveModuleReconciler struct {
 	// present, not just those in a node's status.allocatable.
 	draResourceSliceGVK schema.GroupVersionKind
 
+	// versionPrefix is the platform version prefix (e.g. "v3-6-0") computed
+	// once per reconcile and reused by all postRender functions.
+	versionPrefix string
+
 	// expectedPresets holds the preset names from the most recent render, written
 	// by reconcile and read by updateComponentReadiness later in the same call.
 	expectedPresets []string
@@ -260,6 +264,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	r.versionPrefix = r.getVersionPrefix(ctx, kserve)
 	r.expectedPresets = nil
 	r.tracingConfigError = nil
 	r.ocsfAuditLoggingCondition = nil
