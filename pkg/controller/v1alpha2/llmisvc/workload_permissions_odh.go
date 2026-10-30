@@ -19,7 +19,6 @@ limitations under the License.
 package llmisvc
 
 import (
-	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -31,6 +30,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/utils/env"
 	"knative.dev/pkg/kmeta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
 
@@ -116,11 +116,12 @@ func (r *LLMISVCReconciler) expectedMultiNodeSCCRoleBinding(ctx context.Context,
 }
 
 // reconcileSingleNodeSCCRoleBinding grants the SCC to the ServiceAccounts of the
-// single-node pods that add a capability restricted-v2 does not allow.
+// single-node pods that add a capability restricted-v2 does not allow. The namespace
+// default ServiceAccount is never bound.
 func (r *LLMISVCReconciler) reconcileSingleNodeSCCRoleBinding(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
 	expected := expectedSingleNodeSCCRoleBinding(llmSvc)
 	if utils.GetForceStopRuntime(llmSvc) {
-		return Delete(ctx, r, llmSvc, expected)
+		return r.deleteOwnedRoleBinding(ctx, llmSvc, expected)
 	}
 
 	pods, err := r.singleNodeWorkloadPodSpecs(ctx, llmSvc, config)
@@ -128,10 +129,10 @@ func (r *LLMISVCReconciler) reconcileSingleNodeSCCRoleBinding(ctx context.Contex
 		return fmt.Errorf("failed to render single-node pod specs: %w", err)
 	}
 	for i := range pods {
-		if !addsCapabilityRejectedByRestrictedV2(&pods[i]) {
+		name := pods[i].ServiceAccountName
+		if name == "" || name == constants.LLMISVCDefaultServiceAccountName || !addsCapabilityRejectedByRestrictedV2(&pods[i]) {
 			continue
 		}
-		name := cmp.Or(pods[i].ServiceAccountName, constants.LLMISVCDefaultServiceAccountName)
 		if !slices.ContainsFunc(expected.Subjects, func(s rbacv1.Subject) bool { return s.Name == name }) {
 			expected.Subjects = append(expected.Subjects, rbacv1.Subject{
 				Kind:      rbacv1.ServiceAccountKind,
@@ -142,9 +143,36 @@ func (r *LLMISVCReconciler) reconcileSingleNodeSCCRoleBinding(ctx context.Contex
 	}
 
 	if len(expected.Subjects) == 0 {
-		return Delete(ctx, r, llmSvc, expected)
+		return r.deleteOwnedRoleBinding(ctx, llmSvc, expected)
 	}
 	return Reconcile(ctx, r, llmSvc, &rbacv1.RoleBinding{}, expected, semanticSCCRoleBindingIsEqual)
+}
+
+// deleteOwnedRoleBinding deletes the RoleBinding only when llmSvc controls it.
+func (r *LLMISVCReconciler) deleteOwnedRoleBinding(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, expected *rbacv1.RoleBinding) error {
+	curr := &rbacv1.RoleBinding{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(expected), curr); err != nil {
+		return client.IgnoreNotFound(err)
+	}
+	if !metav1.IsControlledBy(curr, llmSvc) {
+		return nil
+	}
+	return Delete(ctx, r, llmSvc, expected)
+}
+
+// requiresDedicatedServiceAccount reports whether a single-node pod that names no
+// ServiceAccount runs as <name>-kserve: true when it adds a capability restricted-v2 rejects.
+func requiresDedicatedServiceAccount(pod *corev1.PodSpec) bool {
+	return addsCapabilityRejectedByRestrictedV2(pod)
+}
+
+// platformNeedsSingleNodeServiceAccount reports whether a single-node pod runs as name.
+func (r *LLMISVCReconciler) platformNeedsSingleNodeServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config, name string) (bool, error) {
+	pods, err := r.singleNodeWorkloadPodSpecs(ctx, llmSvc, config)
+	if err != nil {
+		return false, fmt.Errorf("failed to render single-node pod specs: %w", err)
+	}
+	return slices.ContainsFunc(pods, func(pod corev1.PodSpec) bool { return pod.ServiceAccountName == name }), nil
 }
 
 // singleNodeWorkloadPodSpecs renders the single-node main and prefill pod specs the way

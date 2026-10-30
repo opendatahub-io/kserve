@@ -388,9 +388,9 @@ var _ = Describe("LLMInferenceService OCP SCC Controller", func() {
 			expectSCCAccess(ctx, testNs.Name, "default", false)
 		})
 
-		It("should grant the SCC to the default ServiceAccount a pod runs as when it names none", func(ctx SpecContext) {
+		It("should run a pod that adds a capability and names no ServiceAccount as <name>-kserve and grant the SCC only to it", func(ctx SpecContext) {
 			// given
-			svcName := "test-scc-sn-default-sa"
+			svcName := "test-scc-sn-dedicated-sa"
 			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
 
 			llmSvc := LLMInferenceService(svcName,
@@ -408,12 +408,61 @@ var _ = Describe("LLMInferenceService OCP SCC Controller", func() {
 			}()
 
 			// then
-			Expect(deploymentServiceAccountName(ctx, kmeta.ChildName(svcName, "-kserve"), testNs.Name)).To(BeEmpty())
+			mainDeployment := kmeta.ChildName(svcName, "-kserve")
+			serviceAccountName := kmeta.ChildName(svcName, "-kserve")
+			serviceAccountKey := types.NamespacedName{Name: serviceAccountName, Namespace: testNs.Name}
+			Expect(deploymentServiceAccountName(ctx, mainDeployment, testNs.Name)).To(Equal(serviceAccountName))
+			Eventually(func(g Gomega, ctx context.Context) {
+				sa := &corev1.ServiceAccount{}
+				g.Expect(envTest.Get(ctx, serviceAccountKey, sa)).To(Succeed())
+				g.Expect(sa).To(BeOwnedBy(llmSvc))
+			}).WithContext(ctx).Should(Succeed())
 			sccRB := singleNodeSCCRoleBinding(ctx, svcName, testNs.Name)
 			Expect(sccRB.Subjects).To(Equal([]rbacv1.Subject{
-				{Kind: rbacv1.ServiceAccountKind, Name: "default", Namespace: testNs.Name},
+				{Kind: rbacv1.ServiceAccountKind, Name: serviceAccountName, Namespace: testNs.Name},
 			}))
-			expectSCCAccess(ctx, testNs.Name, "default", true)
+			expectSCCAccess(ctx, testNs.Name, serviceAccountName, true)
+			expectSCCAccess(ctx, testNs.Name, "default", false)
+
+			// when - the pod stops adding capabilities
+			updateLLMInferenceService(ctx, llmSvc, func(svc *v1alpha2.LLMInferenceService) {
+				svc.Spec.Template = SimpleWorkerPodSpec()
+			})
+
+			// then
+			expectDeploymentServiceAccountName(ctx, mainDeployment, testNs.Name, "")
+			Eventually(singleNodeSCCRoleBindingGone(svcName, testNs.Name)).WithContext(ctx).Should(BeTrue())
+			Eventually(func(ctx context.Context) bool {
+				return apierrors.IsNotFound(envTest.Get(ctx, serviceAccountKey, &corev1.ServiceAccount{}))
+			}).WithContext(ctx).Should(BeTrue())
+			expectSCCAccess(ctx, testNs.Name, serviceAccountName, false)
+		})
+
+		It("should keep an explicit default ServiceAccount and never grant it the SCC", func(ctx SpecContext) {
+			// given
+			svcName := "test-scc-sn-explicit-default"
+			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName), WithServiceAccount("default"))
+
+			pod := podAddingCapabilities("IPC_LOCK")
+			pod.ServiceAccountName = "default"
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithTemplate(pod),
+				WithManagedRoute(),
+				WithManagedGateway(),
+			)
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			// then
+			Expect(deploymentServiceAccountName(ctx, kmeta.ChildName(svcName, "-kserve"), testNs.Name)).To(Equal("default"))
+			Consistently(singleNodeSCCRoleBindingGone(svcName, testNs.Name)).WithContext(ctx).Should(BeTrue())
+			expectSCCAccess(ctx, testNs.Name, "default", false)
 		})
 
 		It("should grant the SCC to the ServiceAccount the template names when an init container adds a capability", func(ctx SpecContext) {
@@ -455,7 +504,7 @@ var _ = Describe("LLMInferenceService OCP SCC Controller", func() {
 		It("should follow the P/D pods that add capabilities and revoke the SCC when they stop", func(ctx SpecContext) {
 			// given
 			svcName := "test-scc-sn-pd"
-			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName))
+			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName), WithServiceAccount("prefill-engine"))
 
 			llmSvc := LLMInferenceService(svcName,
 				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
@@ -473,32 +522,33 @@ var _ = Describe("LLMInferenceService OCP SCC Controller", func() {
 			}()
 
 			// then
-			mainServiceAccount := kmeta.ChildName(svcName, "-kserve")
-			Expect(deploymentServiceAccountName(ctx, mainServiceAccount, testNs.Name)).To(Equal(mainServiceAccount))
-			Expect(deploymentServiceAccountName(ctx, kmeta.ChildName(svcName, "-kserve-prefill"), testNs.Name)).To(BeEmpty())
-			Eventually(func(g Gomega, ctx context.Context) {
-				sccRB := &rbacv1.RoleBinding{}
-				g.Expect(envTest.Get(ctx, singleNodeSCCRoleBindingName(svcName, testNs.Name), sccRB)).To(Succeed())
-				g.Expect(sccRB.Subjects).To(Equal([]rbacv1.Subject{
-					{Kind: rbacv1.ServiceAccountKind, Name: mainServiceAccount, Namespace: testNs.Name},
-					{Kind: rbacv1.ServiceAccountKind, Name: "default", Namespace: testNs.Name},
-				}))
-			}).WithContext(ctx).Should(Succeed())
+			serviceAccountName := kmeta.ChildName(svcName, "-kserve")
+			prefillDeployment := kmeta.ChildName(svcName, "-kserve-prefill")
+			Expect(deploymentServiceAccountName(ctx, kmeta.ChildName(svcName, "-kserve"), testNs.Name)).To(Equal(serviceAccountName))
+			Expect(deploymentServiceAccountName(ctx, prefillDeployment, testNs.Name)).To(Equal(serviceAccountName))
+			expectSingleNodeSCCSubjects(ctx, svcName, testNs.Name, serviceAccountName)
+			expectSCCAccess(ctx, testNs.Name, "default", false)
 
-			// when - prefill stops adding capabilities
+			// when - prefill names its own ServiceAccount
 			updateLLMInferenceService(ctx, llmSvc, func(svc *v1alpha2.LLMInferenceService) {
-				svc.Spec.Prefill.Template = SimpleWorkerPodSpec()
+				svc.Spec.Prefill.Template.ServiceAccountName = "prefill-engine"
 			})
 
 			// then
-			Eventually(func(g Gomega, ctx context.Context) {
-				sccRB := &rbacv1.RoleBinding{}
-				g.Expect(envTest.Get(ctx, singleNodeSCCRoleBindingName(svcName, testNs.Name), sccRB)).To(Succeed())
-				g.Expect(sccRB.Subjects).To(Equal([]rbacv1.Subject{
-					{Kind: rbacv1.ServiceAccountKind, Name: mainServiceAccount, Namespace: testNs.Name},
-				}))
-			}).WithContext(ctx).Should(Succeed())
-			expectSCCAccess(ctx, testNs.Name, "default", false)
+			expectDeploymentServiceAccountName(ctx, prefillDeployment, testNs.Name, "prefill-engine")
+			expectSingleNodeSCCSubjects(ctx, svcName, testNs.Name, serviceAccountName, "prefill-engine")
+			expectSCCAccess(ctx, testNs.Name, "prefill-engine", true)
+
+			// when - prefill stops adding capabilities
+			updateLLMInferenceService(ctx, llmSvc, func(svc *v1alpha2.LLMInferenceService) {
+				pod := SimpleWorkerPodSpec()
+				pod.ServiceAccountName = "prefill-engine"
+				svc.Spec.Prefill.Template = pod
+			})
+
+			// then
+			expectSingleNodeSCCSubjects(ctx, svcName, testNs.Name, serviceAccountName)
+			expectSCCAccess(ctx, testNs.Name, "prefill-engine", false)
 
 			// when - decode stops adding capabilities
 			updateLLMInferenceService(ctx, llmSvc, func(svc *v1alpha2.LLMInferenceService) {
@@ -507,7 +557,7 @@ var _ = Describe("LLMInferenceService OCP SCC Controller", func() {
 
 			// then
 			Eventually(singleNodeSCCRoleBindingGone(svcName, testNs.Name)).WithContext(ctx).Should(BeTrue())
-			expectSCCAccess(ctx, testNs.Name, mainServiceAccount, false)
+			expectSCCAccess(ctx, testNs.Name, serviceAccountName, false)
 		})
 
 		It("should delete the single-node SCC RoleBinding when stop annotation is set", func(ctx SpecContext) {
@@ -539,6 +589,68 @@ var _ = Describe("LLMInferenceService OCP SCC Controller", func() {
 
 			// then
 			Eventually(singleNodeSCCRoleBindingGone(svcName, testNs.Name)).WithContext(ctx).Should(BeTrue())
+		})
+
+		It("should leave a same-name RoleBinding it does not control in place", func(ctx SpecContext) {
+			// given
+			svcName := "test-scc-sn-unowned"
+			testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName), WithServiceAccount("admin-managed"))
+
+			unowned := &rbacv1.RoleBinding{
+				ObjectMeta: metav1.ObjectMeta{Name: kmeta.ChildName(svcName, "-kserve-scc"), Namespace: testNs.Name},
+				RoleRef: rbacv1.RoleRef{
+					APIGroup: rbacv1.GroupName,
+					Kind:     "ClusterRole",
+					Name:     "openshift-ai-llminferenceservice-scc",
+				},
+				Subjects: []rbacv1.Subject{{Kind: rbacv1.ServiceAccountKind, Name: "admin-managed", Namespace: testNs.Name}},
+			}
+			Expect(envTest.Create(ctx, unowned)).To(Succeed())
+
+			llmSvc := LLMInferenceService(svcName,
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithTemplate(SimpleWorkerPodSpec()),
+				WithManagedRoute(),
+				WithManagedGateway(),
+			)
+
+			// when
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer func() {
+				testNs.DeleteAndWait(ctx, llmSvc)
+			}()
+
+			// then
+			Expect(deploymentServiceAccountName(ctx, kmeta.ChildName(svcName, "-kserve"), testNs.Name)).To(BeEmpty())
+			expectUnchanged := func(ctx context.Context) {
+				GinkgoHelper()
+				Consistently(func(g Gomega, ctx context.Context) {
+					sccRB := &rbacv1.RoleBinding{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(unowned), sccRB)).To(Succeed())
+					g.Expect(sccRB.OwnerReferences).To(BeEmpty())
+					g.Expect(sccRB.Subjects).To(Equal(unowned.Subjects))
+				}).WithContext(ctx).Should(Succeed())
+			}
+			expectUnchanged(ctx)
+
+			// when
+			updateLLMInferenceService(ctx, llmSvc, func(svc *v1alpha2.LLMInferenceService) {
+				if svc.Annotations == nil {
+					svc.Annotations = make(map[string]string)
+				}
+				svc.Annotations[constants.StopAnnotationKey] = "true"
+			})
+
+			// then
+			Eventually(func(g Gomega, ctx context.Context) {
+				current := &v1alpha2.LLMInferenceService{}
+				g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
+				mainWorkload := current.Status.GetCondition(v1alpha2.MainWorkloadReady)
+				g.Expect(mainWorkload).ToNot(BeNil())
+				g.Expect(mainWorkload.Reason).To(Equal("Stopped"))
+			}).WithContext(ctx).Should(Succeed())
+			expectUnchanged(ctx)
 		})
 
 		It("should grant the SCC to the ServiceAccounts of single-node DisaggregatedSet roles", func(ctx SpecContext) {
@@ -612,6 +724,19 @@ func singleNodeSCCRoleBinding(ctx context.Context, svcName, namespace string) *r
 	return sccRB
 }
 
+func expectSingleNodeSCCSubjects(ctx context.Context, svcName, namespace string, serviceAccounts ...string) {
+	GinkgoHelper()
+	subjects := make([]rbacv1.Subject, 0, len(serviceAccounts))
+	for _, name := range serviceAccounts {
+		subjects = append(subjects, rbacv1.Subject{Kind: rbacv1.ServiceAccountKind, Name: name, Namespace: namespace})
+	}
+	Eventually(func(g Gomega, ctx context.Context) {
+		sccRB := &rbacv1.RoleBinding{}
+		g.Expect(envTest.Get(ctx, singleNodeSCCRoleBindingName(svcName, namespace), sccRB)).To(Succeed())
+		g.Expect(sccRB.Subjects).To(Equal(subjects))
+	}).WithContext(ctx).Should(Succeed())
+}
+
 func deploymentServiceAccountName(ctx context.Context, name, namespace string) string {
 	GinkgoHelper()
 	d := &appsv1.Deployment{}
@@ -619,6 +744,15 @@ func deploymentServiceAccountName(ctx context.Context, name, namespace string) s
 		return envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, d)
 	}).WithContext(ctx).Should(Succeed())
 	return d.Spec.Template.Spec.ServiceAccountName
+}
+
+func expectDeploymentServiceAccountName(ctx context.Context, name, namespace, serviceAccount string) {
+	GinkgoHelper()
+	Eventually(func(g Gomega, ctx context.Context) {
+		d := &appsv1.Deployment{}
+		g.Expect(envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, d)).To(Succeed())
+		g.Expect(d.Spec.Template.Spec.ServiceAccountName).To(Equal(serviceAccount))
+	}).WithContext(ctx).Should(Succeed())
 }
 
 func updateLLMInferenceService(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, mutate func(*v1alpha2.LLMInferenceService)) {

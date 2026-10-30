@@ -21,6 +21,8 @@ package llmisvc
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
@@ -29,4 +31,17 @@ import (
 // implementation to reconcile platform-specific permissions for workloads.
 func (r *LLMISVCReconciler) reconcileWorkloadPlatformPermissions(_ context.Context, _ *v1alpha2.LLMInferenceService, _ *Config) error {
 	return nil
+}
+
+// requiresDedicatedServiceAccount is false in upstream builds. Distribution-specific
+// builds report whether a single-node pod that names no ServiceAccount must run as the
+// dedicated <name>-kserve ServiceAccount.
+func requiresDedicatedServiceAccount(_ *corev1.PodSpec) bool {
+	return false
+}
+
+// platformNeedsSingleNodeServiceAccount is false in upstream builds. Distribution-specific
+// builds report whether the dedicated single-node ServiceAccount must be kept.
+func (r *LLMISVCReconciler) platformNeedsSingleNodeServiceAccount(_ context.Context, _ *v1alpha2.LLMInferenceService, _ *Config, _ string) (bool, error) {
+	return false, nil
 }
