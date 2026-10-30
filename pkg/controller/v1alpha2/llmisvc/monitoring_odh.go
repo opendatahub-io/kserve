@@ -20,12 +20,14 @@ package llmisvc
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	monitoringv1 "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/env"
@@ -43,6 +45,11 @@ import (
 // When set to "true", the controller will skip creating PodMonitor/ServiceMonitor resources,
 // useful for clusters without the Prometheus Operator installed.
 var monitoringDisabled, _ = env.GetBool("LLMISVC_MONITORING_DISABLED", false)
+
+var legacySchedulerMonitorNames = [...]string{
+	"kserve-llm-isvc-scheduler-default",
+	"kserve-llm-isvc-scheduler",
+}
 
 // reconcileMonitoringResources reconciles all monitoring-related resources for an LLMInferenceService,
 // including RBAC permissions, Prometheus operator monitors for the llm-d scheduler and the vLLM engine.
@@ -69,7 +76,7 @@ func (r *LLMISVCReconciler) reconcileMonitoringResources(ctx context.Context, ll
 		return fmt.Errorf("failed to reconcile VLLM engine monitor: %w", err)
 	}
 
-	if err := r.reconcileSchedulerMonitor(ctx, llmSvc); err != nil {
+	if err := r.reconcileSchedulerMonitor(ctx, llmSvc, config); err != nil {
 		return fmt.Errorf("failed to reconcile scheduler monitor: %w", err)
 	}
 
@@ -162,18 +169,23 @@ func (r *LLMISVCReconciler) reconcileVLLMEngineMonitor(ctx context.Context, llmS
 
 // reconcileSchedulerMonitor creates and manages a ServiceMonitor resource to scrape metrics
 // from the scheduler service of the LLMInferenceService.
-func (r *LLMISVCReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
+func (r *LLMISVCReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
 	log.FromContext(ctx).Info("Reconciling LLMInferenceService scheduler monitor")
 
 	if utils.GetForceStopRuntime(llmSvc) {
-		// Note: We don't delete these resources when service is stopped because they are shared across
-		// all LLMInferenceServices in the namespace and are cleaned up in cleanupMonitoringResources
-		// when the last service in the namespace is deleted
+		// Per-service ServiceMonitors are owned by the LLMInferenceService and collected by GC
+		// when it is deleted.
 		return nil
 	}
 
+	// The normal reconcile path returns on configuration load errors. Preserve existing
+	// monitors if another caller has not obtained that configuration yet.
+	if config == nil {
+		return errors.New("scheduler monitoring configuration is unavailable")
+	}
+
 	monitor := r.expectedSchedulerMonitor(llmSvc)
-	if err := Reconcile[*v1alpha2.LLMInferenceService](ctx, r, nil, &monitoringv1.ServiceMonitor{}, monitor, semanticServiceMonitorIsEqual); err != nil {
+	if err := Reconcile[*v1alpha2.LLMInferenceService](ctx, r, llmSvc, &monitoringv1.ServiceMonitor{}, monitor, semanticServiceMonitorIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile scheduler monitor %s/%s: %w", monitor.GetNamespace(), monitor.GetName(), err)
 	}
 
@@ -184,8 +196,57 @@ func (r *LLMISVCReconciler) reconcileSchedulerMonitor(ctx context.Context, llmSv
 		Replacement:  ptr.To("kserve_$1"),
 		TargetLabel:  "__name__",
 	})
-	if err := Reconcile[*v1alpha2.LLMInferenceService](ctx, r, nil, &monitoringv1.ServiceMonitor{}, relabeledMonitor, semanticServiceMonitorIsEqual); err != nil {
+	if err := Reconcile[*v1alpha2.LLMInferenceService](ctx, r, llmSvc, &monitoringv1.ServiceMonitor{}, relabeledMonitor, semanticServiceMonitorIsEqual); err != nil {
 		return fmt.Errorf("failed to reconcile scheduler monitor %s/%s: %w", relabeledMonitor.GetNamespace(), relabeledMonitor.GetName(), err)
+	}
+
+	return r.cleanupLegacySchedulerMonitors(ctx, llmSvc.GetNamespace())
+}
+
+// cleanupLegacySchedulerMonitors keeps shared coverage until every active service
+// owns both replacements, including services that have not reconciled yet.
+func (r *LLMISVCReconciler) cleanupLegacySchedulerMonitors(ctx context.Context, namespace string) error {
+	monitors := &monitoringv1.ServiceMonitorList{}
+	if err := r.List(ctx, monitors, client.InNamespace(namespace)); err != nil {
+		if meta.IsNoMatchError(err) {
+			return nil
+		}
+		return fmt.Errorf("list scheduler monitors for migration: %w", err)
+	}
+	byName := make(map[string]*monitoringv1.ServiceMonitor, len(monitors.Items))
+	for i := range monitors.Items {
+		byName[monitors.Items[i].Name] = &monitors.Items[i]
+	}
+	var legacy []*monitoringv1.ServiceMonitor
+	for _, name := range legacySchedulerMonitorNames {
+		if monitor := byName[name]; monitor != nil {
+			legacy = append(legacy, monitor)
+		}
+	}
+	if len(legacy) == 0 {
+		return nil
+	}
+
+	services := &v1alpha2.LLMInferenceServiceList{}
+	if err := r.List(ctx, services, client.InNamespace(namespace)); err != nil {
+		return fmt.Errorf("list services for scheduler monitor migration: %w", err)
+	}
+	for i := range services.Items {
+		service := &services.Items[i]
+		if !service.DeletionTimestamp.IsZero() || utils.GetForceStopRuntime(service) {
+			continue
+		}
+		for _, name := range legacySchedulerMonitorNames {
+			replacement := byName[kmeta.ChildName(service.Name, "-"+name)]
+			if replacement == nil || !replacement.DeletionTimestamp.IsZero() || !metav1.IsControlledBy(replacement, service) {
+				return nil
+			}
+		}
+	}
+	for _, monitor := range legacy {
+		if err := client.IgnoreNotFound(r.Delete(ctx, monitor)); err != nil {
+			return fmt.Errorf("delete legacy scheduler monitor %s/%s: %w", namespace, monitor.Name, err)
+		}
 	}
 	return nil
 }
@@ -362,32 +423,56 @@ func (r *LLMISVCReconciler) expectedVLLMEngineMonitor(llmSvc *v1alpha2.LLMInfere
 // expectedSchedulerMonitor returns the expected ServiceMonitor configuration for scraping
 // metrics from the llm-d scheduler. The scheduler requires authorization.
 func (r *LLMISVCReconciler) expectedSchedulerMonitor(llmSvc *v1alpha2.LLMInferenceService, relabelConfigs ...monitoringv1.RelabelConfig) *monitoringv1.ServiceMonitor {
-	name := "kserve-llm-isvc-scheduler"
-	if len(relabelConfigs) == 0 {
-		name += "-default"
+	nameSuffix := "-kserve-llm-isvc-scheduler-default"
+	if len(relabelConfigs) > 0 {
+		nameSuffix = "-kserve-llm-isvc-scheduler"
+	}
+	scheme := ptr.To(monitoringv1.Scheme("http"))
+	var tlsConfig *monitoringv1.TLSConfig
+	var schedulerPod *corev1.PodSpec
+	if llmSvc.Spec.Router != nil && llmSvc.Spec.Router.Scheduler != nil {
+		schedulerPod = llmSvc.Spec.Router.Scheduler.Template
+	}
+	if schedulerMetricsTLSEnabled(schedulerPod) {
+		// Per-model trust material is only safe because this monitor is per-service.
+		// Targets are endpoint addresses and the certificate carries DNS SANs only, so the
+		// Service name is asserted; collectDNSNames guarantees it is present.
+		scheme = ptr.To(monitoringv1.Scheme("https"))
+		tlsConfig = &monitoringv1.TLSConfig{SafeTLSConfig: monitoringv1.SafeTLSConfig{
+			CA: monitoringv1.SecretOrConfigMap{
+				Secret: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: kmeta.ChildName(llmSvc.GetName(), "-kserve-self-signed-certs"),
+					},
+					Key: "ca.crt",
+				},
+			},
+			ServerName: ptr.To(fmt.Sprintf("%s.%s.svc", llmSvc.Spec.Router.EPPServiceName(llmSvc), llmSvc.GetNamespace())),
+		}}
 	}
 	return &monitoringv1.ServiceMonitor{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
+			Name:      kmeta.ChildName(llmSvc.GetName(), nameSuffix),
 			Namespace: llmSvc.GetNamespace(),
 			Labels: map[string]string{
 				"app.kubernetes.io/component":      "llm-monitoring",
 				"app.kubernetes.io/part-of":        "llminferenceservice",
 				"monitoring.opendatahub.io/scrape": "true",
 			},
+			OwnerReferences: []metav1.OwnerReference{
+				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
+			},
 		},
 		Spec: monitoringv1.ServiceMonitorSpec{
-			Selector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					"app.kubernetes.io/component": "llminferenceservice-router-scheduler",
-					"app.kubernetes.io/part-of":   "llminferenceservice",
-				},
-			},
+			// The same labels the scheduler Service carries, so the two cannot drift.
+			Selector: metav1.LabelSelector{MatchLabels: SchedulerLabels(llmSvc)},
 			Endpoints: []monitoringv1.Endpoint{
 				{
-					Port: "metrics",
+					Port:   "metrics",
+					Scheme: scheme,
 					HTTPConfigWithProxyAndTLSFiles: monitoringv1.HTTPConfigWithProxyAndTLSFiles{
 						HTTPConfigWithTLSFiles: monitoringv1.HTTPConfigWithTLSFiles{
+							TLSConfig: tlsConfig,
 							HTTPConfigWithoutTLS: monitoringv1.HTTPConfigWithoutTLS{
 								Authorization: &monitoringv1.SafeAuthorization{
 									Credentials: &corev1.SecretKeySelector{
@@ -469,11 +554,10 @@ func (r *LLMISVCReconciler) cleanupMonitoringResources(ctx context.Context, llmS
 	// Per-service PodMonitors are owned via ownerReferences and cleaned up by GC when the
 	// LLMInferenceService is deleted; no explicit deletion is needed here.
 
-	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, r.expectedSchedulerMonitor(llmSvc)); err != nil {
-		return fmt.Errorf("failed to delete scheduler monitor: %w", err)
-	}
-	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, r.expectedSchedulerMonitor(llmSvc, monitoringv1.RelabelConfig{})); err != nil {
-		return fmt.Errorf("failed to delete scheduler monitor: %w", err)
+	// Per-service ServiceMonitors are owned via ownerReferences and collected by GC; only the
+	// legacy namespace-wide ones need deleting here.
+	if err := r.cleanupLegacySchedulerMonitors(ctx, llmSvc.GetNamespace()); err != nil {
+		return err
 	}
 
 	serviceAccount := r.expectedMetricsReaderServiceAccount(llmSvc)
