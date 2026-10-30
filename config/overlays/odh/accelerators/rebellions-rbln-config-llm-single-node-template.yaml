@@ -1,0 +1,35 @@
+apiVersion: serving.kserve.io/v1alpha2
+kind: LLMInferenceServiceConfig
+metadata:
+  name: kserve-config-llm-single-node-template-rebellions-rbln
+  annotations:
+    openshift.io/display-name: vLLM Rebellions RBLN NPU LLMInferenceServiceConfig Single Node
+    openshift.io/description: vLLM Rebellions RBLN NPU LLMInferenceServiceConfig Single Node for LLMInferenceService.
+    opendatahub.io/recommended-accelerators: '["rebellions.ai/npu"]'
+    opendatahub.io/recommended-dra-drivers: '["npu.rebellions.ai"]'
+    opendatahub.io/runtime-version: ""
+    # supported-topologies values must be consistent with the samples API and Dashboard usage.
+    # See https://github.com/opendatahub-io/odh-model-controller/blob/incubating/server/docs/features/samples/llm-d/llm-d-ui-flow-mechanics.md
+    # and https://github.com/opendatahub-io/odh-model-controller/blob/incubating/server/docs/features/llm-d/samples/samples-api.md
+    opendatahub.io/supported-topologies: '["workload-single-node"]'
+spec:
+  template:
+    containers:
+      - name: main
+        image: placeholder
+        env:
+          # vllm-rbln compiles the model for the NPU on first start; the engine waits for it.
+          # The compile takes 30 to 160 minutes depending on the model.
+          - name: VLLM_ENGINE_READY_TIMEOUT_S
+            value: "9600"
+          # Without --model-impl=vllm, vllm-rbln may pick its optimum-rbln path for some architectures.
+          - name: VLLM_ADDITIONAL_ARGS
+            value: "--model-impl=vllm"
+        # The base startupProbe allows 10 minutes; a cold NPU compile takes longer.
+        # 500 x 30 s = 250 minutes, which covers the longest compile with headroom.
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 30
+          failureThreshold: 500
