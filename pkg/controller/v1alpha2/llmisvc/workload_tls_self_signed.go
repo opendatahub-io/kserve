@@ -28,7 +28,6 @@ import (
 	"maps"
 	"math/big"
 	"net"
-	"slices"
 	"sort"
 	"time"
 
@@ -307,13 +306,6 @@ func (r *LLMISVCReconciler) collectDNSNames(ctx context.Context, llmSvc *v1alpha
 		}
 	}
 
-	// EPPServiceName is deterministic without a pool ref, so the scraper always has a verifiable name.
-	eppName := llmSvc.Spec.Router.EPPServiceName(llmSvc)
-	dnsNames = append(dnsNames,
-		network.GetServiceHostname(eppName, llmSvc.GetNamespace()),
-		fmt.Sprintf("%s.%s.svc", eppName, llmSvc.GetNamespace()),
-	)
-
 	if isTokenizerEnabled(llmSvc.Spec) {
 		tokSvcName := tokenizerServiceName(llmSvc)
 		dnsNames = append(dnsNames,
@@ -323,7 +315,7 @@ func (r *LLMISVCReconciler) collectDNSNames(ctx context.Context, llmSvc *v1alpha
 	}
 
 	sort.Strings(dnsNames)
-	return slices.Compact(dnsNames)
+	return dnsNames
 }
 
 func (r *LLMISVCReconciler) collectIPAddresses(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) ([]string, error) {
