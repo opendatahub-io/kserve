@@ -1,6 +1,6 @@
 # Build the manager binary
 FROM registry.access.redhat.com/ubi9/go-toolset:1.26 AS deps
-ENV GOTOOLCHAIN=auto
+ENV GOTOOLCHAIN=auto GODEBUG=http2client=0
 # distro: UBI go-toolset does not add GOPATH/bin to PATH
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
@@ -8,10 +8,11 @@ ENV PATH="$PATH:/opt/app-root/src/go/bin"
 USER 0
 
 WORKDIR /go/src/github.com/kserve/kserve
+COPY hack/retry.sh /usr/local/bin/retry
 COPY go.mod  go.mod
 COPY go.sum  go.sum
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+    /usr/local/bin/retry go mod download
 
 # ---- Build stage (parallel with license on BuildKit) ----
 FROM deps AS builder
@@ -29,7 +30,7 @@ FROM deps AS license
 
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    go install github.com/google/go-licenses@v1.6.0
+    /usr/local/bin/retry go install github.com/google/go-licenses@v1.6.0
 
 ARG CMD=localmodelnode
 COPY cmd/${CMD}/ cmd/${CMD}/

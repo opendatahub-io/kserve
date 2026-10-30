@@ -1,14 +1,15 @@
 # Build the manager binary
 FROM registry.access.redhat.com/ubi9/go-toolset:1.25 AS builder
-ENV GOTOOLCHAIN=auto
+ENV GOTOOLCHAIN=auto GODEBUG=http2client=0
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
 
 USER root
 WORKDIR /go/src/github.com/opendatahub-io/kserve-module
+COPY hack/retry.sh /usr/local/bin/retry
 COPY kserve-module/go.mod  go.mod
 COPY kserve-module/go.sum  go.sum
 RUN --mount=type=cache,target=/go/pkg/mod \
-    go mod download
+    /usr/local/bin/retry go mod download
 
 COPY kserve-module/cmd/kserve-module/ cmd/kserve-module/
 COPY kserve-module/pkg/              pkg/
