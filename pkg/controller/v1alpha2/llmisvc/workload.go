@@ -105,7 +105,7 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 
 	// Reconcile platform-specific workload permissions (e.g. SCC RoleBindings)
 	// before creating workloads so pods can start with the correct permissions.
-	if err := r.reconcileWorkloadPlatformPermissions(ctx, llmSvc); err != nil {
+	if err := r.reconcileWorkloadPlatformPermissions(ctx, llmSvc, config); err != nil {
 		llmSvc.MarkMainWorkloadNotReady("ReconcileWorkloadPermissionsError", err.Error())
 		return fmt.Errorf("failed to reconcile workload platform permissions: %w", err)
 	}

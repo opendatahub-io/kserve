@@ -27,6 +27,6 @@ import (
 // reconcileWorkloadPlatformPermissions is a no-op in upstream builds.
 // Distribution-specific builds (compiled with -tags distro) can provide a real
 // implementation to reconcile platform-specific permissions for workloads.
-func (r *LLMISVCReconciler) reconcileWorkloadPlatformPermissions(_ context.Context, _ *v1alpha2.LLMInferenceService) error {
+func (r *LLMISVCReconciler) reconcileWorkloadPlatformPermissions(_ context.Context, _ *v1alpha2.LLMInferenceService, _ *Config) error {
 	return nil
 }
