@@ -25,6 +25,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -41,6 +42,7 @@ import (
 	"knative.dev/pkg/kmeta"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
@@ -560,6 +562,93 @@ var _ = Describe("LLMInferenceService OCP SCC Controller", func() {
 			expectSCCAccess(ctx, testNs.Name, serviceAccountName, false)
 		})
 
+		DescribeTable("should run P/D pods that add IPC_LOCK and recover when the dedicated ServiceAccount is missing",
+			func(ctx SpecContext, useDisaggregatedSet, routingSidecar, explicitServiceAccounts bool) {
+				// given
+				if useDisaggregatedSet {
+					PatchLLMISVCFeatureGates(ctx, envTest.Client, map[string]bool{"disaggregatedSet": true})
+					DeferCleanup(func(ctx context.Context) {
+						PatchLLMISVCFeatureGates(ctx, envTest.Client, nil)
+					})
+				}
+				svcName := "test-scc-sn-matrix"
+				testNs := NewTestNamespace(ctx, envTest, WithIstioShadowService(svcName),
+					WithServiceAccount("decode-engine"), WithServiceAccount("prefill-engine"))
+				if !routingSidecar {
+					createDecodeTemplateWithoutRoutingSidecar(ctx, testNs.Name)
+				}
+
+				dedicated := types.NamespacedName{Name: kmeta.ChildName(svcName, "-kserve"), Namespace: testNs.Name}
+				decode := podAddingCapabilities("IPC_LOCK")
+				prefill := podAddingCapabilities("IPC_LOCK")
+				decodeServiceAccount, prefillServiceAccount := dedicated.Name, dedicated.Name
+				if explicitServiceAccounts {
+					decode.ServiceAccountName, decodeServiceAccount = "decode-engine", "decode-engine"
+					prefill.ServiceAccountName, prefillServiceAccount = "prefill-engine", "prefill-engine"
+				}
+				llmSvc := LLMInferenceService(svcName,
+					InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+					WithModelURI("hf://facebook/opt-125m"),
+					WithTemplate(decode),
+					WithPrefill(prefill),
+					WithManagedRoute(),
+					WithManagedGateway(),
+				)
+
+				// when
+				Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+				defer func() {
+					testNs.DeleteAndWait(ctx, llmSvc)
+				}()
+
+				// then
+				Eventually(func(g Gomega, ctx context.Context) {
+					decodePod, prefillPod := singleNodePDPodSpecs(ctx, g, llmSvc, useDisaggregatedSet)
+					g.Expect(slices.ContainsFunc(decodePod.InitContainers, func(c corev1.Container) bool {
+						return c.Name == constants.LLMISVCRoutingSidecarContainerName
+					})).To(Equal(routingSidecar))
+					g.Expect(decodePod.ServiceAccountName).To(Equal(decodeServiceAccount))
+					g.Expect(prefillPod.ServiceAccountName).To(Equal(prefillServiceAccount))
+				}).WithContext(ctx).Should(Succeed())
+				expectSingleNodeSCCSubjects(ctx, svcName, testNs.Name, slices.Compact([]string{decodeServiceAccount, prefillServiceAccount})...)
+				expectSCCAccess(ctx, testNs.Name, "default", false)
+				if explicitServiceAccounts {
+					Consistently(func(ctx context.Context) bool {
+						return apierrors.IsNotFound(envTest.Get(ctx, dedicated, &corev1.ServiceAccount{}))
+					}).WithContext(ctx).Should(BeTrue())
+					return
+				}
+				expectSCCAccess(ctx, testNs.Name, dedicated.Name, true)
+
+				// when - the dedicated ServiceAccount is missing when the service reconciles
+				Expect(envTest.Delete(ctx, &corev1.ServiceAccount{ObjectMeta: metav1.ObjectMeta{Name: dedicated.Name, Namespace: dedicated.Namespace}})).To(Succeed())
+				updateLLMInferenceService(ctx, llmSvc, func(svc *v1alpha2.LLMInferenceService) {
+					if svc.Annotations == nil {
+						svc.Annotations = make(map[string]string)
+					}
+					svc.Annotations["test.serving.kserve.io/reconcile"] = "after-service-account-delete"
+				})
+
+				// then
+				Eventually(func(g Gomega, ctx context.Context) {
+					g.Expect(envTest.Get(ctx, dedicated, &corev1.ServiceAccount{})).To(Succeed())
+					current := &v1alpha2.LLMInferenceService{}
+					g.Expect(envTest.Get(ctx, client.ObjectKeyFromObject(llmSvc), current)).To(Succeed())
+					if mainWorkload := current.Status.GetCondition(v1alpha2.MainWorkloadReady); mainWorkload != nil {
+						g.Expect(mainWorkload.Reason).NotTo(HaveSuffix("Error"), mainWorkload.Message)
+					}
+				}).WithContext(ctx).Should(Succeed())
+			},
+			Entry("DisaggregatedSet, routing sidecar, no ServiceAccount", true, true, false),
+			Entry("DisaggregatedSet, routing sidecar, explicit ServiceAccounts", true, true, true),
+			Entry("DisaggregatedSet, no routing sidecar, no ServiceAccount", true, false, false),
+			Entry("DisaggregatedSet, no routing sidecar, explicit ServiceAccounts", true, false, true),
+			Entry("Deployments, routing sidecar, no ServiceAccount", false, true, false),
+			Entry("Deployments, routing sidecar, explicit ServiceAccounts", false, true, true),
+			Entry("Deployments, no routing sidecar, no ServiceAccount", false, false, false),
+			Entry("Deployments, no routing sidecar, explicit ServiceAccounts", false, false, true),
+		)
+
 		It("should delete the single-node SCC RoleBinding when stop annotation is set", func(ctx SpecContext) {
 			// given
 			svcName := "test-scc-sn-stop"
@@ -722,6 +811,41 @@ func singleNodeSCCRoleBinding(ctx context.Context, svcName, namespace string) *r
 		return envTest.Get(ctx, singleNodeSCCRoleBindingName(svcName, namespace), sccRB)
 	}).WithContext(ctx).Should(Succeed())
 	return sccRB
+}
+
+func createDecodeTemplateWithoutRoutingSidecar(ctx context.Context, namespace string) {
+	GinkgoHelper()
+	shipped := &v1alpha2.LLMInferenceServiceConfig{}
+	Expect(envTest.Get(ctx, types.NamespacedName{Name: "kserve-config-llm-decode-template", Namespace: constants.KServeNamespace}, shipped)).To(Succeed())
+	local := &v1alpha2.LLMInferenceServiceConfig{
+		ObjectMeta: metav1.ObjectMeta{Name: shipped.Name, Namespace: namespace},
+		Spec:       *shipped.Spec.DeepCopy(),
+	}
+	local.Spec.Template.InitContainers = slices.DeleteFunc(local.Spec.Template.InitContainers, func(c corev1.Container) bool {
+		return c.Name == constants.LLMISVCRoutingSidecarContainerName
+	})
+	Expect(envTest.Create(ctx, local)).To(Succeed())
+}
+
+func singleNodePDPodSpecs(ctx context.Context, g Gomega, llmSvc *v1alpha2.LLMInferenceService, useDisaggregatedSet bool) (corev1.PodSpec, corev1.PodSpec) {
+	if useDisaggregatedSet {
+		ds := &disaggregatedsetv1.DisaggregatedSet{}
+		g.Expect(envTest.Get(ctx, types.NamespacedName{Name: kmeta.ChildName(llmSvc.Name, "-kserve-pd"), Namespace: llmSvc.Namespace}, ds)).To(Succeed())
+		pods := map[string]corev1.PodSpec{}
+		for _, role := range ds.Spec.Roles {
+			pods[role.Name] = role.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec
+		}
+		g.Expect(pods).To(HaveKey(constants.LLMDRoleDecode))
+		g.Expect(pods).To(HaveKey(constants.LLMDRolePrefill))
+		return pods[constants.LLMDRoleDecode], pods[constants.LLMDRolePrefill]
+	}
+	pods := make([]corev1.PodSpec, 0, 2)
+	for _, suffix := range []string{"-kserve", "-kserve-prefill"} {
+		d := &appsv1.Deployment{}
+		g.Expect(envTest.Get(ctx, types.NamespacedName{Name: kmeta.ChildName(llmSvc.Name, suffix), Namespace: llmSvc.Namespace}, d)).To(Succeed())
+		pods = append(pods, d.Spec.Template.Spec)
+	}
+	return pods[0], pods[1]
 }
 
 func expectSingleNodeSCCSubjects(ctx context.Context, svcName, namespace string, serviceAccounts ...string) {

@@ -46,10 +46,6 @@ func (r *LLMISVCReconciler) reconcileSingleNodeWorkload(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile managed DRA: %w", err)
 	}
 
-	if err := r.reconcileSingleNodeMainServiceAccount(ctx, llmSvc, config); err != nil {
-		return fmt.Errorf("failed to reconcile service account: %w", err)
-	}
-
 	if err := r.reconcileSingleNodeMainWorkload(ctx, llmSvc, config, useDisaggregatedSet); err != nil {
 		return fmt.Errorf("failed to reconcile main workload: %w", err)
 	}
@@ -507,7 +503,7 @@ func (r *LLMISVCReconciler) reconcileSingleNodeMainServiceAccount(ctx context.Co
 	}
 
 	if !useExistingServiceAccount {
-		platformNeedsServiceAccount, err := r.platformNeedsSingleNodeServiceAccount(ctx, llmSvc, config, serviceAccount.GetName())
+		platformNeedsServiceAccount, err := r.platformNeedsSingleNodeServiceAccount(ctx, llmSvc, serviceAccount.GetName())
 		if err != nil {
 			return fmt.Errorf("failed to check platform need for single node service account: %w", err)
 		}

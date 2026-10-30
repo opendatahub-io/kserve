@@ -166,13 +166,54 @@ func requiresDedicatedServiceAccount(pod *corev1.PodSpec) bool {
 	return addsCapabilityRejectedByRestrictedV2(pod)
 }
 
-// platformNeedsSingleNodeServiceAccount reports whether a single-node pod runs as name.
-func (r *LLMISVCReconciler) platformNeedsSingleNodeServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config, name string) (bool, error) {
-	pods, err := r.singleNodeWorkloadPodSpecs(ctx, llmSvc, config)
+// platformNeedsSingleNodeServiceAccount reports whether the dedicated single-node
+// ServiceAccount name must exist: a single-node template that names no ServiceAccount
+// requires it, or a deployed single-node pod runs as it.
+func (r *LLMISVCReconciler) platformNeedsSingleNodeServiceAccount(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, name string) (bool, error) {
+	if singleNodeTemplatesRequireDedicatedServiceAccount(llmSvc) {
+		return true, nil
+	}
+	pods, err := r.deployedSingleNodePodSpecs(ctx, llmSvc)
 	if err != nil {
-		return false, fmt.Errorf("failed to render single-node pod specs: %w", err)
+		return false, err
 	}
 	return slices.ContainsFunc(pods, func(pod corev1.PodSpec) bool { return pod.ServiceAccountName == name }), nil
+}
+
+func singleNodeTemplatesRequireDedicatedServiceAccount(llmSvc *v1alpha2.LLMInferenceService) bool {
+	var templates []*corev1.PodSpec
+	if llmSvc.Spec.Worker == nil {
+		templates = append(templates, llmSvc.Spec.Template)
+	}
+	if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Worker == nil {
+		templates = append(templates, llmSvc.Spec.Prefill.Template)
+	}
+	return slices.ContainsFunc(templates, func(pod *corev1.PodSpec) bool {
+		return pod != nil && pod.ServiceAccountName == "" && requiresDedicatedServiceAccount(pod)
+	})
+}
+
+// deployedSingleNodePodSpecs returns the pod specs of the single-node main and prefill
+// Deployments and DisaggregatedSet roles that exist.
+func (r *LLMISVCReconciler) deployedSingleNodePodSpecs(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) ([]corev1.PodSpec, error) {
+	var pods []corev1.PodSpec
+	for _, name := range []string{mainDeploymentName(llmSvc), prefillDeploymentName(llmSvc)} {
+		pod, err := r.deployedDeploymentPodSpec(ctx, types.NamespacedName{Namespace: llmSvc.GetNamespace(), Name: name})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get deployment %s/%s: %w", llmSvc.GetNamespace(), name, err)
+		}
+		pods = append(pods, pod)
+	}
+	ds, err := r.currentDisaggregatedSet(ctx, llmSvc)
+	if err != nil {
+		return nil, err
+	}
+	if ds != nil {
+		for _, role := range []string{constants.LLMDRoleDecode, constants.LLMDRolePrefill} {
+			pods = append(pods, deployedDisaggregatedRole(ds, role).Worker)
+		}
+	}
+	return pods, nil
 }
 
 // singleNodeWorkloadPodSpecs renders the single-node main and prefill pod specs the way

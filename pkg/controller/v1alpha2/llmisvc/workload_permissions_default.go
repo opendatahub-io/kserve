@@ -41,7 +41,7 @@ func requiresDedicatedServiceAccount(_ *corev1.PodSpec) bool {
 }
 
 // platformNeedsSingleNodeServiceAccount is false in upstream builds. Distribution-specific
-// builds report whether the dedicated single-node ServiceAccount must be kept.
-func (r *LLMISVCReconciler) platformNeedsSingleNodeServiceAccount(_ context.Context, _ *v1alpha2.LLMInferenceService, _ *Config, _ string) (bool, error) {
+// builds report whether the dedicated single-node ServiceAccount must exist.
+func (r *LLMISVCReconciler) platformNeedsSingleNodeServiceAccount(_ context.Context, _ *v1alpha2.LLMInferenceService, _ string) (bool, error) {
 	return false, nil
 }

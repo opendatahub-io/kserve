@@ -23,6 +23,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+
+	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 )
 
 func TestAddsCapabilityRejectedByRestrictedV2(t *testing.T) {
@@ -99,5 +101,72 @@ func TestSemanticSCCRoleBindingIsEqualDetectsRemovedSubject(t *testing.T) {
 	}
 	if semanticSCCRoleBindingIsEqual(binding(main, prefill), binding(main)) {
 		t.Fatal("a binding that adds a subject must not compare equal to the stored one")
+	}
+}
+
+func TestSingleNodeTemplatesRequireDedicatedServiceAccount(t *testing.T) {
+	t.Parallel()
+
+	adding := func(serviceAccount string, capabilities ...corev1.Capability) *corev1.PodSpec {
+		return &corev1.PodSpec{
+			ServiceAccountName: serviceAccount,
+			Containers: []corev1.Container{{
+				Name:            "main",
+				SecurityContext: &corev1.SecurityContext{Capabilities: &corev1.Capabilities{Add: capabilities}},
+			}},
+		}
+	}
+	worker := &corev1.PodSpec{}
+
+	tests := []struct {
+		name string
+		spec v1alpha2.LLMInferenceServiceSpec
+		want bool
+	}{
+		{name: "no templates", want: false},
+		{
+			name: "main adds IPC_LOCK without a ServiceAccount",
+			spec: v1alpha2.LLMInferenceServiceSpec{WorkloadSpec: v1alpha2.WorkloadSpec{Template: adding("", "IPC_LOCK")}},
+			want: true,
+		},
+		{
+			name: "main adds IPC_LOCK with a ServiceAccount",
+			spec: v1alpha2.LLMInferenceServiceSpec{WorkloadSpec: v1alpha2.WorkloadSpec{Template: adding("engine", "IPC_LOCK")}},
+			want: false,
+		},
+		{
+			name: "main adds only NET_BIND_SERVICE",
+			spec: v1alpha2.LLMInferenceServiceSpec{WorkloadSpec: v1alpha2.WorkloadSpec{Template: adding("", "NET_BIND_SERVICE")}},
+			want: false,
+		},
+		{
+			name: "multi-node main adds IPC_LOCK",
+			spec: v1alpha2.LLMInferenceServiceSpec{WorkloadSpec: v1alpha2.WorkloadSpec{Template: adding("", "IPC_LOCK"), Worker: worker}},
+			want: false,
+		},
+		{
+			name: "single-node prefill adds IPC_LOCK without a ServiceAccount",
+			spec: v1alpha2.LLMInferenceServiceSpec{Prefill: &v1alpha2.WorkloadSpec{Template: adding("", "IPC_LOCK")}},
+			want: true,
+		},
+		{
+			name: "single-node prefill adds IPC_LOCK with a ServiceAccount",
+			spec: v1alpha2.LLMInferenceServiceSpec{Prefill: &v1alpha2.WorkloadSpec{Template: adding("prefill", "IPC_LOCK")}},
+			want: false,
+		},
+		{
+			name: "multi-node prefill adds IPC_LOCK",
+			spec: v1alpha2.LLMInferenceServiceSpec{Prefill: &v1alpha2.WorkloadSpec{Template: adding("", "IPC_LOCK"), Worker: worker}},
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			llmSvc := &v1alpha2.LLMInferenceService{Spec: tt.spec}
+			if got := singleNodeTemplatesRequireDedicatedServiceAccount(llmSvc); got != tt.want {
+				t.Fatalf("singleNodeTemplatesRequireDedicatedServiceAccount() = %v, want %v", got, tt.want)
+			}
+		})
 	}
 }

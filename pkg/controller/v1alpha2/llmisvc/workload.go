@@ -89,6 +89,11 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 	r.markDisaggregatedSetDecision(ctx, llmSvc, disaggregatedSetDecision)
 	useDisaggregatedSet := useDisaggregatedSetWorkload(llmSvc, disaggregatedSetDecision)
 
+	if err := r.reconcileSingleNodeMainServiceAccount(ctx, llmSvc, config); err != nil {
+		llmSvc.MarkMainWorkloadNotReady("ReconcileSingleNodeWorkloadError", err.Error())
+		return fmt.Errorf("failed to reconcile single node service account: %w", err)
+	}
+
 	// A DisaggregatedSet computes its revision from its own roles.
 	if !useDisaggregatedSet {
 		if err := r.reconcileWorkloadRevision(ctx, llmSvc, config); err != nil {
