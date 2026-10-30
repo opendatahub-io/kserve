@@ -562,6 +562,34 @@ def wait_for_deployment(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_
     raise TimeoutError(f"deployment {name} not Available within {timeout}s")
 
 
+def scale_deployment(kubectl_bin, name, replicas, namespace=NAMESPACE):
+    """Scale a deployment to the given replica count."""
+    run(
+        [kubectl_bin, "scale", "deployment", name, "-n", namespace,
+         f"--replicas={replicas}"]
+    )
+
+
+def wait_for_deployment_scaled_down(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_60S):
+    """Wait until a scaled-down deployment has no replica pods left.
+
+    Reads status.replicas and retries on a failed get, rather than reading the
+    failure as zero.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        result = run(
+            [kubectl_bin, "get", "deployment", name, "-n", namespace, "-o", "json"],
+            check=False,
+        )
+        if result.returncode == 0:
+            dep = json.loads(result.stdout)
+            if dep.get("status", {}).get("replicas", 0) == 0:
+                return
+        time.sleep(2)
+    raise TimeoutError(f"deployment {name} still has replicas after scaling to 0 within {timeout}s")
+
+
 def wait_for_daemonset_ready(
     kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120S
 ):
