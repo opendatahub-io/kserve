@@ -204,6 +204,9 @@ func (r *LLMISVCReconciler) deployedSingleNodePodSpecs(ctx context.Context, llmS
 		}
 		pods = append(pods, pod)
 	}
+	if !r.DisaggregatedSetAvailable {
+		return pods, nil
+	}
 	ds, err := r.currentDisaggregatedSet(ctx, llmSvc)
 	if err != nil {
 		return nil, err
