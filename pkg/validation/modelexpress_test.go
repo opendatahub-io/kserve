@@ -17,6 +17,7 @@ limitations under the License.
 package validation
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -98,6 +99,8 @@ func TestValidateModelExpressAnnotations(t *testing.T) {
 	addressField := annotationsPath.Key(constants.ModelExpressAddressAnnotationKey).String()
 	audienceField := annotationsPath.Key(constants.ModelExpressTokenAudienceAnnotationKey).String()
 	revisionField := annotationsPath.Key(constants.ModelExpressRevisionAnnotationKey).String()
+	caConfigMapField := annotationsPath.Key(constants.ModelExpressCABundleConfigMapAnnotationKey).String()
+	caKeyField := annotationsPath.Key(constants.ModelExpressCABundleKeyAnnotationKey).String()
 
 	tests := []struct {
 		name        string
@@ -135,12 +138,111 @@ func TestValidateModelExpressAnnotations(t *testing.T) {
 		{
 			name: "every option without mode reports each",
 			annotations: map[string]string{
-				constants.ModelExpressAddressAnnotationKey:       "mx:8001",
-				constants.ModelExpressTokenAudienceAnnotationKey: "modelexpress",
-				constants.ModelExpressRevisionAnnotationKey:      "r1",
+				constants.ModelExpressAddressAnnotationKey:           "https://mx:8001",
+				constants.ModelExpressTokenAudienceAnnotationKey:     "modelexpress",
+				constants.ModelExpressRevisionAnnotationKey:          "r1",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+				constants.ModelExpressCABundleKeyAnnotationKey:       "ca.crt",
 			},
-			wantFields: []string{modeField, modeField, modeField},
-			wantTypes:  []field.ErrorType{field.ErrorTypeRequired, field.ErrorTypeRequired, field.ErrorTypeRequired},
+			wantFields: []string{modeField, modeField, modeField, modeField, modeField},
+			wantTypes: []field.ErrorType{
+				field.ErrorTypeRequired, field.ErrorTypeRequired, field.ErrorTypeRequired, field.ErrorTypeRequired, field.ErrorTypeRequired,
+			},
+		},
+		{
+			name: "CA bundle with an https address",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "native",
+				constants.ModelExpressAddressAnnotationKey:           "https://mx.mx.svc:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "openshift-service-ca.crt",
+				constants.ModelExpressCABundleKeyAnnotationKey:       "service-ca.crt",
+			},
+		},
+		{
+			name: "CA bundle without a key uses the default key",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "layered",
+				constants.ModelExpressAddressAnnotationKey:           "https://mx.mx.svc:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "global-ca-bundle",
+			},
+		},
+		{
+			name: "CA bundle whitespace trimmed",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "layered",
+				constants.ModelExpressAddressAnnotationKey:           " https://mx.mx.svc:8001 ",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: " mx-ca ",
+				constants.ModelExpressCABundleKeyAnnotationKey:       " ca.crt\n",
+			},
+		},
+		{
+			name: "CA bundle without an address is left to server resolution",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "native",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+			},
+		},
+		{
+			name: "CA bundle with an http address rejected",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "native",
+				constants.ModelExpressAddressAnnotationKey:           "http://mx:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+			},
+			wantFields: []string{caConfigMapField},
+			wantTypes:  []field.ErrorType{field.ErrorTypeInvalid},
+		},
+		{
+			name: "CA bundle with a plaintext host:port rejected",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "native",
+				constants.ModelExpressAddressAnnotationKey:           "mx:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+			},
+			wantFields: []string{caConfigMapField},
+			wantTypes:  []field.ErrorType{field.ErrorTypeInvalid},
+		},
+		{
+			name: "CA key without a ConfigMap rejected",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:        "native",
+				constants.ModelExpressAddressAnnotationKey:     "https://mx:8001",
+				constants.ModelExpressCABundleKeyAnnotationKey: "ca.crt",
+			},
+			wantFields: []string{caConfigMapField},
+			wantTypes:  []field.ErrorType{field.ErrorTypeRequired},
+		},
+		{
+			name: "invalid CA ConfigMap name and key both reported",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "native",
+				constants.ModelExpressAddressAnnotationKey:           "https://mx:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "Team/CA",
+				constants.ModelExpressCABundleKeyAnnotationKey:       "certs/ca.crt",
+			},
+			wantFields: []string{caConfigMapField, caKeyField},
+			wantTypes:  []field.ErrorType{field.ErrorTypeInvalid, field.ErrorTypeInvalid},
+		},
+		{
+			name: "empty CA ConfigMap and key rejected",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "native",
+				constants.ModelExpressAddressAnnotationKey:           "https://mx:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: " ",
+				constants.ModelExpressCABundleKeyAnnotationKey:       "",
+			},
+			wantFields: []string{caConfigMapField, caKeyField},
+			wantTypes:  []field.ErrorType{field.ErrorTypeInvalid, field.ErrorTypeInvalid},
+		},
+		{
+			name: "invalid CA ConfigMap and plaintext address both reported",
+			annotations: map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "native",
+				constants.ModelExpressAddressAnnotationKey:           "mx:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "-ca",
+			},
+			wantFields: []string{caConfigMapField, caConfigMapField},
+			wantTypes:  []field.ErrorType{field.ErrorTypeInvalid, field.ErrorTypeInvalid},
 		},
 		{
 			name: "grpc address rejected",
@@ -188,6 +290,69 @@ func TestValidateModelExpressAnnotations(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestModelExpressAddressUsesTLS(t *testing.T) {
+	assert.True(t, ModelExpressAddressUsesTLS("https://mx.mx.svc:8001"))
+	for _, addr := range []string{"mx.mx.svc:8001", "http://mx.mx.svc:8001", "HTTPS://mx:8001", " https://mx:8001", ""} {
+		assert.False(t, ModelExpressAddressUsesTLS(addr), addr)
+	}
+}
+
+func TestValidateModelExpressCABundleAnnotations(t *testing.T) {
+	t.Run("no CA annotations", func(t *testing.T) {
+		assert.Empty(t, ValidateModelExpressCABundleAnnotations(nil))
+		assert.Empty(t, ValidateModelExpressCABundleAnnotations(map[string]string{
+			constants.ModelExpressAddressAnnotationKey: "mx:8001",
+		}))
+	})
+
+	t.Run("messages name the offending annotation", func(t *testing.T) {
+		errs := ValidateModelExpressCABundleAnnotations(map[string]string{
+			constants.ModelExpressAddressAnnotationKey:           "http://mx:8001",
+			constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+		})
+		require.Len(t, errs, 1)
+		assert.Contains(t, errs[0].Error(), `requires an https:// `+constants.ModelExpressAddressAnnotationKey+`, got "http://mx:8001"`)
+
+		errs = ValidateModelExpressCABundleAnnotations(map[string]string{
+			constants.ModelExpressCABundleKeyAnnotationKey: "ca.crt",
+		})
+		require.Len(t, errs, 1)
+		assert.Contains(t, errs[0].Error(), constants.ModelExpressCABundleConfigMapAnnotationKey+" is required when "+constants.ModelExpressCABundleKeyAnnotationKey+" is set")
+	})
+
+	t.Run("accepts every ConfigMap name and key Kubernetes accepts", func(t *testing.T) {
+		for _, tc := range []struct{ name, key string }{
+			{"openshift-service-ca.crt", "service-ca.crt"},
+			{"kube-root-ca.crt", "ca.crt"},
+			{"odh-kserve-custom-ca-bundle", "cabundle.crt"},
+			{"trust-bundle", "trust-bundle.pem"},
+			{"a", "_ca-2.PEM"},
+		} {
+			assert.Empty(t, ValidateModelExpressCABundleAnnotations(map[string]string{
+				constants.ModelExpressAddressAnnotationKey:           "https://mx:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: tc.name,
+				constants.ModelExpressCABundleKeyAnnotationKey:       tc.key,
+			}), "%s/%s", tc.name, tc.key)
+		}
+	})
+
+	t.Run("rejects ConfigMap names and keys Kubernetes rejects", func(t *testing.T) {
+		for _, name := range []string{"", "UPPER", "a_b", "a/b", "-a", "a.", strings.Repeat("a", 254)} {
+			errs := ValidateModelExpressCABundleAnnotations(map[string]string{
+				constants.ModelExpressCABundleConfigMapAnnotationKey: name,
+			})
+			assert.Len(t, errs, 1, "name %q", name)
+		}
+		for _, key := range []string{"", ".", "..", "a/b", "a b", "ca:crt"} {
+			errs := ValidateModelExpressCABundleAnnotations(map[string]string{
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+				constants.ModelExpressCABundleKeyAnnotationKey:       key,
+			})
+			assert.Len(t, errs, 1, "key %q", key)
+		}
+	})
 }
 
 func TestValidateModelExpressSource(t *testing.T) {

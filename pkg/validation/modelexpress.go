@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 
 	"github.com/kserve/kserve/pkg/constants"
@@ -46,6 +47,8 @@ var modelExpressOptionKeys = []string{
 	constants.ModelExpressAddressAnnotationKey,
 	constants.ModelExpressTokenAudienceAnnotationKey,
 	constants.ModelExpressRevisionAnnotationKey,
+	constants.ModelExpressCABundleConfigMapAnnotationKey,
+	constants.ModelExpressCABundleKeyAnnotationKey,
 }
 
 // ModelExpressModeFromAnnotations returns the requested ModelExpress mode, or ""
@@ -84,6 +87,44 @@ func ValidateModelExpressAddress(address string) error {
 		return fmt.Errorf("port %q must be a number between 1 and 65535", port)
 	}
 	return nil
+}
+
+// ModelExpressAddressUsesTLS reports whether the client connects to address over TLS.
+func ModelExpressAddressUsesTLS(address string) bool {
+	return strings.HasPrefix(address, "https://")
+}
+
+// ValidateModelExpressCABundleAnnotations validates the annotations naming the
+// ConfigMap and key that hold the CA bundle for an https:// server.
+func ValidateModelExpressCABundleAnnotations(annotations map[string]string) field.ErrorList {
+	var allErrs field.ErrorList
+	annotationsPath := field.NewPath("metadata").Child("annotations")
+	configMapPath := annotationsPath.Key(constants.ModelExpressCABundleConfigMapAnnotationKey)
+	keyPath := annotationsPath.Key(constants.ModelExpressCABundleKeyAnnotationKey)
+
+	rawConfigMap, hasConfigMap := annotations[constants.ModelExpressCABundleConfigMapAnnotationKey]
+	rawKey, hasKey := annotations[constants.ModelExpressCABundleKeyAnnotationKey]
+	if !hasConfigMap {
+		if hasKey {
+			allErrs = append(allErrs, field.Required(configMapPath, fmt.Sprintf("%s is required when %s is set",
+				constants.ModelExpressCABundleConfigMapAnnotationKey, constants.ModelExpressCABundleKeyAnnotationKey)))
+		}
+		return allErrs
+	}
+
+	if errs := validation.IsDNS1123Subdomain(strings.TrimSpace(rawConfigMap)); len(errs) > 0 {
+		allErrs = append(allErrs, field.Invalid(configMapPath, rawConfigMap, "must be a ConfigMap name: "+strings.Join(errs, "; ")))
+	}
+	if hasKey {
+		if errs := validation.IsConfigMapKey(strings.TrimSpace(rawKey)); len(errs) > 0 {
+			allErrs = append(allErrs, field.Invalid(keyPath, rawKey, "must be a ConfigMap key: "+strings.Join(errs, "; ")))
+		}
+	}
+	if address, ok := annotations[constants.ModelExpressAddressAnnotationKey]; ok && !ModelExpressAddressUsesTLS(strings.TrimSpace(address)) {
+		allErrs = append(allErrs, field.Invalid(configMapPath, rawConfigMap,
+			fmt.Sprintf("a CA bundle requires an https:// %s, got %q", constants.ModelExpressAddressAnnotationKey, address)))
+	}
+	return allErrs
 }
 
 // ValidateModelExpressAnnotations validates ModelExpress annotations on any resource.
@@ -126,6 +167,8 @@ func ValidateModelExpressAnnotations(annotations map[string]string) field.ErrorL
 			allErrs = append(allErrs, field.Invalid(annotationsPath.Key(key), raw, "must not be empty"))
 		}
 	}
+
+	allErrs = append(allErrs, ValidateModelExpressCABundleAnnotations(annotations)...)
 
 	return allErrs
 }

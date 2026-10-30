@@ -33,6 +33,7 @@ import (
 	"knative.dev/pkg/apis"
 	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
@@ -80,6 +81,36 @@ func envNamed(c *corev1.Container, name string) *corev1.EnvVar {
 		return nil
 	}
 	return &c.Env[i]
+}
+
+func volumeNamed(podSpec *corev1.PodSpec, name string) *corev1.Volume {
+	i := slices.IndexFunc(podSpec.Volumes, func(v corev1.Volume) bool { return v.Name == name })
+	if i < 0 {
+		return nil
+	}
+	return &podSpec.Volumes[i]
+}
+
+func expectModelExpressCA(podSpec *corev1.PodSpec, configMap, key, desc string) {
+	i := slices.IndexFunc(podSpec.Containers, func(c corev1.Container) bool { return c.Name == "main" })
+	Expect(i).To(BeNumerically(">=", 0), desc)
+	c := &podSpec.Containers[i]
+
+	Expect(envNamed(c, "MODEL_EXPRESS_TLS_CA_FILE")).To(HaveField("Value", "/etc/modelexpress/ca/ca.crt"), desc)
+	Expect(c.VolumeMounts).To(ContainElement(corev1.VolumeMount{Name: "modelexpress-ca", MountPath: "/etc/modelexpress/ca", ReadOnly: true}), desc)
+	v := volumeNamed(podSpec, "modelexpress-ca")
+	Expect(v).ToNot(BeNil(), desc)
+	Expect(v.ConfigMap).ToNot(BeNil(), desc)
+	Expect(v.ConfigMap.Name).To(Equal(configMap), desc)
+	Expect(v.ConfigMap.Items).To(Equal([]corev1.KeyToPath{{Key: key, Path: "ca.crt"}}), desc)
+	Expect(v.ConfigMap.Optional).To(BeNil(), desc)
+}
+
+func expectNoModelExpressCA(podSpec *corev1.PodSpec, desc string) {
+	i := slices.IndexFunc(podSpec.Containers, func(c corev1.Container) bool { return c.Name == "main" })
+	Expect(i).To(BeNumerically(">=", 0), desc)
+	Expect(envNamed(&podSpec.Containers[i], "MODEL_EXPRESS_TLS_CA_FILE")).To(BeNil(), desc)
+	Expect(volumeNamed(podSpec, "modelexpress-ca")).To(BeNil(), desc)
 }
 
 func expectModelExpressCondition(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, status corev1.ConditionStatus, reason string) {
@@ -256,6 +287,111 @@ var _ = Describe("LLMInferenceService Controller - ModelExpress", func() {
 		Expect(c.Args).ToNot(ContainElement("--load-format"))
 		Expect(envNamed(c, "MX_SERVER_ADDRESS")).To(BeNil())
 	})
+
+	It("mounts the annotated CA bundle into every engine pod", func(ctx SpecContext) {
+		svcName := "test-mx-ca-bundle"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		llmSvc := modelExpressService(svcName, testNs.Name, "hf://org/model", map[string]string{
+			constants.ModelExpressModeAnnotationKey:              "native",
+			constants.ModelExpressAddressAnnotationKey:           mxAddress,
+			constants.ModelExpressTokenAudienceAnnotationKey:     "modelexpress",
+			constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+			constants.ModelExpressCABundleKeyAnnotationKey:       "service-ca.crt",
+		})
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		expectModelExpressCondition(ctx, llmSvc, corev1.ConditionTrue, "")
+		for _, name := range []string{svcName + "-kserve", svcName + "-kserve-prefill"} {
+			d := getDeployment(ctx, name, testNs.Name)
+			expectModelExpressCA(&d.Spec.Template.Spec, "mx-ca", "service-ca.crt", name)
+		}
+	})
+
+	It("mounts the CA bundle into multi-node leader and worker pods", func(ctx SpecContext) {
+		svcName := "test-mx-ca-bundle-mn"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		llmSvc := LLMInferenceService(svcName,
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("pvc://models/llama"),
+			WithAnnotations(map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "layered",
+				constants.ModelExpressAddressAnnotationKey:           mxAddress,
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "global-ca-bundle",
+			}),
+			WithParallelism(ParallelismSpec(WithDataParallelism(2), WithDataLocalParallelism(1), WithTensorParallelism(1))),
+			WithTemplate(SimpleWorkerPodSpec()),
+			WithWorker(SimpleWorkerPodSpec()),
+			WithManagedRoute(),
+			WithManagedGateway(),
+		)
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		lws := &lwsapi.LeaderWorkerSet{}
+		Eventually(func(ctx context.Context) error {
+			return envTest.Get(ctx, types.NamespacedName{Name: svcName + "-kserve-mn", Namespace: testNs.Name}, lws)
+		}).WithContext(ctx).Should(Succeed())
+		Expect(lws.Spec.LeaderWorkerTemplate.LeaderTemplate).ToNot(BeNil())
+		expectModelExpressCA(&lws.Spec.LeaderWorkerTemplate.LeaderTemplate.Spec, "global-ca-bundle", "cabundle.crt", "leader")
+		expectModelExpressCA(&lws.Spec.LeaderWorkerTemplate.WorkerTemplate.Spec, "global-ca-bundle", "cabundle.crt", "worker")
+	})
+
+	It("keeps the CA file and volumes a workload sets itself", func(ctx SpecContext) {
+		svcName := "test-mx-ca-user"
+		testNs := NewTestNamespace(ctx, envTest)
+
+		llmSvc := modelExpressService(svcName, testNs.Name, "hf://org/model", map[string]string{
+			constants.ModelExpressModeAnnotationKey:              "native",
+			constants.ModelExpressAddressAnnotationKey:           mxAddress,
+			constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+		})
+		llmSvc.Spec.Template = &corev1.PodSpec{
+			Containers: []corev1.Container{{
+				Name:         "main",
+				Env:          []corev1.EnvVar{{Name: "MODEL_EXPRESS_TLS_CA_FILE", Value: "/etc/mx-ca/service-ca.crt"}},
+				VolumeMounts: []corev1.VolumeMount{{Name: "service-ca", MountPath: "/etc/mx-ca", ReadOnly: true}},
+			}},
+			Volumes: []corev1.Volume{{Name: "service-ca", VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "openshift-service-ca.crt"}},
+			}}},
+		}
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer func() { testNs.DeleteAndWait(ctx, llmSvc) }()
+
+		expectModelExpressCondition(ctx, llmSvc, corev1.ConditionTrue, "")
+		d := getDeployment(ctx, svcName+"-kserve", testNs.Name)
+		c := mainContainer(d)
+		Expect(envNamed(c, "MODEL_EXPRESS_TLS_CA_FILE")).To(HaveField("Value", "/etc/mx-ca/service-ca.crt"))
+		Expect(c.VolumeMounts).To(ContainElement(HaveField("Name", "service-ca")))
+		Expect(c.VolumeMounts).ToNot(ContainElement(HaveField("Name", "modelexpress-ca")))
+		Expect(volumeNamed(&d.Spec.Template.Spec, "service-ca")).ToNot(BeNil())
+		Expect(volumeNamed(&d.Spec.Template.Spec, "modelexpress-ca")).To(BeNil())
+	})
+
+	DescribeTable("rejects invalid CA bundle annotations at admission",
+		func(ctx SpecContext, annotations map[string]string, want string) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := modelExpressService("test-mx-ca-invalid", testNs.Name, "hf://org/model", annotations)
+			err := envTest.Create(ctx, llmSvc)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(want))
+		},
+		Entry("a plaintext server",
+			map[string]string{
+				constants.ModelExpressModeAnnotationKey:              "native",
+				constants.ModelExpressAddressAnnotationKey:           "modelexpress.mx.svc:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+			},
+			"a CA bundle requires an https://"),
+		Entry("CA bundle without a mode",
+			map[string]string{
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+			},
+			constants.ModelExpressModeAnnotationKey+" is required"),
+	)
 
 	It("leaves engine pods of services without ModelExpress free of ModelExpress configuration", func(ctx SpecContext) {
 		svcName := "test-mx-disabled"

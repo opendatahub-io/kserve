@@ -55,6 +55,9 @@ KSERVE_PLURAL_LLMINFERENCESERVICE = "llminferenceservices"
 MODE_ANNOTATION = "serving.kserve.io/exp-modelexpress-mode"
 ADDRESS_ANNOTATION = "serving.kserve.io/exp-modelexpress-address"
 AUDIENCE_ANNOTATION = "serving.kserve.io/exp-modelexpress-token-audience"
+CA_BUNDLE_CONFIGMAP_ANNOTATION = (
+    "serving.kserve.io/exp-modelexpress-ca-bundle-configmap"
+)
 
 WEIGHT_SUFFIXES = (".safetensors", ".bin", ".pt", ".pth", ".gguf", ".h5", ".msgpack")
 
@@ -223,6 +226,17 @@ def _loaded_by(namespace: str, pod: str) -> Optional[str]:
             None,
             MODE_ANNOTATION,
             id="rejects-options-without-mode",
+        ),
+        pytest.param(
+            {
+                MODE_ANNOTATION: "native",
+                ADDRESS_ANNOTATION: "modelexpress:8001",
+                CA_BUNDLE_CONFIGMAP_ANNOTATION: "modelexpress-ca",
+            },
+            "s3://example-models/facebook/opt-125m",
+            None,
+            "a CA bundle requires an https://",
+            id="rejects-ca-bundle-for-plaintext-server",
         ),
     ],
 )

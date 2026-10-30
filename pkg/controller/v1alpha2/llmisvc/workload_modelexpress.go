@@ -52,6 +52,11 @@ const (
 
 	modelExpressCacheVolumeName = "modelexpress-cache"
 	modelExpressCacheMountPath  = "/mnt/modelexpress-cache"
+
+	modelExpressCAFileEnvVar = "MODEL_EXPRESS_TLS_CA_FILE"
+	modelExpressCAVolumeName = "modelexpress-ca"
+	modelExpressCAMountPath  = "/etc/modelexpress/ca"
+	modelExpressCAFile       = "ca.crt"
 )
 
 // modelExpressWeightPatterns are the files native s3:// leaves to ModelStreamer.
@@ -66,6 +71,15 @@ type modelExpressServer struct {
 	// TokenAudience is the audience of the projected ServiceAccount token the
 	// client presents. Empty sends no token.
 	TokenAudience string
+	// CABundle verifies an https:// server. Nil trusts the image's system roots.
+	CABundle *modelExpressCABundle
+}
+
+// modelExpressCABundle is a key of a ConfigMap in the service's namespace that
+// holds PEM CA certificates.
+type modelExpressCABundle struct {
+	ConfigMap string
+	Key       string
 }
 
 // modelExpressConfig is the resolved ModelExpress setup for one reconcile.
@@ -79,8 +93,8 @@ func (m *modelExpressConfig) native() bool {
 	return m != nil && m.Mode == kservevalidation.ModelExpressModeNative
 }
 
-// modelExpressServerFromAnnotations reads the server from the address and
-// token-audience annotations.
+// modelExpressServerFromAnnotations reads the server from the address,
+// token-audience and CA bundle annotations.
 func modelExpressServerFromAnnotations(llmSvc *v1alpha2.LLMInferenceService) (*modelExpressServer, error) {
 	address := strings.TrimSpace(llmSvc.Annotations[constants.ModelExpressAddressAnnotationKey])
 	if address == "" {
@@ -89,10 +103,21 @@ func modelExpressServerFromAnnotations(llmSvc *v1alpha2.LLMInferenceService) (*m
 	if err := kservevalidation.ValidateModelExpressAddress(address); err != nil {
 		return nil, fmt.Errorf("annotation %s: %w", constants.ModelExpressAddressAnnotationKey, err)
 	}
-	return &modelExpressServer{
+	if errs := kservevalidation.ValidateModelExpressCABundleAnnotations(llmSvc.Annotations); len(errs) > 0 {
+		return nil, errs.ToAggregate()
+	}
+	server := &modelExpressServer{
 		Address:       address,
 		TokenAudience: strings.TrimSpace(llmSvc.Annotations[constants.ModelExpressTokenAudienceAnnotationKey]),
-	}, nil
+	}
+	if configMap, ok := llmSvc.Annotations[constants.ModelExpressCABundleConfigMapAnnotationKey]; ok {
+		key := constants.DefaultCaBundleFileName
+		if raw, ok := llmSvc.Annotations[constants.ModelExpressCABundleKeyAnnotationKey]; ok {
+			key = strings.TrimSpace(raw)
+		}
+		server.CABundle = &modelExpressCABundle{ConfigMap: strings.TrimSpace(configMap), Key: key}
+	}
+	return server, nil
 }
 
 // modelExpressRevision returns the revision annotation, or a digest of the
@@ -287,6 +312,22 @@ func attachModelExpress(llmSvc *v1alpha2.LLMInferenceService, podSpec *corev1.Po
 		addVolumeMount(c, corev1.VolumeMount{Name: modelExpressTokenVolumeName, MountPath: modelExpressTokenMountPath, ReadOnly: true})
 		utils.AddEnvVars(c, []corev1.EnvVar{
 			{Name: "MX_AUTH_TOKEN_PATH", Value: path.Join(modelExpressTokenMountPath, modelExpressTokenFile)},
+		})
+	}
+
+	if ca := mx.Server.CABundle; ca != nil && !slices.ContainsFunc(c.Env, func(e corev1.EnvVar) bool { return e.Name == modelExpressCAFileEnvVar }) {
+		podSpec.Volumes = utils.AppendVolumeIfNotExists(podSpec.Volumes, corev1.Volume{
+			Name: modelExpressCAVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{Name: ca.ConfigMap},
+					Items:                []corev1.KeyToPath{{Key: ca.Key, Path: modelExpressCAFile}},
+				},
+			},
+		})
+		addVolumeMount(c, corev1.VolumeMount{Name: modelExpressCAVolumeName, MountPath: modelExpressCAMountPath, ReadOnly: true})
+		utils.AddEnvVars(c, []corev1.EnvVar{
+			{Name: modelExpressCAFileEnvVar, Value: path.Join(modelExpressCAMountPath, modelExpressCAFile)},
 		})
 	}
 
