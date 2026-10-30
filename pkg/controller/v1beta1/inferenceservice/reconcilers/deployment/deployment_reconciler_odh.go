@@ -885,14 +885,14 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 			// the HTTPS port; if the user explicitly set a non-default
 			// port, respect their choice.
 			servingPort := constants.TransformerHTTPSPort
-			if userPort, ok := getArgValue(podSpec.Containers[i].Args, constants.ArgumentHttpPort); ok {
+			if userPort, ok := isvcutils.GetArgValue(podSpec.Containers[i].Args, constants.ArgumentHttpPort); ok {
 				if userPort != constants.InferenceServiceDefaultHttpPort {
 					if parsed, err := utils.ParsePort(userPort); err == nil {
 						servingPort = parsed
 					}
 				}
 			}
-			podSpec.Containers[i].Args = setArgValue(podSpec.Containers[i].Args,
+			podSpec.Containers[i].Args = isvcutils.SetArgValue(podSpec.Containers[i].Args,
 				constants.ArgumentHttpPort, strconv.Itoa(int(servingPort)))
 
 			podSpec.Containers[i].Ports = append(podSpec.Containers[i].Ports, corev1.ContainerPort{

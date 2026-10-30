@@ -626,7 +626,7 @@ func TestTransformerTLSPortAndProbeOverride(t *testing.T) {
 				"readiness probe should target port %d", tt.expectedPort)
 
 			// Verify --http_port in args
-			argVal, ok := getArgValue(container.Args, constants.ArgumentHttpPort)
+			argVal, ok := isvcutils.GetArgValue(container.Args, constants.ArgumentHttpPort)
 			assert.True(t, ok, "expected --http_port in args")
 			assert.Equal(t, tt.expectedHttpPort, argVal)
 		})
