@@ -16,7 +16,6 @@ from conftest import (
     NAMESPACE,
     PLATFORM_VERSION_CM,
     TIMEOUT_120S,
-    get_conditions,
     get_cr,
     get_jsonpath,
     run,
@@ -87,23 +86,38 @@ class TestStatusConditions:
         self, kubectl, cluster_info, apply_kserve_cr_with_external_dependencies
     ):
         """All conditions report correctly after successful reconcile."""
-        conditions = get_conditions(kubectl)
+        expected_uid = apply_kserve_cr_with_external_dependencies["metadata"]["uid"]
 
-        assert conditions["Ready"]["status"] == "True"
-        assert conditions["ProvisioningSucceeded"]["status"] == "True"
-        assert conditions["ProvisioningSucceeded"]["reason"] == "AllResourcesApplied"
-        assert conditions["KServeReady"]["status"] == "True"
-        assert conditions["KServeReady"]["reason"] == "AllDeploymentsAvailable"
-        assert conditions["DependenciesAvailable"]["status"] == "True"
-        assert conditions["Degraded"]["status"] == "False"
-        assert conditions["Degraded"]["reason"] == "NoDegradation"
+        # Ready can be True while an optional dependency is still reported as degraded.
+        def assert_status():
+            cr = get_cr(kubectl)
+            assert cr["metadata"]["uid"] == expected_uid
+            conditions = {
+                condition["type"]: condition
+                for condition in cr.get("status", {}).get("conditions", [])
+            }
 
-        assert conditions["ModelControllerReady"]["status"] == "True"
-        assert conditions["ModelControllerReady"]["reason"] == "AllDeploymentsAvailable"
+            assert conditions["Ready"]["status"] == "True"
+            assert conditions["ProvisioningSucceeded"]["status"] == "True"
+            assert (
+                conditions["ProvisioningSucceeded"]["reason"] == "AllResourcesApplied"
+            )
+            assert conditions["KServeReady"]["status"] == "True"
+            assert conditions["KServeReady"]["reason"] == "AllDeploymentsAvailable"
+            assert conditions["DependenciesAvailable"]["status"] == "True"
+            degraded = conditions["Degraded"]
+            assert degraded["status"] == "False"
+            assert degraded["reason"] == "NoDegradation", degraded
 
-        cr = get_cr(kubectl)
-        assert cr["status"]["phase"] == "Ready"
-        assert cr["status"]["observedGeneration"] == cr["metadata"]["generation"]
+            assert conditions["ModelControllerReady"]["status"] == "True"
+            assert (
+                conditions["ModelControllerReady"]["reason"] == "AllDeploymentsAvailable"
+            )
+
+            assert cr["status"]["phase"] == "Ready"
+            assert cr["status"]["observedGeneration"] == cr["metadata"]["generation"]
+
+        wait_for(assert_status, timeout=TIMEOUT_120S, interval=5)
 
     def test_releases_include_platform_version(
         self, kubectl, ensure_platform_configmap
