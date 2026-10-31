@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/json"
 	goerrors "errors"
 	"fmt"
@@ -48,6 +49,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	kservetls "github.com/kserve/kserve/pkg/tls"
 )
 
 // _isInMesh is an auxiliary global variable for isInIstioMesh function.
@@ -480,8 +482,59 @@ func readyHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
+// routerTLSConfig validates the TLS flags and builds the TLS configuration for
+// the router's HTTPS listener. Empty flags keep the Go serving defaults. The
+// router serves HTTP/1.1 only, so ALPN is restricted to http/1.1; advertising
+// h2 would let clients negotiate a protocol this server does not serve.
+func routerTLSConfig(tlsMinVersion, tlsCipherSuites string) (*tls.Config, error) {
+	opts, err := kservetls.Resolve(tlsMinVersion, tlsCipherSuites)
+	if err != nil {
+		return nil, err
+	}
+	// TLS 1.2 base floor matches the effective Go serving defaults (TLS 1.0
+	// and 1.1 are disabled by default); opts override it when flags are set.
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+	for _, opt := range opts {
+		opt(tlsConfig)
+	}
+	tlsConfig.NextProtos = []string{"http/1.1"}
+	return tlsConfig, nil
+}
+
+// newRouterServer builds the router's HTTP server from the parsed flags. The
+// TLS flags are validated even when TLS is disabled: garbage values fail fast
+// instead of silently serving defaults. The server below carries a TLSConfig
+// populated from validated --tls-min-version and --tls-cipher-suites flags
+// (routerTLSConfig), not a profile override: empty flags keep the Go serving
+// defaults, and resolved values come from the caller-projected cluster policy.
+func newRouterServer() (*http.Server, error) {
+	server := &http.Server{ // nosemgrep: go-http-server-tls-override
+		Addr:         ":" + strconv.Itoa(constants.RouterPort),
+		Handler:      nil,                                                      // default server mux
+		ReadTimeout:  time.Duration(*routerTimeouts.ServerRead) * time.Second,  // set the maximum duration for reading the entire request, including the body
+		WriteTimeout: time.Duration(*routerTimeouts.ServerWrite) * time.Second, // set the maximum duration before timing out writes of the response
+		IdleTimeout:  time.Duration(*routerTimeouts.ServerIdle) * time.Second,  // set the maximum amount of time to wait for the next request when keep-alives are enabled
+	}
+	tlsConfig, err := routerTLSConfig(*tlsMinVersionFlag, *tlsCipherSuitesFlag)
+	if err != nil {
+		return nil, err
+	}
+	if *enableTlsFlag {
+		server.TLSConfig = tlsConfig
+		// The router serves HTTP/1.1 only. A nil TLSNextProto would let
+		// net/http auto-configure HTTP/2, appending h2 to the ALPN list and
+		// failing the listener when the enforced cipher list has no
+		// HTTP/2-compatible AES-128-GCM suite. An empty map disables that
+		// setup.
+		server.TLSNextProto = map[string]func(*http.Server, *tls.Conn, http.Handler){}
+	}
+	return server, nil
+}
+
 var (
 	enableTlsFlag                                       = flag.Bool("enable-tls", false, "enable TLS for the router")
+	tlsMinVersionFlag                                   = flag.String("tls-min-version", "", "minimum TLS version for the router's HTTPS listener (e.g. VersionTLS12); empty keeps the Go default")
+	tlsCipherSuitesFlag                                 = flag.String("tls-cipher-suites", "", "comma-separated cipher suites for the router's HTTPS listener (crypto/tls constant names); empty keeps the Go default. Cipher suites cannot be configured with TLS 1.3")
 	enableAuthFlag                                      = flag.Bool("enable-auth", false, "protect the inference graph with authorization")
 	graphName                                           = flag.String("inferencegraph-name", "", "the name of the associated inference graph Kubernetes resource")
 	jsonGraph                                           = flag.String("graph-json", "", "serialized json graph def")
@@ -674,12 +727,10 @@ func main() {
 	http.HandleFunc(constants.RouterReadinessEndpoint, readyHandler)
 	http.Handle("/", entrypointHandler)
 
-	server := &http.Server{
-		Addr:         ":" + strconv.Itoa(constants.RouterPort),
-		Handler:      nil,                                                      // default server mux
-		ReadTimeout:  time.Duration(*routerTimeouts.ServerRead) * time.Second,  // set the maximum duration for reading the entire request, including the body
-		WriteTimeout: time.Duration(*routerTimeouts.ServerWrite) * time.Second, // set the maximum duration before timing out writes of the response
-		IdleTimeout:  time.Duration(*routerTimeouts.ServerIdle) * time.Second,  // set the maximum amount of time to wait for the next request when keep-alives are enabled
+	server, err := newRouterServer()
+	if err != nil {
+		log.Error(err, "Failed to configure the router TLS listener")
+		os.Exit(1)
 	}
 
 	go func() {
