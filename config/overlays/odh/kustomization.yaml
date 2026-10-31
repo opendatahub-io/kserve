@@ -200,6 +200,37 @@ replacements:
     fieldPaths:
     - spec.template.initContainers.[name=llm-d-routing-sidecar].image
     - spec.worker.initContainers.[name=llm-d-routing-sidecar].image
+# Replace PVC evictor container images with RELATED_IMAGE_ODH_LLM_D_KV_PVC_EVICTOR_IMAGE image
+- source:
+    kind: ConfigMap
+    name: kserve-parameters
+    fieldPath: data.kserve-llm-d-kv-pvc-evictor
+  targets:
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-template
+    fieldPaths:
+    - spec.template.containers.[name=pvc-evictor].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-worker-data-parallel
+    fieldPaths:
+    - spec.template.containers.[name=pvc-evictor].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-template
+    fieldPaths:
+    - spec.template.containers.[name=pvc-evictor].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-worker-data-parallel
+    fieldPaths:
+    - spec.template.containers.[name=pvc-evictor].image
+  - select:
+      kind: LLMInferenceServiceConfig
+      name: kserve-config-llm-decode-worker-data-parallel-multi-port
+    fieldPaths:
+    - spec.template.containers.[name=pvc-evictor].image
 - source:
     kind: ConfigMap
     name: kserve-parameters
