@@ -103,7 +103,7 @@ e2e-predictor-ocp: ## Run predictor E2E suite.
 	$(MAKE) run-e2e-ocp E2E_MARKER="predictor or kserve_on_openshift" E2E_PARALLELISM="$(E2E_PARALLELISM)" E2E_PROFILE=raw SETUP_E2E=true
 
 e2e-llmisvc-ocp: ## Run LLMISvc E2E suite.
-	$(MAKE) run-e2e-ocp E2E_MARKER="llmisvc_core and cluster_cpu and not pvc_storage" E2E_PARALLELISM=2 E2E_PROFILE=llm-d SETUP_E2E=true
+	$(MAKE) run-e2e-ocp E2E_MARKER="llmisvc_core and cluster_cpu and not pvc_storage" E2E_PARALLELISM=4 E2E_PROFILE=llm-d SETUP_E2E=true
 
 reset-e2e-ocp: ## Reset the test namespace for a fresh E2E rerun.
 	./test/scripts/openshift-ci/setup-ci-namespace.sh
