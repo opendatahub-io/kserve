@@ -22,9 +22,23 @@ import (
 	"context"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	"github.com/kserve/kserve/pkg/constants"
+	kservevalidation "github.com/kserve/kserve/pkg/validation"
 )
 
 // resolveModelExpressServer reads the ModelExpress server from service annotations.
+// An https:// server without a CA bundle annotation is verified with the
+// namespace's odh-kserve-custom-ca-bundle.
 func (r *LLMISVCReconciler) resolveModelExpressServer(_ context.Context, llmSvc *v1alpha2.LLMInferenceService) (*modelExpressServer, error) {
-	return modelExpressServerFromAnnotations(llmSvc)
+	server, err := modelExpressServerFromAnnotations(llmSvc)
+	if err != nil {
+		return nil, err
+	}
+	if server.CABundle == nil && kservevalidation.ModelExpressAddressUsesTLS(server.Address) {
+		server.CABundle = &modelExpressCABundle{
+			ConfigMap: constants.ODHKServeCustomCABundleConfigMapName,
+			Key:       constants.DefaultCaBundleFileName,
+		}
+	}
+	return server, nil
 }

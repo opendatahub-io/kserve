@@ -73,7 +73,7 @@ func main() {
 				&corev1.Pod{}: {Label: isvcPodLabelSelector},
 				&corev1.ConfigMap{}: {
 					Namespaces: map[string]cache.Config{
-						constants.KServeNamespace: {
+						inferenceServiceConfigNamespace(): {
 							FieldSelector: fields.OneTermEqualSelector("metadata.name", constants.InferenceServiceConfigMapName),
 						},
 					},

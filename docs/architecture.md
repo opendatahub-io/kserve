@@ -28,6 +28,8 @@ Hook pattern: upstream calls e.g. `extendControllerSetup()` → `controller_setu
 
 `Makefile.overrides.mk` sets `GOTAGS=distro`. Tag must propagate Makefile → Docker `GOTAGS` build-arg → `go build -tags` (missing tag silently drops ODH code). CI: `.github/workflows/distro-build-check.yml`.
 
+The reasoning, the upstream-first workflow and the full placement table are in [`docs/odh/midstream-conventions.md`](odh/midstream-conventions.md).
+
 ## InferenceService (ISVC)
 
 `pkg/controller/v1beta1/inferenceservice/` · `InferenceServiceReconciler.Reconcile()`
@@ -52,7 +54,7 @@ Hook pattern: upstream calls e.g. `extendControllerSetup()` → `controller_setu
 5. `reconcileRouter()` — HTTPRoutes, InferencePool (v1/v1alpha2), scheduler; `ensureGatewayPreconditions()` marks status without requeue on missing CRDs
 6. `reconcilePlatformResources()` (ODH: monitoring; per-LLMISVC prometheus-scraping ingress NP when `llmisvc.featureGates.monitoringIngressNetworkPolicy`, default off) → `observeWorkloadStatus()` → status (composite `Ready` from workload + router sub-conditions)
 
-**ODH:** `controller_setup_odh.go`, `platform_resources_odh.go`, `monitoring{,_network_policy}_odh.go`, `workload_{tls_cert,tls_rotation,permissions,confidential}_odh.go`, `confidential_{config,helpers,watches}_odh.go`, `router_{preconditions,platform_networking,discovery_additional}_odh.go`, `distro/controller_rbac_odh.go`
+**ODH:** `controller_setup_odh.go`, `platform_resources_odh.go`, `monitoring{,_network_policy}_odh.go`, `workload_{tls_cert,tls_rotation,permissions,confidential,modelexpress}_odh.go`, `confidential_{config,helpers,watches}_odh.go`, `router_{preconditions,platform_networking,discovery_additional}_odh.go`, `distro/controller_rbac_odh.go`
 
 ## InferenceGraph
 

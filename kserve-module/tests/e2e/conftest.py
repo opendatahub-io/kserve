@@ -14,6 +14,7 @@ import yaml
 # ---------------------------------------------------------------------------
 KSERVE_CR_NAME = "default-kserve"
 NAMESPACE = "opendatahub"
+MODEL_CACHE_NAMESPACE = "model-serving-cache"
 OPERATOR_DEPLOYMENT = "kserve-module-controller-manager"
 MODULE_FINALIZER = "kserve-module.opendatahub.io/finalizer"
 TIMEOUT_300S = 300  # cold-start: first Kserve CR ready waits on operand image pulls
@@ -627,7 +628,7 @@ def ensure_configmap(kubectl_bin, name, namespace=NAMESPACE, timeout=TIMEOUT_120
     )
 
 
-def dump_modelcache_workload_diagnostics(kubectl_bin, namespace=NAMESPACE):
+def dump_modelcache_workload_diagnostics(kubectl_bin, namespace=MODEL_CACHE_NAMESPACE):
     """Print localmodel controller/agent status and logs for timeout failures.
 
     Surfaces CrashLoopBackOff causes such as missing TLS RBAC subjects
@@ -808,13 +809,20 @@ def _wait_for_managed_resources_gc(kubectl_bin, is_openshift, timeout=TIMEOUT_60
     # singleton Kserve CR. In particular, the module deploys RoleBindings before
     # Deployments; a stale RoleBinding being garbage-collected can abort the
     # whole apply before ModelCache workloads are reached.
+    for resource, name in (("rolebinding", LLMISVC_CONFIG_READ_ROLEBINDING),):
+        wait_for_resource_gone(
+            kubectl_bin, resource, name, namespace=NAMESPACE, timeout=timeout
+        )
     for resource, name in (
-        ("rolebinding", LLMISVC_CONFIG_READ_ROLEBINDING),
         ("deployment", LOCALMODEL_CONTROLLER_DEPLOYMENT),
         ("daemonset", LOCALMODEL_AGENT_DAEMONSET),
     ):
         wait_for_resource_gone(
-            kubectl_bin, resource, name, namespace=NAMESPACE, timeout=timeout
+            kubectl_bin,
+            resource,
+            name,
+            namespace=MODEL_CACHE_NAMESPACE,
+            timeout=timeout,
         )
 
 
@@ -918,8 +926,12 @@ def model_cache_enabled(kubectl, cluster_info, apply_kserve_cr):
         )
         # Explicit localmodel workload readiness: CrashLoopBackOff from missing
         # TLS RBAC subjects fails these waits and dumps pod logs/events.
-        wait_for_deployment(kubectl, LOCALMODEL_CONTROLLER_DEPLOYMENT)
-        wait_for_daemonset_ready(kubectl, LOCALMODEL_AGENT_DAEMONSET)
+        wait_for_deployment(
+            kubectl, LOCALMODEL_CONTROLLER_DEPLOYMENT, namespace=MODEL_CACHE_NAMESPACE
+        )
+        wait_for_daemonset_ready(
+            kubectl, LOCALMODEL_AGENT_DAEMONSET, namespace=MODEL_CACHE_NAMESPACE
+        )
     except TimeoutError:
         cr = get_cr(kubectl, check=False)
         if cr is not None:

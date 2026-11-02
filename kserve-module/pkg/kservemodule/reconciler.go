@@ -42,7 +42,7 @@ import (
 
 // --- Operand resources (namespace-scoped, cluster-wide because operands may span user namespaces) ---
 // +kubebuilder:rbac:groups="",resources=configmaps;services;serviceaccounts,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret;workload-variant-autoscaler-controller-manager-token;workload-variant-autoscaler-epp-metrics-token;workload-variant-autoscaler-metrics-reader-token
 // +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
@@ -112,7 +112,10 @@ import (
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodegroups,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelcaches;localmodelnamespacecaches,verbs=get;list
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list
 
 // --- Upgrade path: HardwareProfile migration ---
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=list;patch
@@ -332,6 +335,8 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	}
 
 	var allResources []unstructured.Unstructured
+	var modelCacheResources []unstructured.Unstructured
+	var modelCacheRendered bool
 	componentErrors := make(map[string]error, len(components))
 
 	for _, comp := range components {
@@ -350,6 +355,10 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 					continue
 				}
 				allResources = append(allResources, resources...)
+				if comp.name == ModelCacheComponentName && len(resources) > 0 {
+					modelCacheResources = resources
+					modelCacheRendered = true
+				}
 				continue
 			}
 			if err := r.defaultCleanup(ctx, comp); err != nil {
@@ -370,10 +379,19 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 			continue
 		}
 		allResources = append(allResources, resources...)
+		if comp.name == ModelCacheComponentName && len(resources) > 0 {
+			modelCacheResources = resources
+			modelCacheRendered = true
+		}
 	}
 
 	if len(componentErrors) > 0 {
 		return componentErrors
+	}
+	if modelCacheRendered {
+		if err := r.prepareModelCacheCutover(ctx, modelCacheResources); err != nil {
+			return map[string]error{ModelCacheComponentName: fmt.Errorf("preparing ModelCache namespace cutover: %w", err)}
+		}
 	}
 
 	owned, unowned := splitByOwnership(allResources)
@@ -452,7 +470,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	}
 
 	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
-	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
+	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.componentNamespace(comp)))
 	if err != nil {
 		return nil, fmt.Errorf("rendering %s kustomize: %w", comp.name, err)
 	}
@@ -545,6 +563,13 @@ func (r *KserveModuleReconciler) getApplicationsNamespace() string {
 	}
 
 	return "opendatahub"
+}
+
+func (r *KserveModuleReconciler) componentNamespace(comp componentConfig) string {
+	if comp.name == ModelCacheComponentName {
+		return modelCacheNamespace
+	}
+	return r.getApplicationsNamespace()
 }
 
 // getCertManagerNamespace dynamically discovers the namespace where cert-manager

@@ -19,6 +19,7 @@ from conftest import (
     wait_for,
     KSERVE_CR_NAME,
     NAMESPACE,
+    MODEL_CACHE_NAMESPACE,
     PV_NAME,
     PVC_NAME,
     LMNG_NAME,
@@ -42,9 +43,9 @@ class TestModelCacheEnable:
         worker = model_cache_enabled
 
         assert resource_exists(kubectl, "pv", PV_NAME), f"PV {PV_NAME} should exist"
-        assert resource_exists(kubectl, "pvc", PVC_NAME, namespace=NAMESPACE), (
-            f"PVC {PVC_NAME} should exist in {NAMESPACE}"
-        )
+        assert resource_exists(
+            kubectl, "pvc", PVC_NAME, namespace=MODEL_CACHE_NAMESPACE
+        ), f"PVC {PVC_NAME} should exist in {MODEL_CACHE_NAMESPACE}"
         assert resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME), (
             f"LocalModelNodeGroup {LMNG_NAME} should exist"
         )
@@ -59,7 +60,7 @@ class TestModelCacheEnable:
         psa = get_jsonpath(
             kubectl,
             "namespace",
-            NAMESPACE,
+            MODEL_CACHE_NAMESPACE,
             "{.metadata.labels.pod-security\\.kubernetes\\.io/enforce}",
         )
         assert psa == "privileged", f"Namespace PSA should be 'privileged', got '{psa}'"
@@ -67,7 +68,7 @@ class TestModelCacheEnable:
         psa_annot = get_jsonpath(
             kubectl,
             "namespace",
-            NAMESPACE,
+            MODEL_CACHE_NAMESPACE,
             "{.metadata.annotations.opendatahub\\.io/psa-elevated-by}",
         )
         assert psa_annot == "kserve-modelcache", (
@@ -85,8 +86,18 @@ class TestModelCacheEnable:
         assert cfg.get("enabled") is True, (
             f"localModel.enabled should be true, got {cfg.get('enabled')}"
         )
-        assert cfg.get("jobNamespace") == NAMESPACE, (
-            f"localModel.jobNamespace should be '{NAMESPACE}', got {cfg.get('jobNamespace')}"
+        assert cfg.get("jobNamespace") == MODEL_CACHE_NAMESPACE, (
+            f"localModel.jobNamespace should be '{MODEL_CACHE_NAMESPACE}', got {cfg.get('jobNamespace')}"
+        )
+
+        app_psa_annot = get_jsonpath(
+            kubectl,
+            "namespace",
+            NAMESPACE,
+            "{.metadata.annotations.opendatahub\\.io/psa-elevated-by}",
+        )
+        assert app_psa_annot != "kserve-modelcache", (
+            "Applications namespace must not retain the ModelCache PSA marker"
         )
 
         # Workload startup can change readiness after the fixture returns.
@@ -109,27 +120,33 @@ class TestModelCacheEnable:
         # Localmodel workloads must be healthy. CrashLoopBackOff from missing
         # kserve-tls-distro-rolebinding subjects fails these checks on OpenShift.
         assert resource_exists(
-            kubectl, "deployment", LOCALMODEL_CONTROLLER_DEPLOYMENT, namespace=NAMESPACE
+            kubectl,
+            "deployment",
+            LOCALMODEL_CONTROLLER_DEPLOYMENT,
+            namespace=MODEL_CACHE_NAMESPACE,
         ), f"Deployment {LOCALMODEL_CONTROLLER_DEPLOYMENT} should exist"
         avail = get_jsonpath(
             kubectl,
             "deployment",
             LOCALMODEL_CONTROLLER_DEPLOYMENT,
             "{.status.availableReplicas}",
-            namespace=NAMESPACE,
+            namespace=MODEL_CACHE_NAMESPACE,
         )
         assert avail and int(avail) >= 1, (
             f"{LOCALMODEL_CONTROLLER_DEPLOYMENT} availableReplicas should be >= 1, got '{avail}'"
         )
         assert resource_exists(
-            kubectl, "daemonset", LOCALMODEL_AGENT_DAEMONSET, namespace=NAMESPACE
+            kubectl,
+            "daemonset",
+            LOCALMODEL_AGENT_DAEMONSET,
+            namespace=MODEL_CACHE_NAMESPACE,
         ), f"DaemonSet {LOCALMODEL_AGENT_DAEMONSET} should exist"
         ready = get_jsonpath(
             kubectl,
             "daemonset",
             LOCALMODEL_AGENT_DAEMONSET,
             "{.status.numberReady}",
-            namespace=NAMESPACE,
+            namespace=MODEL_CACHE_NAMESPACE,
         )
         assert ready and int(ready) >= 1, (
             f"{LOCALMODEL_AGENT_DAEMONSET} numberReady should be >= 1, got '{ready}'"
@@ -171,8 +188,22 @@ class TestModelCacheDisable:
         while time.time() < deadline:
             if (
                 not resource_exists(kubectl, "pv", PV_NAME)
-                and not resource_exists(kubectl, "pvc", PVC_NAME, namespace=NAMESPACE)
+                and not resource_exists(
+                    kubectl, "pvc", PVC_NAME, namespace=MODEL_CACHE_NAMESPACE
+                )
                 and not resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME)
+                and not resource_exists(
+                    kubectl,
+                    "deployment",
+                    LOCALMODEL_CONTROLLER_DEPLOYMENT,
+                    namespace=MODEL_CACHE_NAMESPACE,
+                )
+                and not resource_exists(
+                    kubectl,
+                    "daemonset",
+                    LOCALMODEL_AGENT_DAEMONSET,
+                    namespace=MODEL_CACHE_NAMESPACE,
+                )
             ):
                 break
             time.sleep(5)
@@ -180,9 +211,9 @@ class TestModelCacheDisable:
         assert not resource_exists(kubectl, "pv", PV_NAME), (
             f"PV {PV_NAME} should be deleted"
         )
-        assert not resource_exists(kubectl, "pvc", PVC_NAME, namespace=NAMESPACE), (
-            f"PVC {PVC_NAME} should be deleted"
-        )
+        assert not resource_exists(
+            kubectl, "pvc", PVC_NAME, namespace=MODEL_CACHE_NAMESPACE
+        ), f"PVC {PVC_NAME} should be deleted from {MODEL_CACHE_NAMESPACE}"
         assert not resource_exists(kubectl, LMNG_RESOURCE, LMNG_NAME), (
             f"LocalModelNodeGroup {LMNG_NAME} should be deleted"
         )
@@ -194,23 +225,48 @@ class TestModelCacheDisable:
             f"Node label kserve/localmodel should be removed, got '{label}'"
         )
 
+        assert not resource_exists(
+            kubectl,
+            "deployment",
+            LOCALMODEL_CONTROLLER_DEPLOYMENT,
+            namespace=MODEL_CACHE_NAMESPACE,
+        ), f"Deployment {LOCALMODEL_CONTROLLER_DEPLOYMENT} should be deleted"
+        assert not resource_exists(
+            kubectl,
+            "daemonset",
+            LOCALMODEL_AGENT_DAEMONSET,
+            namespace=MODEL_CACHE_NAMESPACE,
+        ), f"DaemonSet {LOCALMODEL_AGENT_DAEMONSET} should be deleted"
+
         psa = get_jsonpath(
             kubectl,
             "namespace",
-            NAMESPACE,
+            MODEL_CACHE_NAMESPACE,
             "{.metadata.labels.pod-security\\.kubernetes\\.io/enforce}",
         )
         assert psa == "baseline", (
-            f"Namespace PSA should revert to 'baseline', got '{psa}'"
+            f"ModelCache namespace PSA should revert to 'baseline', got '{psa}'"
         )
 
         psa_annot = get_jsonpath(
             kubectl,
             "namespace",
+            MODEL_CACHE_NAMESPACE,
+            "{.metadata.annotations.opendatahub\\.io/psa-elevated-by}",
+        )
+        assert psa_annot == "", (
+            f"ModelCache namespace PSA annotation should be removed, got '{psa_annot}'"
+        )
+
+        app_psa_annot = get_jsonpath(
+            kubectl,
+            "namespace",
             NAMESPACE,
             "{.metadata.annotations.opendatahub\\.io/psa-elevated-by}",
         )
-        assert psa_annot == "", f"PSA annotation should be removed, got '{psa_annot}'"
+        assert app_psa_annot != "kserve-modelcache", (
+            "Applications namespace must not retain the ModelCache PSA marker"
+        )
 
         local_model_cfg = get_jsonpath(
             kubectl,

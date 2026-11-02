@@ -84,6 +84,9 @@ const (
 	OpenShiftServiceCaConfigMapName = "openshift-service-ca.crt"
 )
 
+// ODHKServeCustomCABundleConfigMapName is the CA bundle ConfigMap odh-model-controller keeps in user namespaces.
+const ODHKServeCustomCABundleConfigMapName = "odh-kserve-custom-ca-bundle"
+
 // ODH Connections API
 const ODHS3Endpoint = "AWS_S3_ENDPOINT"
 

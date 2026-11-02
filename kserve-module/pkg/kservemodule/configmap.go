@@ -126,7 +126,26 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 	modelCacheEnabled := kserve.Spec.ModelCache != nil && kserve.Spec.ModelCache.ManagementState == "Managed"
 	if err := updateCMJSONKey(cm, localModelConfigKeyName, func(data map[string]any) {
 		data["enabled"] = modelCacheEnabled
-		data["jobNamespace"] = cm.Namespace
+		data["jobNamespace"] = modelCacheNamespace
+	}); err != nil {
+		return err
+	}
+	// KernelCache is installed in the model-serving-cache namespace. Rewrite the
+	// built-in reference there while preserving an administrator-provided
+	// reference to another Secret or ConfigMap.
+	if err := updateCMJSONKey(cm, "kernelcache", func(data map[string]any) {
+		security, ok := data["artifactSecurity"].(map[string]any)
+		if !ok {
+			return
+		}
+		cert, ok := security["cert"].(map[string]any)
+		if !ok {
+			return
+		}
+		trustBundle, _ := cert["trustBundle"].(string)
+		if trustBundle == "" || trustBundle == "kserve/kernelcache-root-ca" {
+			cert["trustBundle"] = modelCacheNamespace + "/kernelcache-root-ca"
+		}
 	}); err != nil {
 		return err
 	}

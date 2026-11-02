@@ -162,6 +162,9 @@ var (
 	ModelExpressAddressAnnotationKey       = KServeAPIGroupName + "/exp-modelexpress-address"
 	ModelExpressTokenAudienceAnnotationKey = KServeAPIGroupName + "/exp-modelexpress-token-audience"
 	ModelExpressRevisionAnnotationKey      = KServeAPIGroupName + "/exp-modelexpress-revision"
+	// ConfigMap in the service's namespace, and its key, holding the CA bundle for an https:// server.
+	ModelExpressCABundleConfigMapAnnotationKey = KServeAPIGroupName + "/exp-modelexpress-ca-bundle-configmap"
+	ModelExpressCABundleKeyAnnotationKey       = KServeAPIGroupName + "/exp-modelexpress-ca-bundle-key"
 )
 
 // ServingRuntime Server Type Annotations
@@ -1062,4 +1065,13 @@ const LoRAModelRoutingStrategyAnnotationKey = KServeAPIGroupName + "/lora-model-
 const (
 	LoRAModelRoutingStrategyExact = "exact"
 	LoRAModelRoutingStrategyRegex = "regex"
+)
+
+// RouteRuleNamingAnnotationKey is read from spec.annotations, so a preset can
+// carry it.
+const RouteRuleNamingAnnotationKey = KServeAPIGroupName + "/route-rule-naming"
+
+const (
+	RouteRuleNamingPreset = "preset"
+	RouteRuleNamingUnique = "unique"
 )

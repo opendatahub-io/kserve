@@ -46,10 +46,6 @@ func (r *LLMISVCReconciler) reconcileSingleNodeWorkload(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile managed DRA: %w", err)
 	}
 
-	if err := r.reconcileSingleNodeMainServiceAccount(ctx, llmSvc, config); err != nil {
-		return fmt.Errorf("failed to reconcile service account: %w", err)
-	}
-
 	if err := r.reconcileSingleNodeMainWorkload(ctx, llmSvc, config, useDisaggregatedSet); err != nil {
 		return fmt.Errorf("failed to reconcile main workload: %w", err)
 	}
@@ -187,7 +183,8 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainPodTemplate(ctx context.Contex
 		evictorTemplate = takePVCEvictorContainerTemplate(&template.Spec)
 
 		var serviceAccount *corev1.ServiceAccount = nil
-		if hasRoutingSidecar(template.Spec) || config.ModelExpress != nil {
+		if hasRoutingSidecar(template.Spec) || config.ModelExpress != nil ||
+			(llmSvc.Spec.Template.ServiceAccountName == "" && requiresDedicatedServiceAccount(llmSvc.Spec.Template)) {
 			var err error
 			serviceAccount, _, err = r.expectedSingleNodeMainServiceAccount(ctx, llmSvc)
 			if err != nil {
@@ -374,7 +371,7 @@ func (r *LLMISVCReconciler) expectedSingleNodePrefillPodTemplate(ctx context.Con
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch existing single node prefill service account %s/%s: %w", llmSvc.Namespace, template.Spec.ServiceAccountName, err)
 			}
-		} else if config.ModelExpress != nil {
+		} else if config.ModelExpress != nil || requiresDedicatedServiceAccount(llmSvc.Spec.Prefill.Template) {
 			var err error
 			existingServiceAccount, _, err = r.expectedSingleNodeMainServiceAccount(ctx, llmSvc)
 			if err != nil {
@@ -506,7 +503,11 @@ func (r *LLMISVCReconciler) reconcileSingleNodeMainServiceAccount(ctx context.Co
 	}
 
 	if !useExistingServiceAccount {
-		if utils.GetForceStopRuntime(llmSvc) || (!hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) && config.ModelExpress == nil) {
+		platformNeedsServiceAccount, err := r.platformNeedsSingleNodeServiceAccount(ctx, llmSvc, serviceAccount.GetName())
+		if err != nil {
+			return fmt.Errorf("failed to check platform need for single node service account: %w", err)
+		}
+		if utils.GetForceStopRuntime(llmSvc) || (!hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) && config.ModelExpress == nil && !platformNeedsServiceAccount) {
 			return Delete(ctx, r, llmSvc, serviceAccount)
 		}
 
