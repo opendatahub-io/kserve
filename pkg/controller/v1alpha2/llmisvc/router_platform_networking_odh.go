@@ -106,7 +106,9 @@ func (r *LLMISVCReconciler) reconcileRouterPlatformNetworking(ctx context.Contex
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	if llmSvc.Spec.Router == nil {
+	// A stopped service deletes its DestinationRules whatever its gateway is, so it
+	// needs neither gateway discovery nor a route that renders.
+	if llmSvc.Spec.Router == nil || utils.GetForceStopRuntime(llmSvc) {
 		return r.reconcileIstioDestinationRules(ctx, llmSvc, false, config.EnableTLS)
 	}
 
