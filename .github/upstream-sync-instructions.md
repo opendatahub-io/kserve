@@ -139,8 +139,11 @@ Everything between the opening and separator is ours; between separator and clos
 1. Ensure all conflicts are properly resolved (both sides integrated correctly)
    and no conflict markers remain (the 7-character `<`, `=`, `>` lines).
    Do NOT simply delete marker lines -- the code between them must be resolved.
-2. Verify no markers remain: run `git grep` for the opening marker (7x less-than
-   followed by a space). Must return no results (exit code 1).
+2. Verify no markers remain:
+   ```
+   git grep -n '^<<<<<<< '
+   ```
+   Must return no results (exit code 1).
 3. Run the build verification for this repository:
    - `go build ./...`
    - `cd qpext && go build ./...`
