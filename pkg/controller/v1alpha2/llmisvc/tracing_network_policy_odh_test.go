@@ -66,8 +66,10 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 		Expect(np.OwnerReferences[0].Name).To(Equal(llmSvc.Name))
 		Expect(np.OwnerReferences[0].Controller).To(Equal(ptr.To(true)))
 		Expect(np.Spec.PolicyTypes).To(Equal([]netv1.PolicyType{netv1.PolicyTypeEgress}))
-		Expect(np.Spec.PodSelector.MatchLabels).To(HaveKeyWithValue(
-			"serving.kserve.io/llmisvc-network-policy-id", Not(BeEmpty())))
+		Expect(np.Spec.PodSelector.MatchLabels).To(Equal(map[string]string{
+			constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
+			constants.KubernetesAppNameLabelKey: llmSvc.Name,
+		}), "must select Pods through the pre-existing application labels")
 		Expect(np.Spec.Egress).To(HaveLen(4))
 		Expect(np.Spec.Egress[0].Ports).To(ContainElements(
 			netv1.NetworkPolicyPort{Protocol: ptr.To(corev1.ProtocolUDP), Port: ptr.To(intstr.FromInt32(53))},
@@ -120,16 +122,27 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 		assertDefaultTracingPolicies := func() {
 			GinkgoHelper()
 			Eventually(func(g Gomega, ctx context.Context) {
-				allowIngress := &netv1.NetworkPolicy{}
+				// Ingress coverage survives through the per-component default
+				// policy, never through a broad combined grant.
+				defaultMain := &netv1.NetworkPolicy{}
 				g.Expect(envTest.Get(ctx, types.NamespacedName{
-					Name: kmeta.ChildName(llmSvc.Name, "-networkpolicy-allow-all"), Namespace: testNs.Name,
-				}, allowIngress)).To(Succeed())
-				g.Expect(allowIngress.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeIngress))
-				g.Expect(allowIngress.Spec.Ingress).To(Equal([]netv1.NetworkPolicyIngressRule{{}}))
-				g.Expect(allowIngress.Spec.Egress).To(BeEmpty(), "must not bypass tracing egress")
-				g.Expect(allowIngress.Spec.PodSelector).To(Equal(np.Spec.PodSelector), "must cover every service Pod")
-				for _, suffix := range []string{"workload", "scheduler", "tokenizer", "egress"} {
-					name := kmeta.ChildName(llmSvc.Name, "-networkpolicy-"+suffix)
+					Name: kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"), Namespace: testNs.Name,
+				}, defaultMain)).To(Succeed())
+				g.Expect(defaultMain.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeIngress))
+				g.Expect(defaultMain.Spec.Ingress).To(Equal([]netv1.NetworkPolicyIngressRule{{}}))
+				g.Expect(defaultMain.Spec.Egress).To(BeEmpty(), "must not bypass tracing egress")
+				// The tracing policy stays in place in both modes.
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name: kmeta.ChildName(llmSvc.Name, "-otlp-egress"), Namespace: testNs.Name,
+				}, &netv1.NetworkPolicy{})).To(Succeed())
+				for _, suffix := range []string{
+					"-networkpolicy-strict-main", "-networkpolicy-strict-prefill",
+					"-networkpolicy-strict-scheduler", "-networkpolicy-strict-tokenizer",
+					"-networkpolicy-strict-main-mn", "-networkpolicy-strict-prefill-mn",
+					"-networkpolicy-strict-pd", "-networkpolicy-egress", "-networkpolicy-allow-all",
+					"-networkpolicy-workload", "-networkpolicy-scheduler", "-networkpolicy-tokenizer",
+				} {
+					name := kmeta.ChildName(llmSvc.Name, suffix)
 					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
 					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "%s must not exist", name)
 				}
@@ -140,7 +153,7 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 		// Live strict→default transitions must restore ingress allowance while
 		// keeping tracing egress effective, without restarting the controller.
 		EnableStrictNetworkPolicy(ctx, envTest.Client)
-		waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-workload"))
+		waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
 		PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
 			cfg.FeatureGates.StrictNetworkPolicy = false
 		})
@@ -191,7 +204,7 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 
 		tracingNP := waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
 		Expect(tracingNP.Spec.Egress).To(HaveLen(3))
-		waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-workload"))
+		waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
 
 		Eventually(func(g Gomega, ctx context.Context) {
 			event := findEvent(ctx, envTest.Client, llmSvc, "UnsupportedTracingEndpoint")

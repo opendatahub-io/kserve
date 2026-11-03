@@ -57,6 +57,12 @@ const (
 
 	legacyMonitoringNetworkPolicySuffix = "-prometheus-scraping"
 
+	// The two ingress policy modes. Policy names embed the mode
+	// (<service>-networkpolicy-<mode>-<component-key>), so the values must stay
+	// stable across releases.
+	networkPolicyModeDefault = "default"
+	networkPolicyModeStrict  = "strict"
+
 	networkPolicyComponentLabel = "llm-network-policy"
 	defaultWorkloadPort         = int32(8000)
 	defaultSchedulerGRPCPort    = int32(9002)
@@ -96,23 +102,63 @@ func legacyMonitoringNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) str
 	return kmeta.ChildName(llmSvc.GetName(), legacyMonitoringNetworkPolicySuffix)
 }
 
-func networkPolicySelector(llmSvc *v1alpha2.LLMInferenceService, role string) metav1.LabelSelector {
-	return metav1.LabelSelector{MatchLabels: map[string]string{
-		networkPolicyServiceIDLabel: networkPolicyServiceID(llmSvc),
-		networkPolicyRoleLabel:      role,
-	}}
+// networkPolicyComponentKeys lists every fixed component key of the selector
+// inventory. Stale-policy cleanup uses it to bound the policy names this
+// controller may own, so it must cover each key networkPolicySelectors can
+// produce.
+var networkPolicyComponentKeys = []string{
+	networkPolicyComponentMain,
+	networkPolicyComponentPrefill,
+	networkPolicyComponentScheduler,
+	networkPolicyComponentTokenizer,
+	networkPolicyComponentMainMN,
+	networkPolicyComponentPrefillMN,
+	networkPolicyComponentPD,
 }
 
-func allServicePodsSelector(llmSvc *v1alpha2.LLMInferenceService) metav1.LabelSelector {
-	return metav1.LabelSelector{MatchLabels: map[string]string{
-		networkPolicyServiceIDLabel: networkPolicyServiceID(llmSvc),
-	}}
+// ingressNetworkPolicyName returns the deterministic policy name
+// <service>-networkpolicy-<mode>-<component-key>.
+func ingressNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService, mode, component string) string {
+	return kmeta.ChildName(llmSvc.GetName(), "-networkpolicy-"+mode+"-"+component)
 }
 
-func networkPolicyPeer(llmSvc *v1alpha2.LLMInferenceService, role string) netv1.NetworkPolicyPeer {
-	return netv1.NetworkPolicyPeer{PodSelector: &metav1.LabelSelector{
-		MatchLabels: networkPolicySelector(llmSvc, role).MatchLabels,
-	}}
+// ingressNetworkPolicyNames returns the bounded set of per-component ingress
+// policy names for one mode.
+func ingressNetworkPolicyNames(llmSvc *v1alpha2.LLMInferenceService, mode string) []string {
+	names := make([]string, 0, len(networkPolicyComponentKeys))
+	for _, component := range networkPolicyComponentKeys {
+		names = append(names, ingressNetworkPolicyName(llmSvc, mode, component))
+	}
+	return names
+}
+
+// staleIngressNetworkPolicyNames returns the bounded set of ingress policy
+// names a reconcile of mode no longer desires: every per-component name of
+// both modes except the desired components' names of the reconciled mode —
+// covering the other mode after a mode switch and the components that left
+// the selector inventory after a topology change — plus the pre-selector
+// strict-mode names that a per-component reconcile no longer overwrites. The
+// set stays bounded to the fixed component keys and the historical suffixes;
+// cleanup never sweeps unrelated service-owned resources.
+func staleIngressNetworkPolicyNames(llmSvc *v1alpha2.LLMInferenceService, mode string, inventory networkPolicySelectorInventory) []string {
+	desired := make(map[string]struct{}, len(inventory))
+	for _, entry := range inventory {
+		desired[ingressNetworkPolicyName(llmSvc, mode, entry.Component)] = struct{}{}
+	}
+	names := make([]string, 0, 2*len(networkPolicyComponentKeys)+3)
+	for _, component := range networkPolicyComponentKeys {
+		for _, candidateMode := range []string{networkPolicyModeDefault, networkPolicyModeStrict} {
+			name := ingressNetworkPolicyName(llmSvc, candidateMode, component)
+			if _, keep := desired[name]; !keep {
+				names = append(names, name)
+			}
+		}
+	}
+	return append(names,
+		workloadNetworkPolicyName(llmSvc),
+		schedulerNetworkPolicyName(llmSvc),
+		tokenizerNetworkPolicyName(llmSvc),
+	)
 }
 
 func networkPolicyPort(protocol corev1.Protocol, port int32) netv1.NetworkPolicyPort {
@@ -148,7 +194,6 @@ func networkPolicyObjectMeta(llmSvc *v1alpha2.LLMInferenceService, name, compone
 			constants.KubernetesComponentLabelKey: component,
 			constants.KubernetesPartOfLabelKey:    constants.LLMInferenceServicePartOfValue,
 			constants.KubernetesAppNameLabelKey:   llmSvc.GetName(),
-			networkPolicyServiceIDLabel:           networkPolicyServiceID(llmSvc),
 		},
 		OwnerReferences: []metav1.OwnerReference{
 			*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
@@ -182,19 +227,28 @@ func monitoringIngressRule(port int32, config *Config) netv1.NetworkPolicyIngres
 	}
 }
 
-func sameNamespacePeer(llmSvc *v1alpha2.LLMInferenceService, role string) netv1.NetworkPolicyPeer {
-	return networkPolicyPeer(llmSvc, role)
-}
-
-func networkPolicyIngressObject(llmSvc *v1alpha2.LLMInferenceService, name, role string, rules []netv1.NetworkPolicyIngressRule) *netv1.NetworkPolicy {
+// networkPolicyIngressObject builds an ingress-only policy that selects the
+// Pods of one inventory entry through the entry's complete stored selector.
+func networkPolicyIngressObject(llmSvc *v1alpha2.LLMInferenceService, name string, selector metav1.LabelSelector, rules []netv1.NetworkPolicyIngressRule) *netv1.NetworkPolicy {
 	return &netv1.NetworkPolicy{
 		ObjectMeta: networkPolicyObjectMeta(llmSvc, name, networkPolicyComponentLabel),
 		Spec: netv1.NetworkPolicySpec{
-			PodSelector: networkPolicySelector(llmSvc, role),
+			PodSelector: *selector.DeepCopy(),
 			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
 			Ingress:     rules,
 		},
 	}
+}
+
+// selectorPeers converts inventory entries to same-namespace NetworkPolicy
+// source peers. Each entry keeps its complete stored selector as its own peer;
+// selectors are never collapsed into a shared application-name-only selector.
+func selectorPeers(entries networkPolicySelectorInventory) []netv1.NetworkPolicyPeer {
+	peers := make([]netv1.NetworkPolicyPeer, 0, len(entries))
+	for i := range entries {
+		peers = append(peers, netv1.NetworkPolicyPeer{PodSelector: entries[i].Selector.DeepCopy()})
+	}
+	return peers
 }
 
 type networkPolicySchedulerPeer struct {
@@ -202,18 +256,62 @@ type networkPolicySchedulerPeer struct {
 	ports []int32
 }
 
-func expectedWorkloadNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, gatewayNamespaces []string, gatewayPorts []int32, schedulerPeers []networkPolicySchedulerPeer, config *Config) *netv1.NetworkPolicy {
-	if len(schedulerPeers) == 0 {
+// expectedDefaultIngressNetworkPolicies returns the default-mode policy set:
+// one ingress-only policy per inventory entry that selects the entry's Pods
+// through its complete stored selector and allows all ingress to them. No
+// egress rules are created; egress remains governed by the opt-in tracing
+// policy alone.
+func expectedDefaultIngressNetworkPolicies(llmSvc *v1alpha2.LLMInferenceService, inventory networkPolicySelectorInventory) []*netv1.NetworkPolicy {
+	policies := make([]*netv1.NetworkPolicy, 0, len(inventory))
+	for _, entry := range inventory {
+		policies = append(policies, networkPolicyIngressObject(llmSvc,
+			ingressNetworkPolicyName(llmSvc, networkPolicyModeDefault, entry.Component),
+			entry.Selector,
+			[]netv1.NetworkPolicyIngressRule{{}}))
+	}
+	return policies
+}
+
+// expectedStrictIngressNetworkPolicies returns the strict-mode policy set: one
+// ingress policy per inventory entry, with the entry's policy-local class
+// deciding its traffic rules. Workload entries keep Gateway, scheduler, and
+// monitoring access plus all-protocol workload-peer traffic; scheduler entries
+// keep Gateway gRPC, monitoring metrics, and configured workload-to-ZMQ access;
+// tokenizer entries keep scheduler-to-tokenizer access.
+func expectedStrictIngressNetworkPolicies(llmSvc *v1alpha2.LLMInferenceService, inventory networkPolicySelectorInventory, gatewayNamespaces []string, gatewayPorts []int32, schedulerPeers []networkPolicySchedulerPeer, config *Config) []*netv1.NetworkPolicy {
+	workloads := inventory.ofClass(networkPolicyRoleWorkload)
+	schedulers := inventory.ofClass(networkPolicyRoleScheduler)
+	tokenizers := inventory.ofClass(networkPolicyRoleTokenizer)
+	workloadPeerSources := selectorPeers(workloads)
+	schedulerPeerSources := selectorPeers(schedulers)
+
+	policies := make([]*netv1.NetworkPolicy, 0, len(inventory))
+	for _, entry := range workloads {
+		policies = append(policies, expectedStrictWorkloadIngressNetworkPolicy(llmSvc, entry, workloadPeerSources, gatewayNamespaces, gatewayPorts, schedulerPeers, config))
+	}
+	for _, entry := range schedulers {
+		policies = append(policies, expectedStrictSchedulerIngressNetworkPolicy(llmSvc, entry, workloadPeerSources, gatewayNamespaces, config))
+	}
+	for _, entry := range tokenizers {
+		policies = append(policies, expectedStrictTokenizerIngressNetworkPolicy(llmSvc, entry, schedulerPeerSources))
+	}
+	return policies
+}
+
+// expectedStrictWorkloadIngressNetworkPolicy builds the strict-mode ingress
+// policy for one workload inventory entry. The workload-peer rule covers every
+// workload selector of the service — including the target's own, which spans
+// multi-node leaders and workers — so compute-only workers are admitted
+// without any InferencePool serving marker or llm-d role label.
+func expectedStrictWorkloadIngressNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, entry networkPolicySelectorEntry, workloadPeerSources []netv1.NetworkPolicyPeer, gatewayNamespaces []string, gatewayPorts []int32, schedulerPeers []networkPolicySchedulerPeer, config *Config) *netv1.NetworkPolicy {
+	rules := make([]netv1.NetworkPolicyIngressRule, 0, len(schedulerPeers)+3)
+	if len(gatewayNamespaces) > 0 {
 		ports := uniquePorts(gatewayPorts...)
 		if len(ports) == 0 {
 			ports = []int32{defaultWorkloadPort}
 		}
-		schedulerPeers = []networkPolicySchedulerPeer{{
-			peer:  sameNamespacePeer(llmSvc, networkPolicyRoleScheduler),
-			ports: ports,
-		}}
+		rules = append(rules, gatewayIngressRule(gatewayNamespaces, ports...))
 	}
-	rules := make([]netv1.NetworkPolicyIngressRule, 0, len(schedulerPeers)+3)
 	for _, schedulerPeer := range schedulerPeers {
 		ports := uniquePorts(schedulerPeer.ports...)
 		if len(ports) == 0 {
@@ -224,12 +322,6 @@ func expectedWorkloadNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, gateway
 			Ports: networkPolicyPorts(corev1.ProtocolTCP, ports...),
 		})
 	}
-	if len(gatewayNamespaces) > 0 {
-		if len(gatewayPorts) == 0 {
-			gatewayPorts = []int32{defaultWorkloadPort}
-		}
-		rules = append([]netv1.NetworkPolicyIngressRule{gatewayIngressRule(gatewayNamespaces, gatewayPorts...)}, rules...)
-	}
 	// The strict NetworkPolicy feature gate (and before it the legacy monitoring
 	// gate) is not consulted here: when strict policies are reconciled, metrics
 	// peers must stay allowed while monitoring is enabled.
@@ -237,96 +329,51 @@ func expectedWorkloadNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, gateway
 		rules = append(rules, monitoringIngressRule(defaultWorkloadPort, config))
 	}
 	// Separate prefill/decode Pods and multi-node Pods can use runtime-defined
-	// peer ports. Keep this rule scoped to the protected identity of the same
-	// LLMISVC; it is harmless for a single workload Pod and avoids topology
-	// specific gaps when a service changes between those layouts.
+	// peer ports, so the full port range is admitted for the service's own
+	// workload selectors only.
 	rules = append(rules, netv1.NetworkPolicyIngressRule{
-		From:  []netv1.NetworkPolicyPeer{sameNamespacePeer(llmSvc, networkPolicyRoleWorkload)},
+		From:  workloadPeerSources,
 		Ports: allPortsNetworkPolicyPorts(),
 	})
-	return networkPolicyIngressObject(llmSvc, workloadNetworkPolicyName(llmSvc), networkPolicyRoleWorkload, rules)
+	return networkPolicyIngressObject(llmSvc, ingressNetworkPolicyName(llmSvc, networkPolicyModeStrict, entry.Component), entry.Selector, rules)
 }
 
-func expectedSchedulerNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, gatewayNamespaces []string, config *Config) *netv1.NetworkPolicy {
+// expectedStrictSchedulerIngressNetworkPolicy builds the strict-mode ingress
+// policy for one scheduler inventory entry. Configured workload-to-ZMQ access
+// is granted from the workload inventory peers; when no workload is stored yet
+// the rule is skipped, which denies the port instead of broadening the source.
+func expectedStrictSchedulerIngressNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, entry networkPolicySelectorEntry, workloadPeerSources []netv1.NetworkPolicyPeer, gatewayNamespaces []string, config *Config) *netv1.NetworkPolicy {
 	rules := []netv1.NetworkPolicyIngressRule{}
-	if grpcPort := schedulerPort(llmSvc, "grpc", defaultSchedulerGRPCPort); grpcPort > 0 {
-		if len(gatewayNamespaces) > 0 {
-			rules = append(rules, gatewayIngressRule(gatewayNamespaces, grpcPort))
-		}
+	if grpcPort := schedulerPort(llmSvc, "grpc", defaultSchedulerGRPCPort); grpcPort > 0 && len(gatewayNamespaces) > 0 {
+		rules = append(rules, gatewayIngressRule(gatewayNamespaces, grpcPort))
 	}
 	if !monitoringDisabled {
 		if metricsPort := schedulerPort(llmSvc, "metrics", defaultSchedulerMetricsPort); metricsPort > 0 {
 			rules = append(rules, monitoringIngressRule(metricsPort, config))
 		}
 	}
-	if zmqPort, ok := schedulerConfiguredPort(llmSvc, "zmq"); ok {
+	if zmqPort, ok := schedulerConfiguredPort(llmSvc, "zmq"); ok && len(workloadPeerSources) > 0 {
 		rules = append(rules, netv1.NetworkPolicyIngressRule{
-			From:  []netv1.NetworkPolicyPeer{sameNamespacePeer(llmSvc, networkPolicyRoleWorkload)},
+			From:  workloadPeerSources,
 			Ports: []netv1.NetworkPolicyPort{networkPolicyPort(corev1.ProtocolTCP, zmqPort)},
 		})
 	}
-	return networkPolicyIngressObject(llmSvc, schedulerNetworkPolicyName(llmSvc), networkPolicyRoleScheduler, rules)
+	return networkPolicyIngressObject(llmSvc, ingressNetworkPolicyName(llmSvc, networkPolicyModeStrict, entry.Component), entry.Selector, rules)
 }
 
-func expectedTokenizerNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *netv1.NetworkPolicy {
-	return networkPolicyIngressObject(llmSvc, tokenizerNetworkPolicyName(llmSvc), networkPolicyRoleTokenizer,
-		[]netv1.NetworkPolicyIngressRule{{
-			From:  []netv1.NetworkPolicyPeer{sameNamespacePeer(llmSvc, networkPolicyRoleScheduler)},
+// expectedStrictTokenizerIngressNetworkPolicy builds the strict-mode ingress
+// policy for one tokenizer inventory entry. Without a stored scheduler there
+// is no legitimate source, so the policy keeps no ingress rules — denying all
+// ingress — rather than emitting an empty From that would admit everything.
+func expectedStrictTokenizerIngressNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, entry networkPolicySelectorEntry, schedulerPeerSources []netv1.NetworkPolicyPeer) *netv1.NetworkPolicy {
+	var rules []netv1.NetworkPolicyIngressRule
+	if len(schedulerPeerSources) > 0 {
+		rules = append(rules, netv1.NetworkPolicyIngressRule{
+			From:  schedulerPeerSources,
 			Ports: []netv1.NetworkPolicyPort{networkPolicyPort(corev1.ProtocolTCP, tokenizerServicePort)},
-		}})
-}
-
-func expectedDefaultEgressNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *netv1.NetworkPolicy {
-	return &netv1.NetworkPolicy{
-		ObjectMeta: networkPolicyObjectMeta(llmSvc, egressNetworkPolicyName(llmSvc), networkPolicyComponentLabel),
-		Spec: netv1.NetworkPolicySpec{
-			PodSelector: allServicePodsSelector(llmSvc),
-			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeEgress},
-			// Model storage, LoRA storage, API clients, peer runtimes, and
-			// telemetry destinations are user-configured or dynamic. This is an
-			// explicit allow-all egress decision under the platform contract.
-			Egress: []netv1.NetworkPolicyEgressRule{{}},
-		},
+		})
 	}
-}
-
-func expectedDenyAllEgressNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *netv1.NetworkPolicy {
-	policy := expectedDefaultEgressNetworkPolicy(llmSvc)
-	// An empty egress rule list with PolicyTypes:Egress explicitly denies all
-	// egress. It is used only as a fail-closed transition state while the
-	// restrictive tracing policy is being repaired.
-	policy.Spec.Egress = []netv1.NetworkPolicyEgressRule{}
-	return policy
-}
-
-// expectedAllowAllNetworkPolicy returns the default-mode policy: a single
-// per-service NetworkPolicy that selects every Pod of the service (via the
-// controller-owned network policy identity labels) and allows all ingress and
-// egress. It exists because the platform contract requires an owner-controlled
-// NetworkPolicy per LLMInferenceService even when strict isolation is disabled;
-// semantically it restores the pre-policy behavior of not policing Pod traffic.
-func expectedAllowAllNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *netv1.NetworkPolicy {
-	return &netv1.NetworkPolicy{
-		ObjectMeta: networkPolicyObjectMeta(llmSvc, allowAllNetworkPolicyName(llmSvc), networkPolicyComponentLabel),
-		Spec: netv1.NetworkPolicySpec{
-			PodSelector: allServicePodsSelector(llmSvc),
-			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress, netv1.PolicyTypeEgress},
-			// Empty rule bodies ({} entries) explicitly allow all traffic in both
-			// directions. NetworkPolicy permissions are additive, so tracing opt-in
-			// replaces this policy with an ingress-only grant before restricting egress.
-			Ingress: []netv1.NetworkPolicyIngressRule{{}},
-			Egress:  []netv1.NetworkPolicyEgressRule{{}},
-		},
-	}
-}
-
-// expectedAllowAllIngressNetworkPolicy preserves default-mode ingress while
-// leaving egress to the opt-in tracing policy (or its deny-all failure fallback).
-func expectedAllowAllIngressNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService) *netv1.NetworkPolicy {
-	policy := expectedAllowAllNetworkPolicy(llmSvc)
-	policy.Spec.PolicyTypes = []netv1.PolicyType{netv1.PolicyTypeIngress}
-	policy.Spec.Egress = nil
-	return policy
+	return networkPolicyIngressObject(llmSvc, ingressNetworkPolicyName(llmSvc, networkPolicyModeStrict, entry.Component), entry.Selector, rules)
 }
 
 func schedulerConfiguredPort(llmSvc *v1alpha2.LLMInferenceService, name string) (int32, bool) {
@@ -501,10 +548,18 @@ func (r *LLMISVCReconciler) gatewayNamespacesForNetworkPolicy(ctx context.Contex
 	if len(ports) == 0 {
 		ports = []int32{defaultWorkloadPort}
 	}
+	// The own managed scheduler is admitted through its stored Deployment
+	// selector. A managed scheduler that is not stored yet is an error so the
+	// reconcile retries, rather than emitting an empty peer or widening the
+	// source beyond the scheduler's Pods.
 	schedulerPeers := make([]networkPolicySchedulerPeer, 0, 1)
-	if hasManagedScheduler(llmSvc) {
+	ownScheduler, err := r.managedSchedulerNetworkPolicySelector(ctx, llmSvc)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if ownScheduler != nil {
 		schedulerPeers = append(schedulerPeers, networkPolicySchedulerPeer{
-			peer:  sameNamespacePeer(llmSvc, networkPolicyRoleScheduler),
+			peer:  netv1.NetworkPolicyPeer{PodSelector: ownScheduler},
 			ports: ports,
 		})
 	}
@@ -544,15 +599,29 @@ func (r *LLMISVCReconciler) gatewayNamespacesForNetworkPolicy(ctx context.Contex
 		namespaces = uniqueNamespaces(append(namespaces, gatewayPeerNamespaces(peer, ingressNs)...)...)
 		ports = uniquePorts(append(ports, pool.targetPorts...)...)
 		if hasManagedScheduler(peer) {
+			// Like the own scheduler, a shared-pool sibling's managed scheduler is
+			// admitted only through its stored Deployment selector; an unresolved
+			// one aborts so the reconcile retries without widening the source. A
+			// force-stopped sibling's scheduler Deployment is deliberately absent:
+			// it yields no peer, which must be skipped — never appended as an
+			// empty PodSelector — and it still counts as a matched scheduler so
+			// the unmapped third-party EPP fallback below is not widened to the
+			// whole namespace for a scheduler this controller knows.
+			peerScheduler, err := r.managedSchedulerNetworkPolicySelector(ctx, peer)
+			if err != nil {
+				return nil, nil, nil, err
+			}
 			peerPorts := uniquePorts(pool.targetPorts...)
 			if len(peerPorts) == 0 {
 				peerPorts = []int32{defaultWorkloadPort}
 			}
-			schedulerPeers = append(schedulerPeers, networkPolicySchedulerPeer{
-				peer:  sameNamespacePeer(peer, networkPolicyRoleScheduler),
-				ports: peerPorts,
-			})
 			matchedSchedulerPeer = true
+			if peerScheduler != nil {
+				schedulerPeers = append(schedulerPeers, networkPolicySchedulerPeer{
+					peer:  netv1.NetworkPolicyPeer{PodSelector: peerScheduler},
+					ports: peerPorts,
+				})
+			}
 		}
 	}
 
@@ -626,68 +695,80 @@ func deleteOwnedNetworkPolicy(ctx context.Context, r *LLMISVCReconciler, llmSvc 
 	return Delete(ctx, r, (*v1alpha2.LLMInferenceService)(nil), expected)
 }
 
+// deleteOwnedNetworkPolicies removes a bounded set of owned policy names.
+func deleteOwnedNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, names []string) error {
+	for _, name := range names {
+		policy := &netv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: llmSvc.GetNamespace()}}
+		if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, policy); err != nil {
+			return fmt.Errorf("failed to remove NetworkPolicy %s/%s: %w", policy.GetNamespace(), policy.GetName(), err)
+		}
+	}
+	return nil
+}
+
 func reconcileLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
 	if networkPolicyDisabled {
 		return nil
 	}
 
-	// Remove the former monitoring policy. It included a blanket same-namespace
-	// all-port ingress rule and must not remain additive after migration.
-	var legacyOwnershipConflict error
-	if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, &netv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: legacyMonitoringNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()},
-	}); err != nil {
-		if !errors.Is(err, errNetworkPolicyOwnershipConflict) {
-			return fmt.Errorf("failed to remove legacy monitoring NetworkPolicy: %w", err)
-		}
-		legacyOwnershipConflict = fmt.Errorf("failed to remove legacy monitoring NetworkPolicy: %w", err)
-		log.FromContext(ctx).Info("Deferring legacy monitoring NetworkPolicy ownership conflict until policy reconciliation completes", "error", err)
-	}
-
 	strict := config != nil && config.FeatureGates.StrictNetworkPolicy
-	tracingRequested := llmSvc.Spec.Tracing != nil && llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] == "true"
-	if tracingRequested {
-		// NetworkPolicy permissions are additive: remove broad egress grants
-		// before reconciling tracing so neither tracing nor its fail-closed
-		// fallback is bypassed. In default mode, update the combined policy in
-		// place to preserve ingress even if tracing reconciliation fails.
-		if !strict {
-			if err := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllIngressNetworkPolicy(llmSvc)); err != nil {
-				return errors.Join(legacyOwnershipConflict, err)
-			}
-		} else if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllNetworkPolicy(llmSvc)); err != nil {
-			return errors.Join(legacyOwnershipConflict, fmt.Errorf("failed to remove default-mode allow-all NetworkPolicy: %w", err))
-		}
-		if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, expectedDefaultEgressNetworkPolicy(llmSvc)); err != nil {
-			return errors.Join(legacyOwnershipConflict, fmt.Errorf("failed to remove default LLMISVC egress NetworkPolicy: %w", err))
-		}
-	}
-	if err := r.reconcileTracingNetworkPolicy(ctx, llmSvc); err != nil {
-		if tracingRequested {
-			if denyErr := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, expectedDenyAllEgressNetworkPolicy(llmSvc)); denyErr != nil {
-				return errors.Join(legacyOwnershipConflict, fmt.Errorf("failed to preserve fail-closed LLMISVC egress while tracing policy reconciliation failed: %w; tracing error: %w", denyErr, err))
-			}
-		}
-		return errors.Join(legacyOwnershipConflict, err)
+	// Ingress coverage and the opt-in tracing policy reconcile independently:
+	// an exporter lookup or write failure must not leave the service without
+	// ingress policies, and an ingress failure must not skip the tracing
+	// lifecycle. Each step's error is collected so one pass reports every
+	// problem and the reconcile retries.
+	var errs error
+	if strict {
+		errs = reconcileStrictNetworkPolicies(ctx, r, llmSvc, config)
+	} else {
+		errs = reconcileDefaultModeNetworkPolicies(ctx, r, llmSvc)
 	}
 
-	if strict {
-		return errors.Join(legacyOwnershipConflict, reconcileStrictNetworkPolicies(ctx, r, llmSvc, config, tracingRequested))
+	// The general egress policy earlier builds created is egress-only: its
+	// removal cannot open an ingress gap, so it is independent of the ingress
+	// reconciliation above. Removal stays ownership-checked, and a failure is
+	// reported instead of successful tracing establishment and retried.
+	if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, &netv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{Name: egressNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()},
+	}); err != nil {
+		errs = errors.Join(errs, fmt.Errorf("failed to remove broad egress NetworkPolicy %s/%s: %w",
+			llmSvc.GetNamespace(), egressNetworkPolicyName(llmSvc), err))
 	}
-	return errors.Join(legacyOwnershipConflict, reconcileDefaultModeNetworkPolicies(ctx, r, llmSvc, tracingRequested))
+
+	// The former monitoring policy and the branch-created combined allow-all
+	// policy are superseded ingress coverage, so they are removed only after
+	// the complete desired ingress set exists: create-before-delete, and no
+	// pruning of prior coverage while an inventory or write failure is being
+	// retried. A prune failure likewise defers this removal to the retry; the
+	// tracing lifecycle below still runs and reports its own errors.
+	if errs == nil {
+		for _, name := range []string{legacyMonitoringNetworkPolicyName(llmSvc), allowAllNetworkPolicyName(llmSvc)} {
+			policy := &netv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: llmSvc.GetNamespace()}}
+			if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, policy); err != nil {
+				errs = errors.Join(errs, fmt.Errorf("failed to remove superseded NetworkPolicy %s/%s: %w",
+					policy.GetNamespace(), policy.GetName(), err))
+			}
+		}
+	} else {
+		log.FromContext(ctx).Info("Deferring superseded NetworkPolicy removal until the desired ingress set is reconciled",
+			"namespace", llmSvc.GetNamespace(), "service", llmSvc.GetName())
+	}
+
+	// The existing tracing policy is retained when the exporter lookup or the
+	// policy write fails; the error is reported and the reconcile retries
+	// without a broad or deny-all egress fallback.
+	return errors.Join(errs, r.reconcileTracingNetworkPolicy(ctx, llmSvc))
 }
 
-// reconcileStrictNetworkPolicies enforces the least-privilege policy set:
-// workload/scheduler/tokenizer ingress isolation plus an explicit allow-all
-// egress policy (unless the opt-in tracing policy governs egress). It runs when
-// the llmisvc.featureGates.strictNetworkPolicy gate is enabled.
-func reconcileStrictNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, config *Config, tracingRequested bool) error {
-	if !tracingRequested {
-		if err := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, expectedDefaultEgressNetworkPolicy(llmSvc)); err != nil {
-			return err
-		}
+// reconcileStrictNetworkPolicies enforces the least-privilege policy set: one
+// ingress policy per stored component, scoped to that component's stored Pod
+// selector. Egress is not policed unless the opt-in tracing policy governs it.
+// It runs when the llmisvc.featureGates.strictNetworkPolicy gate is enabled.
+func reconcileStrictNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
+	inventory, err := r.networkPolicySelectors(ctx, llmSvc)
+	if err != nil {
+		return fmt.Errorf("failed to build the NetworkPolicy selector inventory: %w", err)
 	}
-
 	gatewayNamespaces, gatewayPorts, schedulerPeers, err := r.gatewayNamespacesForNetworkPolicy(ctx, llmSvc, ingressNamespace(config), config)
 	if err != nil {
 		if meta.IsNoMatchError(err) {
@@ -696,72 +777,77 @@ func reconcileStrictNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, l
 			gatewayNamespaces = uniqueNamespaces(gatewayPeerNamespaces(llmSvc, ingressNamespace(config))...)
 			gatewayPorts = []int32{defaultWorkloadPort}
 			schedulerPeers = nil
+			// The own scheduler selector is stored with its Deployment, not with
+			// the optional pool APIs, so keep that peer during the fallback.
+			ownScheduler, serr := r.managedSchedulerNetworkPolicySelector(ctx, llmSvc)
+			if serr != nil {
+				return fmt.Errorf("failed to resolve the managed scheduler selector during the optional-API fallback: %w", serr)
+			}
+			if ownScheduler != nil {
+				schedulerPeers = append(schedulerPeers, networkPolicySchedulerPeer{
+					peer:  netv1.NetworkPolicyPeer{PodSelector: ownScheduler},
+					ports: gatewayPorts,
+				})
+			}
 		} else {
-			return err
+			return fmt.Errorf("failed to resolve Gateway NetworkPolicy peers: %w", err)
 		}
 	}
 
-	policies := []*netv1.NetworkPolicy{
-		expectedWorkloadNetworkPolicy(llmSvc, gatewayNamespaces, gatewayPorts, schedulerPeers, config),
-		expectedSchedulerNetworkPolicy(llmSvc, gatewayNamespaces, config),
-		expectedTokenizerNetworkPolicy(llmSvc),
-	}
+	policies := expectedStrictIngressNetworkPolicies(llmSvc, inventory, gatewayNamespaces, gatewayPorts, schedulerPeers, config)
 	for _, policy := range policies {
 		if err := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, policy); err != nil {
 			return err
 		}
 	}
 
-	// Migration off→on: the strict policies are in place, so remove the
-	// default-mode allow-all policy. Delete last so a failure above leaves the
-	// broad policy covering the Pods instead of a partial strict set.
-	if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllNetworkPolicy(llmSvc)); err != nil {
-		return fmt.Errorf("failed to remove default-mode allow-all NetworkPolicy: %w", err)
-	}
-	return nil
+	// The complete desired strict set exists, so remove every other owned
+	// ingress policy: the permissive default-mode names, the strict-mode names
+	// of components that left the selector inventory, and the pre-selector
+	// strict-mode names. Delete last so a failure above leaves the prior
+	// coverage in place instead of a partial strict set.
+	return deleteOwnedNetworkPolicies(ctx, r, llmSvc, staleIngressNetworkPolicyNames(llmSvc, networkPolicyModeStrict, inventory))
 }
 
 // reconcileDefaultModeNetworkPolicies runs when the strict gate is off (the
-// default): it maintains a single per-service allow-all NetworkPolicy and
-// removes any strict policies from an earlier strict-mode reconcile. Tracing
-// stays independent of the gate; when tracing is requested an ingress-only
-// allow-all policy was already established before tracing reconciliation, so
-// the opt-in tracing policy governs egress without changing ingress allowance.
-func reconcileDefaultModeNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, tracingRequested bool) error {
-	// Establish ingress coverage before deleting strict policies. For tracing,
-	// the ingress-only variant was already reconciled before tracing egress.
-	if !tracingRequested {
-		if err := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, expectedAllowAllNetworkPolicy(llmSvc)); err != nil {
+// default): it maintains one ingress-only allow-all policy per stored
+// component and removes the strict-mode policies from an earlier strict-mode
+// reconcile. Tracing is independent of the gate and of this reconciliation:
+// when tracing is requested the opt-in tracing policy governs egress without
+// changing ingress allowance.
+func reconcileDefaultModeNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService) error {
+	inventory, err := r.networkPolicySelectors(ctx, llmSvc)
+	if err != nil {
+		return fmt.Errorf("failed to build the NetworkPolicy selector inventory: %w", err)
+	}
+	for _, policy := range expectedDefaultIngressNetworkPolicies(llmSvc, inventory) {
+		if err := reconcileOwnedNetworkPolicy(ctx, r, llmSvc, policy); err != nil {
 			return err
 		}
 	}
 
-	// Migration on→off: remove the strict-mode policies.
-	strict := []*netv1.NetworkPolicy{
-		{ObjectMeta: metav1.ObjectMeta{Name: workloadNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-		{ObjectMeta: metav1.ObjectMeta{Name: schedulerNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-		{ObjectMeta: metav1.ObjectMeta{Name: tokenizerNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-		{ObjectMeta: metav1.ObjectMeta{Name: egressNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-	}
-	for _, policy := range strict {
-		if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, policy); err != nil {
-			return fmt.Errorf("failed to remove strict NetworkPolicy %s/%s: %w", policy.GetNamespace(), policy.GetName(), err)
-		}
-	}
-	return nil
+	// The complete desired default set exists, so remove every other owned
+	// ingress policy: the strict-mode names after a mode switch, the
+	// default-mode names of components that left the selector inventory, and
+	// the pre-selector strict-mode names.
+	return deleteOwnedNetworkPolicies(ctx, r, llmSvc, staleIngressNetworkPolicyNames(llmSvc, networkPolicyModeDefault, inventory))
 }
 
 func cleanupLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService) error {
-	policies := []*netv1.NetworkPolicy{
-		{ObjectMeta: metav1.ObjectMeta{Name: legacyMonitoringNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-		{ObjectMeta: metav1.ObjectMeta{Name: workloadNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-		{ObjectMeta: metav1.ObjectMeta{Name: schedulerNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-		{ObjectMeta: metav1.ObjectMeta{Name: tokenizerNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-		{ObjectMeta: metav1.ObjectMeta{Name: egressNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-		{ObjectMeta: metav1.ObjectMeta{Name: allowAllNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-		{ObjectMeta: metav1.ObjectMeta{Name: tracingNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()}},
-	}
-	for _, policy := range policies {
+	names := make([]string, 0, 7+2*len(networkPolicyComponentKeys))
+	names = append(names,
+		legacyMonitoringNetworkPolicyName(llmSvc),
+		workloadNetworkPolicyName(llmSvc),
+		schedulerNetworkPolicyName(llmSvc),
+		tokenizerNetworkPolicyName(llmSvc),
+		egressNetworkPolicyName(llmSvc),
+		allowAllNetworkPolicyName(llmSvc),
+		tracingNetworkPolicyName(llmSvc),
+	)
+	names = append(names, ingressNetworkPolicyNames(llmSvc, networkPolicyModeDefault)...)
+	names = append(names, ingressNetworkPolicyNames(llmSvc, networkPolicyModeStrict)...)
+	for _, name := range names {
+		policy := &netv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: llmSvc.GetNamespace()}}
 		if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, policy); err != nil {
 			if errors.Is(err, errNetworkPolicyOwnershipConflict) {
 				log.FromContext(ctx).Info("Skipping NetworkPolicy cleanup because it is not controlled by the LLMInferenceService",

@@ -21,6 +21,7 @@ package llmisvc
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,16 +30,17 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/credentials"
 )
 
-func TestNetworkPolicyIdentityLabelsStayOutOfDeploymentSelectors(t *testing.T) {
+func TestDeploymentPodTemplatesSatisfySelectors(t *testing.T) {
 	modelURI, err := apis.ParseURL("hf://facebook/opt-125m")
 	if err != nil {
 		t.Fatalf("failed to parse test model URI: %v", err)
 	}
 	service := func() *v1alpha2.LLMInferenceService {
 		return &v1alpha2.LLMInferenceService{
-			ObjectMeta: metav1.ObjectMeta{Name: "selector-identity", Namespace: "team-a"},
+			ObjectMeta: metav1.ObjectMeta{Name: "selector-labels", Namespace: "team-a"},
 			Spec: v1alpha2.LLMInferenceServiceSpec{
 				Model:              v1alpha2.LLMModelSpec{URI: *modelURI},
 				WorkloadSpec:       v1alpha2.WorkloadSpec{Template: &corev1.PodSpec{}},
@@ -51,7 +53,7 @@ func TestNetworkPolicyIdentityLabelsStayOutOfDeploymentSelectors(t *testing.T) {
 	r := &LLMISVCReconciler{Client: client}
 
 	// Keep an existing main Deployment present to exercise the upgrade path that
-	// preserves its selector while the expected PodTemplate gains NP labels.
+	// preserves its selector.
 	main := service()
 	existing := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{Name: mainDeploymentName(main), Namespace: main.Namespace},
@@ -66,14 +68,12 @@ func TestNetworkPolicyIdentityLabelsStayOutOfDeploymentSelectors(t *testing.T) {
 	tests := []struct {
 		name  string
 		build func(*v1alpha2.LLMInferenceService) (*appsv1.Deployment, error)
-		want  string
 	}{
 		{
 			name: "single-node main with existing deployment",
 			build: func(svc *v1alpha2.LLMInferenceService) (*appsv1.Deployment, error) {
 				return r.expectedSingleNodeMainDeployment(t.Context(), svc, &Config{})
 			},
-			want: networkPolicyRoleWorkload,
 		},
 		{
 			name: "single-node prefill",
@@ -81,7 +81,6 @@ func TestNetworkPolicyIdentityLabelsStayOutOfDeploymentSelectors(t *testing.T) {
 				svc.Spec.Prefill = &v1alpha2.WorkloadSpec{}
 				return r.expectedPrefillMainDeployment(t.Context(), svc, &Config{})
 			},
-			want: networkPolicyRoleWorkload,
 		},
 		{
 			name: "scheduler",
@@ -89,14 +88,12 @@ func TestNetworkPolicyIdentityLabelsStayOutOfDeploymentSelectors(t *testing.T) {
 				svc.Spec.Router = &v1alpha2.RouterSpec{Scheduler: &v1alpha2.SchedulerSpec{}}
 				return r.expectedSchedulerDeployment(t.Context(), svc)
 			},
-			want: networkPolicyRoleScheduler,
 		},
 		{
 			name: "tokenizer",
 			build: func(svc *v1alpha2.LLMInferenceService) (*appsv1.Deployment, error) {
 				return r.expectedTokenizerDeployment(t.Context(), svc)
 			},
-			want: networkPolicyRoleTokenizer,
 		},
 	}
 
@@ -106,18 +103,6 @@ func TestNetworkPolicyIdentityLabelsStayOutOfDeploymentSelectors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("failed to build deployment: %v", err)
 			}
-			if _, ok := d.Spec.Selector.MatchLabels[networkPolicyServiceIDLabel]; ok {
-				t.Fatalf("NetworkPolicy service identity leaked into immutable selector: %#v", d.Spec.Selector.MatchLabels)
-			}
-			if _, ok := d.Spec.Selector.MatchLabels[networkPolicyRoleLabel]; ok {
-				t.Fatalf("NetworkPolicy role leaked into immutable selector: %#v", d.Spec.Selector.MatchLabels)
-			}
-			if got := d.Spec.Template.Labels[networkPolicyServiceIDLabel]; got != networkPolicyServiceID(service()) {
-				t.Fatalf("PodTemplate service identity got %q, want %q", got, networkPolicyServiceID(service()))
-			}
-			if got := d.Spec.Template.Labels[networkPolicyRoleLabel]; got != tt.want {
-				t.Fatalf("PodTemplate role got %q, want %q", got, tt.want)
-			}
 			for key, value := range d.Spec.Selector.MatchLabels {
 				if d.Spec.Template.Labels[key] != value {
 					t.Fatalf("PodTemplate does not satisfy selector key %q=%q: %#v", key, value, d.Spec.Template.Labels)
@@ -125,4 +110,79 @@ func TestNetworkPolicyIdentityLabelsStayOutOfDeploymentSelectors(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestComponentPodTemplateApplicationLabels covers the application labels used
+// by the component controllers across Deployment and LeaderWorkerSet templates.
+func TestComponentPodTemplateApplicationLabels(t *testing.T) {
+	t.Run("single node deployments", func(t *testing.T) {
+		modelURI, err := apis.ParseURL("hf://facebook/opt-125m")
+		require.NoError(t, err)
+		r := &LLMISVCReconciler{Client: selectorTestClient(t)}
+		svc := &v1alpha2.LLMInferenceService{
+			ObjectMeta: metav1.ObjectMeta{Name: "template-labels", Namespace: "team-a"},
+			Spec: v1alpha2.LLMInferenceServiceSpec{
+				Model:              v1alpha2.LLMModelSpec{URI: *modelURI},
+				WorkloadSpec:       v1alpha2.WorkloadSpec{Template: &corev1.PodSpec{}},
+				StorageInitializer: &v1alpha2.StorageInitializerSpec{Enabled: ptr.To(false)},
+				Prefill:            &v1alpha2.WorkloadSpec{},
+			},
+		}
+
+		main, err := r.expectedSingleNodeMainDeployment(t.Context(), svc, &Config{})
+		require.NoError(t, err)
+		prefill, err := r.expectedPrefillMainDeployment(t.Context(), svc, &Config{})
+		require.NoError(t, err)
+
+		require.Contains(t, main.Spec.Template.Labels, constants.KubernetesAppNameLabelKey)
+		require.Contains(t, prefill.Spec.Template.Labels, constants.KubernetesAppNameLabelKey)
+	})
+
+	t.Run("multi node leader worker sets", func(t *testing.T) {
+		r := &LLMISVCReconciler{Client: newFakeClientWithLWSNoMatch(t)}
+		svc := newLLMInferenceServiceWithMultiNode("template-labels", "default")
+		prefill := svc.Spec.WorkloadSpec
+		prefill.Template = svc.Spec.Template.DeepCopy()
+		prefill.Worker = svc.Spec.Worker.DeepCopy()
+		svc.Spec.Prefill = &prefill
+		cfg := &Config{CredentialConfig: &credentials.CredentialConfig{}}
+
+		decode, err := r.expectedMainMultiNodeLWS(t.Context(), svc, cfg)
+		require.NoError(t, err)
+		prefillLWS, err := r.expectedPrefillMultiNodeLWS(t.Context(), svc, cfg)
+		require.NoError(t, err)
+
+		// The LWS object shares its label map with the worker template, so the
+		// object labels are checked as well.
+		require.NotNil(t, decode.Spec.LeaderWorkerTemplate.LeaderTemplate)
+		require.Contains(t, decode.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels, constants.KubernetesAppNameLabelKey)
+		require.Contains(t, decode.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels, constants.KubernetesAppNameLabelKey)
+		require.Contains(t, decode.Labels, constants.KubernetesAppNameLabelKey)
+
+		require.NotNil(t, prefillLWS.Spec.LeaderWorkerTemplate.LeaderTemplate)
+		require.Contains(t, prefillLWS.Spec.LeaderWorkerTemplate.LeaderTemplate.Labels, constants.KubernetesAppNameLabelKey)
+		require.Contains(t, prefillLWS.Spec.LeaderWorkerTemplate.WorkerTemplate.Labels, constants.KubernetesAppNameLabelKey)
+		require.Contains(t, prefillLWS.Labels, constants.KubernetesAppNameLabelKey)
+	})
+
+	t.Run("scheduler and tokenizer deployments", func(t *testing.T) {
+		modelURI, err := apis.ParseURL("hf://facebook/opt-125m")
+		require.NoError(t, err)
+		r := &LLMISVCReconciler{Client: selectorTestClient(t)}
+		svc := &v1alpha2.LLMInferenceService{
+			ObjectMeta: metav1.ObjectMeta{Name: "template-labels", Namespace: "team-a"},
+			Spec: v1alpha2.LLMInferenceServiceSpec{
+				Model:  v1alpha2.LLMModelSpec{URI: *modelURI},
+				Router: &v1alpha2.RouterSpec{Scheduler: &v1alpha2.SchedulerSpec{}},
+			},
+		}
+
+		scheduler, err := r.expectedSchedulerDeployment(t.Context(), svc)
+		require.NoError(t, err)
+		tokenizer, err := r.expectedTokenizerDeployment(t.Context(), svc)
+		require.NoError(t, err)
+
+		require.Contains(t, scheduler.Spec.Template.Labels, constants.KubernetesAppNameLabelKey)
+		require.Contains(t, tokenizer.Spec.Template.Labels, constants.KubernetesAppNameLabelKey)
+	})
 }

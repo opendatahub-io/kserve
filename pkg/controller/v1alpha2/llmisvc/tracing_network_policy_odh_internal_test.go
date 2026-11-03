@@ -20,6 +20,8 @@ package llmisvc
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"reflect"
 	"testing"
@@ -31,6 +33,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
@@ -215,6 +218,75 @@ func TestTracingNetworkPolicyNameIsPerService(t *testing.T) {
 	}
 }
 
+// TestReconcileTracingNetworkPolicyMigratesBranchCreatedPolicyToLegacySelector
+// covers the upgrade path off the removed identity scheme: an earlier build of
+// this controller selected the tracing policy's Pods through the
+// serving.kserve.io/llmisvc-network-policy-id label and stamped the same label
+// onto the policy's metadata. Reconciling such a stored policy must rewrite it
+// in place onto the pre-existing application labels — part-of plus app-name —
+// and drop the stale identity label, while its egress permissions stay the
+// documented set.
+func TestReconcileTracingNetworkPolicyMigratesBranchCreatedPolicyToLegacySelector(t *testing.T) {
+	llmSvc := &v1alpha2.LLMInferenceService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "svc-a",
+			Namespace: "team-a",
+			UID:       "svc-a-uid",
+			Annotations: map[string]string{
+				constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true",
+			},
+		},
+		Spec: v1alpha2.LLMInferenceServiceSpec{Tracing: &v1alpha2.TracingSpec{}},
+	}
+	// The identity value the branch builds derived from namespace/name.
+	digest := sha256.Sum256([]byte(llmSvc.GetNamespace() + "/" + llmSvc.GetName()))
+	branchServiceID := hex.EncodeToString(digest[:])[:16]
+	const branchServiceIDLabel = "serving.kserve.io/llmisvc-network-policy-id"
+
+	// Seed the stored main Deployment and the tracing policy exactly as the
+	// branch build left it: same name and egress rules, but selected through
+	// the identity label the current templates no longer stamp, with the same
+	// label carried in the policy metadata.
+	mainSelector := metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "svc-a"}}
+	branchTracing := expectedTracingNetworkPolicy(llmSvc, netv1.NetworkPolicyPeer{}, 0, false)
+	branchTracing.Labels[branchServiceIDLabel] = branchServiceID
+	branchTracing.Spec.PodSelector = metav1.LabelSelector{MatchLabels: map[string]string{
+		branchServiceIDLabel: branchServiceID,
+	}}
+
+	cl := newNetworkPolicyTestClient(t,
+		ownedDeployment(llmSvc, mainDeploymentName(llmSvc), mainSelector.DeepCopy(), mainSelector.MatchLabels),
+		branchTracing)
+	r := &LLMISVCReconciler{Client: cl, EventRecorder: record.NewFakeRecorder(16)}
+
+	if err := r.reconcileNetworkPolicies(t.Context(), llmSvc, nil); err != nil {
+		t.Fatalf("reconcileNetworkPolicies failed: %v", err)
+	}
+
+	migrated := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), types.NamespacedName{
+		Name: tracingNetworkPolicyName(llmSvc), Namespace: llmSvc.Namespace,
+	}, migrated); err != nil {
+		t.Fatalf("the tracing policy was not migrated in place: %v", err)
+	}
+	if got := migrated.Labels[branchServiceIDLabel]; got != "" {
+		t.Fatalf("stale identity label survived the migration: %q in %v", got, migrated.Labels)
+	}
+	want := expectedTracingNetworkPolicy(llmSvc, netv1.NetworkPolicyPeer{}, 0, false)
+	if !reflect.DeepEqual(migrated.Labels, want.Labels) {
+		t.Fatalf("migrated labels got %v, want %v", migrated.Labels, want.Labels)
+	}
+	if !reflect.DeepEqual(migrated.Spec.PodSelector.MatchLabels, map[string]string{
+		constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
+		constants.KubernetesAppNameLabelKey: llmSvc.GetName(),
+	}) {
+		t.Fatalf("migrated selector got %#v, want the legacy application selector", migrated.Spec.PodSelector)
+	}
+	if !reflect.DeepEqual(migrated.Spec, want.Spec) {
+		t.Fatalf("migrated spec got %#v, want the documented tracing permissions", migrated.Spec)
+	}
+}
+
 func TestExpectedTracingNetworkPolicy(t *testing.T) {
 	llmSvc := &v1alpha2.LLMInferenceService{
 		ObjectMeta: metav1.ObjectMeta{Name: "svc-a", Namespace: "team-a"},
@@ -239,9 +311,14 @@ func TestExpectedTracingNetworkPolicy(t *testing.T) {
 		t.Fatalf("unexpected owner references: %#v", got)
 	}
 	if got, want := np.Spec.PodSelector.MatchLabels, map[string]string{
-		networkPolicyServiceIDLabel: networkPolicyServiceID(llmSvc),
+		constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
+		constants.KubernetesAppNameLabelKey: llmSvc.Name,
 	}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("pod selector got %v want %v", got, want)
+	}
+	// The removed identity scheme must not resurface in the policy metadata.
+	if _, ok := np.Labels["serving.kserve.io/llmisvc-network-policy-id"]; ok {
+		t.Fatalf("policy labels must not carry the removed identity label: %v", np.Labels)
 	}
 	if !reflect.DeepEqual(np.Spec.PolicyTypes, []netv1.PolicyType{netv1.PolicyTypeEgress}) {
 		t.Fatalf("policy types got %v", np.Spec.PolicyTypes)

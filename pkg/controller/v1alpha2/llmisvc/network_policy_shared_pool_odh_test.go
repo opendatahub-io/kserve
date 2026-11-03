@@ -19,6 +19,7 @@ limitations under the License.
 package llmisvc
 
 import (
+	"reflect"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -27,10 +28,12 @@ import (
 
 	igwapi "sigs.k8s.io/gateway-api-inference-extension/api/v1"
 
+	igwapiv1alpha2 "github.com/kserve/kserve/pkg/apis/gie/v1alpha2pool"
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
+	"github.com/kserve/kserve/pkg/constants"
 )
 
-func TestExpectedWorkloadNetworkPolicyAllowsSharedPoolSiblingScheduler(t *testing.T) {
+func TestExpectedStrictWorkloadNetworkPolicyAllowsSharedPoolSiblingScheduler(t *testing.T) {
 	target := &v1alpha2.LLMInferenceService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "routerless-target",
@@ -63,42 +66,129 @@ func TestExpectedWorkloadNetworkPolicyAllowsSharedPoolSiblingScheduler(t *testin
 			},
 		},
 	}
+	siblingSchedulerSelector := metav1.LabelSelector{MatchLabels: map[string]string{
+		"app.kubernetes.io/component": "llminferenceservice-router-scheduler",
+		"app.kubernetes.io/name":      "pool-owner",
+	}}
 
-	r := &LLMISVCReconciler{Client: selectorTestClient(t)}
-	if err := r.Create(t.Context(), target); err != nil {
-		t.Fatalf("failed to create target service: %v", err)
-	}
-	if err := r.Create(t.Context(), sibling); err != nil {
-		t.Fatalf("failed to create sibling service: %v", err)
-	}
+	r := &LLMISVCReconciler{Client: networkPolicySelectorTestClient(t,
+		target,
+		sibling,
+		ownedDeployment(sibling, schedulerDeploymentName(sibling), siblingSchedulerSelector.DeepCopy(), siblingSchedulerSelector.MatchLabels),
+	)}
 
 	namespaces, ports, schedulerPeers, err := r.gatewayNamespacesForNetworkPolicy(t.Context(), target, "managed-gateway", nil)
 	if err != nil {
 		t.Fatalf("gateway peer discovery failed: %v", err)
 	}
-	policy := expectedWorkloadNetworkPolicy(target, namespaces, ports, schedulerPeers, nil)
 
 	found := false
-	for _, rule := range policy.Spec.Ingress {
+	for _, peer := range schedulerPeers {
+		if peer.peer.PodSelector == nil || !reflect.DeepEqual(*peer.peer.PodSelector, siblingSchedulerSelector) {
+			continue
+		}
+		if len(peer.ports) != 1 || peer.ports[0] != 8007 {
+			t.Fatalf("shared-pool sibling ports got %#v, want 8007", peer.ports)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("scheduler peers did not admit the sibling's stored scheduler Deployment selector: %#v", schedulerPeers)
+	}
+
+	targetSelector := metav1.LabelSelector{MatchLabels: map[string]string{"pool": "shared"}}
+	inventory := networkPolicySelectorInventory{
+		{Component: networkPolicyComponentMain, Class: networkPolicyRoleWorkload, Selector: targetSelector},
+	}
+	policies := expectedStrictIngressNetworkPolicies(target, inventory, namespaces, ports, schedulerPeers, nil)
+	if len(policies) != 1 {
+		t.Fatalf("got %d policies, want one per workload inventory entry", len(policies))
+	}
+	ruleFound := false
+	for _, rule := range policies[0].Spec.Ingress {
 		for _, source := range rule.From {
-			if source.PodSelector == nil || source.PodSelector.MatchLabels[networkPolicyServiceIDLabel] != networkPolicyServiceID(sibling) {
+			if source.PodSelector == nil || !reflect.DeepEqual(*source.PodSelector, siblingSchedulerSelector) {
 				continue
-			}
-			if source.PodSelector.MatchLabels[networkPolicyRoleLabel] != networkPolicyRoleScheduler {
-				t.Fatalf("shared-pool sibling source role got %q", source.PodSelector.MatchLabels[networkPolicyRoleLabel])
 			}
 			if len(rule.Ports) != 1 || rule.Ports[0].Port.IntValue() != 8007 {
 				t.Fatalf("shared-pool sibling ports got %#v, want 8007", rule.Ports)
 			}
-			found = true
+			ruleFound = true
 		}
 	}
-	if !found {
-		t.Fatalf("workload policy did not admit the protected sibling scheduler: %#v", policy.Spec.Ingress)
+	if !ruleFound {
+		t.Fatalf("workload policy did not admit the shared-pool sibling scheduler: %#v", policies[0].Spec.Ingress)
 	}
 }
 
-func TestExpectedWorkloadNetworkPolicyUsesScopedExternalPoolFallback(t *testing.T) {
+func TestGatewayNamespacesForNetworkPolicySkipsStoppedSiblingScheduler(t *testing.T) {
+	target := &v1alpha2.LLMInferenceService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "routerless-target",
+			Namespace: "team-a",
+			UID:       types.UID("target"),
+		},
+		Spec: v1alpha2.LLMInferenceServiceSpec{
+			WorkloadSpec: v1alpha2.WorkloadSpec{Labels: map[string]string{"pool": "shared"}},
+			Router: &v1alpha2.RouterSpec{Scheduler: &v1alpha2.SchedulerSpec{
+				Pool: &v1alpha2.InferencePoolSpec{Ref: &corev1.LocalObjectReference{Name: "ext-pool"}},
+			}},
+		},
+	}
+	// A force-stopped shared-pool sibling: its pool selector still matches the
+	// target's workload labels, but its managed scheduler Deployment is
+	// deliberately absent while it is stopped.
+	stoppedSibling := &v1alpha2.LLMInferenceService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "stopped-pool-owner",
+			Namespace:   "team-a",
+			UID:         types.UID("stopped-owner"),
+			Annotations: map[string]string{constants.StopAnnotationKey: "true"},
+		},
+		Spec: v1alpha2.LLMInferenceServiceSpec{
+			Router: &v1alpha2.RouterSpec{
+				Scheduler: &v1alpha2.SchedulerSpec{
+					Template: &corev1.PodSpec{},
+					Pool: &v1alpha2.InferencePoolSpec{Spec: &igwapi.InferencePoolSpec{
+						Selector:    igwapi.LabelSelector{MatchLabels: map[igwapi.LabelKey]igwapi.LabelValue{"pool": "shared"}},
+						TargetPorts: []igwapi.Port{{Number: 8007}},
+					}},
+				},
+			},
+		},
+	}
+
+	// The externally referenced pool exists and selects the same shared pool,
+	// so the target's routing resolves through it instead of an unregistered
+	// optional v1alpha2 pool API.
+	extPool := &igwapi.InferencePool{
+		ObjectMeta: metav1.ObjectMeta{Name: "ext-pool", Namespace: "team-a"},
+		Spec: igwapi.InferencePoolSpec{
+			Selector:    igwapi.LabelSelector{MatchLabels: map[igwapi.LabelKey]igwapi.LabelValue{"pool": "shared"}},
+			TargetPorts: []igwapi.Port{{Number: 8007}},
+		},
+	}
+
+	r := &LLMISVCReconciler{Client: networkPolicySelectorTestClient(t, target, stoppedSibling, extPool)}
+
+	_, _, schedulerPeers, err := r.gatewayNamespacesForNetworkPolicy(t.Context(), target, "managed-gateway", nil)
+	if err != nil {
+		t.Fatalf("a stopped shared-pool sibling must not fail peer discovery: %v", err)
+	}
+	for _, peer := range schedulerPeers {
+		if peer.peer.PodSelector == nil {
+			t.Fatalf("scheduler peer with an empty PodSelector would admit every source: %#v", peer)
+		}
+	}
+	// The stopped sibling still counts as the matched scheduler of the shared
+	// pool, so the same-namespace third-party EPP fallback must not widen the
+	// source while its scheduler Deployment is absent.
+	if len(schedulerPeers) != 0 {
+		t.Fatalf("a stopped sibling must yield no scheduler peer and no namespace fallback, got %#v", schedulerPeers)
+	}
+}
+
+func TestExpectedStrictWorkloadNetworkPolicyUsesScopedExternalPoolFallback(t *testing.T) {
 	service := &v1alpha2.LLMInferenceService{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "external-pool-target",
@@ -112,11 +202,6 @@ func TestExpectedWorkloadNetworkPolicyUsesScopedExternalPoolFallback(t *testing.
 			}},
 		},
 	}
-
-	r := &LLMISVCReconciler{Client: selectorTestClient(t)}
-	if err := r.Create(t.Context(), service); err != nil {
-		t.Fatalf("failed to create service: %v", err)
-	}
 	pool := &igwapi.InferencePool{
 		ObjectMeta: metav1.ObjectMeta{Name: "external-pool", Namespace: "team-a"},
 		Spec: igwapi.InferencePoolSpec{
@@ -124,18 +209,25 @@ func TestExpectedWorkloadNetworkPolicyUsesScopedExternalPoolFallback(t *testing.
 			TargetPorts: []igwapi.Port{{Number: 8111}},
 		},
 	}
-	if err := r.Create(t.Context(), pool); err != nil {
-		t.Fatalf("failed to create external pool: %v", err)
-	}
+
+	r := &LLMISVCReconciler{Client: networkPolicySelectorTestClient(t, service, pool)}
 
 	namespaces, ports, schedulerPeers, err := r.gatewayNamespacesForNetworkPolicy(t.Context(), service, "managed-gateway", nil)
 	if err != nil {
 		t.Fatalf("gateway peer discovery failed: %v", err)
 	}
-	policy := expectedWorkloadNetworkPolicy(service, namespaces, ports, schedulerPeers, nil)
+
+	targetSelector := metav1.LabelSelector{MatchLabels: map[string]string{"pool": "external"}}
+	inventory := networkPolicySelectorInventory{
+		{Component: networkPolicyComponentMain, Class: networkPolicyRoleWorkload, Selector: targetSelector},
+	}
+	policies := expectedStrictIngressNetworkPolicies(service, inventory, namespaces, ports, schedulerPeers, nil)
+	if len(policies) != 1 {
+		t.Fatalf("got %d policies, want one per workload inventory entry", len(policies))
+	}
 
 	found := false
-	for _, rule := range policy.Spec.Ingress {
+	for _, rule := range policies[0].Spec.Ingress {
 		for _, source := range rule.From {
 			if source.NamespaceSelector == nil || source.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] != service.Namespace {
 				continue
@@ -147,6 +239,44 @@ func TestExpectedWorkloadNetworkPolicyUsesScopedExternalPoolFallback(t *testing.
 		}
 	}
 	if !found {
-		t.Fatalf("workload policy did not include scoped external pool fallback: %#v", policy.Spec.Ingress)
+		t.Fatalf("workload policy did not include scoped external pool fallback: %#v", policies[0].Spec.Ingress)
+	}
+}
+
+// TestGatewayNamespacesForNetworkPolicyResolvesV1Alpha2Pool covers the
+// v1alpha2 InferencePool fallback of shared-pool discovery: when the pool
+// referenced by the service exists only in the legacy x-k8s.io API, its
+// selector and single target port resolve through that API, and workload-peer
+// admission is scoped to the v1alpha2 pool's target port.
+func TestGatewayNamespacesForNetworkPolicyResolvesV1Alpha2Pool(t *testing.T) {
+	service := &v1alpha2.LLMInferenceService{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "legacy-pool-target",
+			Namespace: "team-a",
+			UID:       types.UID("legacy-target"),
+		},
+		Spec: v1alpha2.LLMInferenceServiceSpec{
+			WorkloadSpec: v1alpha2.WorkloadSpec{Labels: map[string]string{"pool": "legacy"}},
+			Router: &v1alpha2.RouterSpec{Scheduler: &v1alpha2.SchedulerSpec{
+				Pool: &v1alpha2.InferencePoolSpec{Ref: &corev1.LocalObjectReference{Name: "legacy-pool"}},
+			}},
+		},
+	}
+	legacyPool := &igwapiv1alpha2.InferencePool{
+		ObjectMeta: metav1.ObjectMeta{Name: "legacy-pool", Namespace: "team-a"},
+		Spec: igwapiv1alpha2.InferencePoolSpec{
+			Selector:         map[igwapiv1alpha2.LabelKey]igwapiv1alpha2.LabelValue{"pool": "legacy"},
+			TargetPortNumber: 8123,
+		},
+	}
+
+	r := &LLMISVCReconciler{Client: networkPolicySelectorTestClient(t, service, legacyPool)}
+
+	_, ports, _, err := r.gatewayNamespacesForNetworkPolicy(t.Context(), service, "managed-gateway", nil)
+	if err != nil {
+		t.Fatalf("gateway peer discovery failed: %v", err)
+	}
+	if len(ports) != 1 || ports[0] != 8123 {
+		t.Fatalf("v1alpha2 pool ports got %#v, want the pool's target port 8123", ports)
 	}
 }

@@ -255,14 +255,19 @@ func expectedTracingNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, otlpPeer
 				constants.KubernetesPartOfLabelKey:    constants.LLMInferenceServicePartOfValue,
 				constants.KubernetesAppNameLabelKey:   llmSvc.GetName(),
 				constants.KubernetesComponentLabelKey: tracingNPComponentLabel,
-				networkPolicyServiceIDLabel:           networkPolicyServiceID(llmSvc),
 			},
 			OwnerReferences: []metav1.OwnerReference{
 				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 			},
 		},
 		Spec: netv1.NetworkPolicySpec{
-			PodSelector: allServicePodsSelector(llmSvc),
+			// The pre-existing application labels select every Pod of the
+			// service across all components; no NetworkPolicy-specific identity
+			// is stamped onto Pod templates.
+			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
+				constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
+				constants.KubernetesAppNameLabelKey: llmSvc.GetName(),
+			}},
 			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeEgress},
 			Egress: []netv1.NetworkPolicyEgressRule{
 				{Ports: []netv1.NetworkPolicyPort{
