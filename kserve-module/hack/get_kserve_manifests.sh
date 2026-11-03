@@ -14,15 +14,15 @@ DST_MANIFESTS_DIR="${1:-${MODULE_DIR}/opt/manifests}"
 #   "tag"                 - immutable reference
 #   "branch@commit-sha"  - tracks branch but pinned to specific commit
 declare -A ODH_COMPONENT_MANIFESTS=(
-    ["kserve"]="opendatahub-io:kserve:master:config"
-    ["modelcontroller"]="opendatahub-io:odh-model-controller:incubating:config"
-    ["modelexpress"]="opendatahub-io:modelexpress:main:config/manifests"
+    ["kserve"]="opendatahub-io:kserve:odh-v3.6:config"
+    ["modelcontroller"]="opendatahub-io:odh-model-controller:odh-v3.6:config"
+    ["modelexpress"]="opendatahub-io:modelexpress:odh-v3.6:config/manifests"
 )
 
 declare -A ODH_RELEASE_COMPONENT_MANIFESTS=(
-    ["kserve"]="opendatahub-io:kserve:release-v0.17:config"
-    ["modelcontroller"]="opendatahub-io:odh-model-controller:main:config"
-    ["modelexpress"]="opendatahub-io:modelexpress:main:config/manifests"
+    ["kserve"]="opendatahub-io:kserve:odh-v3.6:config"
+    ["modelcontroller"]="opendatahub-io:odh-model-controller:odh-v3.6:config"
+    ["modelexpress"]="opendatahub-io:modelexpress:odh-v3.6:config/manifests"
 )
 
 echo "Cloning manifests for ODH"
