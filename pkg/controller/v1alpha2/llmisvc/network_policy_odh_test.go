@@ -496,7 +496,26 @@ func TestReconcileLLMISVCNetworkPoliciesStrictModeReplacesDefaultAndRemovesBroad
 	if !metav1.IsControlledBy(strictMain, service) {
 		t.Fatalf("strict policy is not controlled by the service")
 	}
-	// Strict mode polices ingress only; no general egress policy is created.
+	// Egress is mode-independent: strict mode keeps the per-component
+	// allow-all egress policy alongside its ingress-only policies.
+	egressMain := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), types.NamespacedName{
+		Name:      allowAllEgressNetworkPolicyName(service, networkPolicyComponentMain),
+		Namespace: service.Namespace,
+	}, egressMain); err != nil {
+		t.Fatalf("per-component allow-all egress policy was not created in strict mode: %v", err)
+	}
+	if !reflect.DeepEqual(egressMain.Spec.PodSelector, mainSelector) {
+		t.Fatalf("strict-mode egress policy selector got %#v, want the stored Deployment selector", egressMain.Spec.PodSelector)
+	}
+	if !reflect.DeepEqual(egressMain.Spec.PolicyTypes, []netv1.PolicyType{netv1.PolicyTypeEgress}) {
+		t.Fatalf("strict-mode egress policy types got %v", egressMain.Spec.PolicyTypes)
+	}
+	if len(egressMain.Spec.Egress) != 1 || len(egressMain.Spec.Egress[0].To) != 0 || len(egressMain.Spec.Egress[0].Ports) != 0 {
+		t.Fatalf("strict-mode egress policy is not explicit allow-all: %#v", egressMain.Spec.Egress)
+	}
+	// The retired legacy broad egress names are removed once the replacement
+	// coverage exists.
 	for _, name := range append([]string{
 		egressNetworkPolicyName(service),
 		allowAllNetworkPolicyName(service),
@@ -645,11 +664,32 @@ func TestDefaultModeTracingTransitionsPreserveIngress(t *testing.T) {
 					if err := cl.List(t.Context(), policies, client.InNamespace(service.Namespace)); err != nil {
 						t.Fatal(err)
 					}
-					wantCount := 2 // namespace default-deny + per-component default ingress
+					// The namespace default-deny, the per-component default ingress
+					// grant, and exactly one egress policy: the unrestricted
+					// per-component allow-all grant while opted out, the restricted
+					// tracing policy while opted in.
+					wantCount := 3
+					egressMainName := allowAllEgressNetworkPolicyName(service, networkPolicyComponentMain)
 					if tracing {
-						wantCount++ // restricted tracing egress
 						if err := cl.Get(t.Context(), client.ObjectKey{Name: tracingNetworkPolicyName(service), Namespace: service.Namespace}, &netv1.NetworkPolicy{}); err != nil {
 							t.Fatal(err)
+						}
+						if err := cl.Get(t.Context(), client.ObjectKey{Name: egressMainName, Namespace: service.Namespace}, &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+							t.Fatalf("tracing=%t: the unrestricted egress grant must not remain while tracing is opted in: %v", tracing, err)
+						}
+					} else {
+						egressMain := &netv1.NetworkPolicy{}
+						if err := cl.Get(t.Context(), client.ObjectKey{Name: egressMainName, Namespace: service.Namespace}, egressMain); err != nil {
+							t.Fatalf("tracing=%t: missing unrestricted egress grant: %v", tracing, err)
+						}
+						if !reflect.DeepEqual(egressMain.Spec.PodSelector, mainSelector) {
+							t.Fatalf("tracing=%t: egress policy selector got %#v, want the stored Deployment selector", tracing, egressMain.Spec.PodSelector)
+						}
+						if !reflect.DeepEqual(egressMain.Spec.PolicyTypes, []netv1.PolicyType{netv1.PolicyTypeEgress}) {
+							t.Fatalf("tracing=%t: egress policy types got %v", tracing, egressMain.Spec.PolicyTypes)
+						}
+						if len(egressMain.Spec.Egress) != 1 || len(egressMain.Spec.Egress[0].To) != 0 || len(egressMain.Spec.Egress[0].Ports) != 0 {
+							t.Fatalf("tracing=%t: egress policy is not explicit allow-all: %#v", tracing, egressMain.Spec.Egress)
 						}
 					}
 					if len(policies.Items) != wantCount {
@@ -766,6 +806,84 @@ func TestCleanupNetworkPoliciesDeletesOwnedPoliciesDuringServiceDeletion(t *test
 	}
 }
 
+// TestCleanupNetworkPoliciesDeletesEveryBoundedEgressNameDuringServiceDeletion
+// pins the finalizer's bounded egress coverage: service deletion removes
+// every fixed per-component allow-all egress policy name — the active name of
+// a still-stored component together with the stale names of components that
+// already left the topology — plus the policies of the egress states and
+// legacy schemes the service has moved on from, independent of its current
+// mode or state. Cleanup stays bounded to the fixed name lists, so a policy
+// the controller never manages survives untouched, and a repeated pass over
+// the already-deleted names is success.
+func TestCleanupNetworkPoliciesDeletesEveryBoundedEgressNameDuringServiceDeletion(t *testing.T) {
+	now := metav1.Now()
+	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name:              "terminating-service",
+		Namespace:         "team-a",
+		UID:               "terminating-service-uid",
+		DeletionTimestamp: &now,
+	}}
+	// The service's last reconcile stored only the main workload, so the main
+	// egress name is active coverage and the other six are stale names of
+	// components that left the topology.
+	mainSelector := metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "terminating-service"}}
+	ownedEgress := func(component string) *netv1.NetworkPolicy {
+		return &netv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            allowAllEgressNetworkPolicyName(service, component),
+				Namespace:       service.Namespace,
+				OwnerReferences: ownedByController(service),
+			},
+			Spec: netv1.NetworkPolicySpec{PodSelector: mainSelector},
+		}
+	}
+	unrelated := &netv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "terminating-service-unrelated",
+			Namespace:       service.Namespace,
+			OwnerReferences: ownedByController(service),
+		},
+		Spec: netv1.NetworkPolicySpec{PodSelector: mainSelector},
+	}
+	seeded := make([]client.Object, 0, 5+len(networkPolicyComponentKeys))
+	seeded = append(seeded,
+		ownedDeployment(service, mainDeploymentName(service), mainSelector.DeepCopy(), mainSelector.MatchLabels),
+		// Coverage of egress states and legacy schemes the service has since
+		// left: deletion must not depend on the current mode or egress state.
+		expectedTracingNetworkPolicy(service, netv1.NetworkPolicyPeer{}, 0, false),
+		legacyGeneralEgressNetworkPolicy(service),
+		legacyAllowAllNetworkPolicy(service),
+	)
+	for _, component := range networkPolicyComponentKeys {
+		seeded = append(seeded, ownedEgress(component))
+	}
+	seeded = append(seeded, unrelated)
+	cl := newNetworkPolicyTestClient(t, seeded...)
+	r := &LLMISVCReconciler{Client: cl}
+
+	if err := cleanupLLMISVCNetworkPolicies(t.Context(), r, service); err != nil {
+		t.Fatalf("cleanup failed: %v", err)
+	}
+	for _, name := range append(allowAllEgressNetworkPolicyNames(service),
+		tracingNetworkPolicyName(service),
+		egressNetworkPolicyName(service),
+		allowAllNetworkPolicyName(service),
+	) {
+		if err := cl.Get(t.Context(), types.NamespacedName{Name: name, Namespace: service.Namespace}, &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+			t.Fatalf("owned policy %s remained after cleanup: %v", name, err)
+		}
+	}
+	// Cleanup is bounded to the fixed name lists: a service-owned policy the
+	// controller never manages must not be swept by finalization.
+	if err := cl.Get(t.Context(), types.NamespacedName{Name: unrelated.Name, Namespace: unrelated.Namespace}, &netv1.NetworkPolicy{}); err != nil {
+		t.Fatalf("unmanaged policy must survive the bounded cleanup: %v", err)
+	}
+	// A repeated pass over the already-deleted names is success.
+	if err := cleanupLLMISVCNetworkPolicies(t.Context(), r, service); err != nil {
+		t.Fatalf("repeated cleanup failed: %v", err)
+	}
+}
+
 func TestDeleteOwnedNetworkPolicyHandlesMissingAndOwnedPolicies(t *testing.T) {
 	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
 		Name: "model", Namespace: "team-a", UID: "model-uid",
@@ -836,7 +954,7 @@ func TestDeleteOwnedNetworkPolicyRecognizesOwnershipConflictsWithoutMutation(t *
 	}
 }
 
-func TestCleanupNetworkPoliciesContinuesPastFirstAndMiddleOwnershipConflicts(t *testing.T) {
+func TestCleanupNetworkPoliciesContinuesPastFirstMiddleAndLastOwnershipConflicts(t *testing.T) {
 	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
 		Name: "model", Namespace: "team-a", UID: "model-uid",
 	}}
@@ -861,6 +979,18 @@ func TestCleanupNetworkPoliciesContinuesPastFirstAndMiddleOwnershipConflicts(t *
 			Namespace: service.Namespace,
 		},
 		Spec: netv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"seed": "strict"}}},
+	}
+	// The per-component egress names close the finalizer's bounded name list,
+	// so a foreign policy on the pd egress name is a conflict in the last
+	// position after the first (legacy monitoring) and middle (strict
+	// scheduler) ones.
+	foreignEgressPD := &netv1.NetworkPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            allowAllEgressNetworkPolicyName(service, networkPolicyComponentPD),
+			Namespace:       service.Namespace,
+			OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(foreignService, v1alpha2.LLMInferenceServiceGVK)},
+		},
+		Spec: netv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"seed": "foreign"}}},
 	}
 	owned := []*netv1.NetworkPolicy{
 		{
@@ -898,15 +1028,23 @@ func TestCleanupNetworkPoliciesContinuesPastFirstAndMiddleOwnershipConflicts(t *
 		legacyGeneralEgressNetworkPolicy(service),
 		legacyAllowAllNetworkPolicy(service),
 		expectedTracingNetworkPolicy(service, netv1.NetworkPolicyPeer{}, 0, false),
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            allowAllEgressNetworkPolicyName(service, networkPolicyComponentMain),
+				Namespace:       service.Namespace,
+				OwnerReferences: ownedByController(service),
+			},
+			Spec: netv1.NetworkPolicySpec{PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"seed": "egress"}}},
+		},
 	}
-	objects := make([]client.Object, 0, 2+len(owned))
-	objects = append(objects, foreignLegacy, ownerlessScheduler)
+	objects := make([]client.Object, 0, 3+len(owned))
+	objects = append(objects, foreignLegacy, ownerlessScheduler, foreignEgressPD)
 	for _, policy := range owned {
 		objects = append(objects, policy)
 	}
 	cl := newNetworkPolicyTestClient(t, objects...)
 
-	conflicts := []*netv1.NetworkPolicy{foreignLegacy, ownerlessScheduler}
+	conflicts := []*netv1.NetworkPolicy{foreignLegacy, ownerlessScheduler, foreignEgressPD}
 	before := make([]*netv1.NetworkPolicy, len(conflicts))
 	for i, policy := range conflicts {
 		before[i] = &netv1.NetworkPolicy{}
@@ -934,6 +1072,71 @@ func TestCleanupNetworkPoliciesContinuesPastFirstAndMiddleOwnershipConflicts(t *
 	for _, policy := range owned {
 		if err := cl.Get(t.Context(), client.ObjectKeyFromObject(policy), &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
 			t.Fatalf("owned policy %s remained after cleanup: %v", policy.Name, err)
+		}
+	}
+}
+
+// TestCleanupNetworkPoliciesRetriesBoundedEgressNameDeletionFailures covers
+// the finalizer's failure contract for the per-component allow-all egress
+// names: an API failure deleting one bounded name fails the finalization —
+// keeping the finalizer, the failed name, and the owned names after it in
+// place — and the retried pass completes the cleanup.
+func TestCleanupNetworkPoliciesRetriesBoundedEgressNameDeletionFailures(t *testing.T) {
+	now := metav1.Now()
+	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
+		Name:              "terminating-service",
+		Namespace:         "team-a",
+		UID:               "terminating-service-uid",
+		DeletionTimestamp: &now,
+	}}
+	mainSelector := metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "terminating-service"}}
+	ownedEgress := func(component string) *netv1.NetworkPolicy {
+		return &netv1.NetworkPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:            allowAllEgressNetworkPolicyName(service, component),
+				Namespace:       service.Namespace,
+				OwnerReferences: ownedByController(service),
+			},
+			Spec: netv1.NetworkPolicySpec{PodSelector: mainSelector},
+		}
+	}
+	deleteErr := errors.New("transient egress NetworkPolicy Delete failure")
+	failDelete := true
+	cl := newNetworkPolicyTestClientWithInterceptor(t, interceptor.Funcs{
+		Delete: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.DeleteOption) error {
+			if policy, ok := obj.(*netv1.NetworkPolicy); ok && failDelete && policy.Name == allowAllEgressNetworkPolicyName(service, networkPolicyComponentMain) {
+				return deleteErr
+			}
+			return c.Delete(ctx, obj, opts...)
+		},
+	}, ownedEgress(networkPolicyComponentMain), ownedEgress(networkPolicyComponentScheduler))
+	r := &LLMISVCReconciler{Client: cl}
+
+	if err := cleanupLLMISVCNetworkPolicies(t.Context(), r, service); !errors.Is(err, deleteErr) {
+		t.Fatalf("cleanup error = %v, want the egress deletion failure %v", err, deleteErr)
+	}
+	// The failed pass leaves every owned egress policy in place: the failed
+	// name survives its failed deletion, and the names after it in the bounded
+	// list were never attempted. The finalizer stays until a retry succeeds.
+	for _, component := range []string{networkPolicyComponentMain, networkPolicyComponentScheduler} {
+		if err := cl.Get(t.Context(), types.NamespacedName{
+			Name:      allowAllEgressNetworkPolicyName(service, component),
+			Namespace: service.Namespace,
+		}, &netv1.NetworkPolicy{}); err != nil {
+			t.Fatalf("owned egress policy for %s must survive the failed cleanup pass: %v", component, err)
+		}
+	}
+
+	failDelete = false
+	if err := cleanupLLMISVCNetworkPolicies(t.Context(), r, service); err != nil {
+		t.Fatalf("retry failed after the egress deletion recovered: %v", err)
+	}
+	for _, component := range []string{networkPolicyComponentMain, networkPolicyComponentScheduler} {
+		if err := cl.Get(t.Context(), types.NamespacedName{
+			Name:      allowAllEgressNetworkPolicyName(service, component),
+			Namespace: service.Namespace,
+		}, &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+			t.Fatalf("owned egress policy for %s remained after the successful retry: %v", component, err)
 		}
 	}
 }
@@ -1191,8 +1394,10 @@ func TestReconcileLLMISVCNetworkPoliciesSkipsLegacyRemovalWhenIngressFails(t *te
 // TestReconcileLLMISVCNetworkPoliciesPreservesIngressCoverageWhenInventoryFails
 // covers the create-before-prune contract: an inventory read failure must not
 // prune any prior ingress coverage — stale component names, historical names,
-// the combined allow-all policy, or the legacy monitoring policy — while the
-// egress-only cleanup stays independent, and the retry completes the migration.
+// the combined allow-all policy, or the legacy monitoring policy — and the
+// egress lifecycle resolves its own selector inventory, so the same failure
+// also retains the prior egress coverage for the retry, which completes the
+// migration.
 func TestReconcileLLMISVCNetworkPoliciesPreservesIngressCoverageWhenInventoryFails(t *testing.T) {
 	service := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{
 		Name: "model", Namespace: "team-a", UID: "model-uid",
@@ -1249,10 +1454,12 @@ func TestReconcileLLMISVCNetworkPoliciesPreservesIngressCoverageWhenInventoryFai
 			t.Fatalf("ingress coverage %s must be retained while the inventory fails: %v", name, err)
 		}
 	}
-	// The general egress policy is egress-only, so its cleanup stays
-	// independent of the failed inventory.
-	if err := cl.Get(t.Context(), types.NamespacedName{Name: egressNetworkPolicyName(service), Namespace: service.Namespace}, &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
-		t.Fatalf("egress-only policy must still be cleaned up despite the inventory failure: %v", err)
+	// The egress lifecycle resolves its own selector inventory, so the same read
+	// failure keeps it from establishing the allow-all replacement: the legacy
+	// general egress policy must be retained — its deletion is gated on the
+	// replacement being ready — instead of being removed unconditionally.
+	if err := cl.Get(t.Context(), types.NamespacedName{Name: egressNetworkPolicyName(service), Namespace: service.Namespace}, &netv1.NetworkPolicy{}); err != nil {
+		t.Fatalf("legacy general egress policy must be retained while the egress replacement cannot be established: %v", err)
 	}
 
 	// The retry completes the migration: the desired default set replaces the
@@ -1271,7 +1478,20 @@ func TestReconcileLLMISVCNetworkPoliciesPreservesIngressCoverageWhenInventoryFai
 	if !reflect.DeepEqual(defaultMain.Spec.PodSelector, mainSelector) {
 		t.Fatalf("default policy selector got %#v, want the stored Deployment selector", defaultMain.Spec.PodSelector)
 	}
+	// The retry also establishes the allow-all egress replacement, which is
+	// what retires the legacy general egress policy.
+	egressMain := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), types.NamespacedName{
+		Name:      allowAllEgressNetworkPolicyName(service, networkPolicyComponentMain),
+		Namespace: service.Namespace,
+	}, egressMain); err != nil {
+		t.Fatalf("allow-all egress policy was not created on the retry: %v", err)
+	}
+	if !reflect.DeepEqual(egressMain.Spec.PodSelector, mainSelector) {
+		t.Fatalf("allow-all egress policy selector got %#v, want the stored Deployment selector", egressMain.Spec.PodSelector)
+	}
 	for _, name := range []string{
+		egressNetworkPolicyName(service),
 		ingressNetworkPolicyName(service, networkPolicyModeDefault, networkPolicyComponentScheduler),
 		ingressNetworkPolicyName(service, networkPolicyModeStrict, networkPolicyComponentMain),
 		workloadNetworkPolicyName(service),
@@ -1291,8 +1511,10 @@ func TestReconcileLLMISVCNetworkPoliciesPreservesIngressCoverageWhenInventoryFai
 // every previous ingress grant — the stale per-component names of the other
 // mode, the pre-selector strict names, the branch-created combined allow-all
 // policy, and the legacy monitoring policy — until a retry establishes the
-// complete replacement set and cleans the bounded stale names. The egress-only
-// general policy stays independently cleanable.
+// complete replacement set and cleans the bounded stale names. The egress
+// lifecycle is independent of the failed ingress writes: it establishes the
+// per-component allow-all replacement, which retires the legacy general
+// egress policy.
 func TestReconcileLLMISVCNetworkPoliciesRetainsAllPriorIngressUntilReplacementCompletes(t *testing.T) {
 	newService := func() *v1alpha2.LLMInferenceService {
 		return &v1alpha2.LLMInferenceService{
@@ -1364,10 +1586,21 @@ func TestReconcileLLMISVCNetworkPoliciesRetainsAllPriorIngressUntilReplacementCo
 				t.Fatalf("prior ingress grant %s must be retained until the replacement completes: %v", name, err)
 			}
 		}
-		// The egress-only general policy is not ingress coverage, so its
-		// cleanup stays independent of the failed creation.
+		// The egress lifecycle is independent of the failed ingress creation:
+		// it established the per-component allow-all egress replacement for
+		// both stored components, which is what retires the legacy general
+		// egress policy.
+		for _, component := range []string{networkPolicyComponentMain, networkPolicyComponentScheduler} {
+			egressPolicy := &netv1.NetworkPolicy{}
+			if err := cl.Get(t.Context(), types.NamespacedName{
+				Name:      allowAllEgressNetworkPolicyName(service, component),
+				Namespace: service.Namespace,
+			}, egressPolicy); err != nil {
+				t.Fatalf("allow-all egress policy for %s must exist despite the ingress creation failure: %v", component, err)
+			}
+		}
 		if err := cl.Get(t.Context(), types.NamespacedName{Name: egressNetworkPolicyName(service), Namespace: service.Namespace}, &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
-			t.Fatalf("egress-only policy must still be cleaned up despite the creation failure: %v", err)
+			t.Fatalf("legacy general egress policy must be removed once its replacement exists: %v", err)
 		}
 		// Create-before-delete allows a partial desired set: the first strict
 		// policy may already exist while the second one is being retried.
@@ -1457,7 +1690,7 @@ func TestReconcileLLMISVCNetworkPoliciesRetainsAllPriorIngressUntilReplacementCo
 				strictMain.Spec.PodSelector, staleStrictMain.Spec.PodSelector)
 		}
 		if err := cl.Get(t.Context(), types.NamespacedName{Name: egressNetworkPolicyName(service), Namespace: service.Namespace}, &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
-			t.Fatalf("egress-only policy must still be cleaned up despite the update failure: %v", err)
+			t.Fatalf("legacy general egress policy must be removed once its replacement exists: %v", err)
 		}
 
 		// The retry completes the replacement: the desired-name policy is
@@ -1712,12 +1945,15 @@ func TestReconcileTracingConflictRetainsTracingAndReconcilesIngressIndependently
 	r := &LLMISVCReconciler{Client: cl, EventRecorder: record.NewFakeRecorder(32)}
 
 	err := reconcileLLMISVCNetworkPolicies(t.Context(), r, service, &Config{})
-	if !errors.Is(err, errNetworkPolicyOwnershipConflict) {
-		t.Fatalf("reconcile error %v does not contain deferred legacy conflict", err)
-	}
 	var tracingConflict *tracingNetworkPolicyNotOwnedError
 	if !errors.As(err, &tracingConflict) {
 		t.Fatalf("reconcile error %v does not contain active tracing ownership conflict", err)
+	}
+	// The egress state failed on the tracing conflict, so the superseded
+	// legacy removal is deferred rather than attempted: the reconcile error
+	// carries the tracing conflict without a deferrable legacy conflict.
+	if errors.Is(err, errNetworkPolicyOwnershipConflict) {
+		t.Fatalf("reconcile error %v must defer the legacy removal while the egress state fails", err)
 	}
 
 	// Ingress was reconciled independently of the tracing failure.
@@ -1734,12 +1970,17 @@ func TestReconcileTracingConflictRetainsTracingAndReconcilesIngressIndependently
 	if !reflect.DeepEqual(defaultMain.Spec.PolicyTypes, []netv1.PolicyType{netv1.PolicyTypeIngress}) {
 		t.Fatalf("ingress policy types got %v", defaultMain.Spec.PolicyTypes)
 	}
-	// The branch-created broad egress grant was removed despite the tracing
-	// failure, and no deny-all or general egress fallback was created.
-	for _, name := range []string{allowAllNetworkPolicyName(service), egressNetworkPolicyName(service)} {
-		if err := cl.Get(t.Context(), types.NamespacedName{Name: name, Namespace: service.Namespace}, &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
-			t.Fatalf("broad egress policy %s must not remain after the tracing conflict: %v", name, err)
+	// The branch-created combined policy is superseded ingress coverage, so
+	// its removal waits for a successful egress state: it is retained — like
+	// the legacy monitoring policy — alongside the reported tracing conflict,
+	// and no deny-all or general egress fallback is created.
+	for _, name := range []string{allowAllNetworkPolicyName(service), legacyMonitoringNetworkPolicyName(service)} {
+		if err := cl.Get(t.Context(), types.NamespacedName{Name: name, Namespace: service.Namespace}, &netv1.NetworkPolicy{}); err != nil {
+			t.Fatalf("superseded policy %s must be retained while the egress state fails: %v", name, err)
 		}
+	}
+	if err := cl.Get(t.Context(), types.NamespacedName{Name: egressNetworkPolicyName(service), Namespace: service.Namespace}, &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("no general egress fallback may be created: %v", err)
 	}
 	for _, item := range []struct {
 		object *netv1.NetworkPolicy
@@ -1913,6 +2154,55 @@ func TestReconcileLLMISVCNetworkPoliciesRepairsTamperedAndDeletedPolicies(t *tes
 	}
 	if !reflect.DeepEqual(recreatedScheduler.Spec.PodSelector, schedulerSelector) {
 		t.Fatalf("recreated scheduler selector got %#v, want the stored Deployment selector", recreatedScheduler.Spec.PodSelector)
+	}
+
+	// The egress lifecycle repairs its per-component allow-all grants the same
+	// way: tamper the main grant's selector, types, and rules and delete the
+	// scheduler grant out of band, then reconcile again.
+	egressMainName := allowAllEgressNetworkPolicyName(service, networkPolicyComponentMain)
+	egressSchedulerName := allowAllEgressNetworkPolicyName(service, networkPolicyComponentScheduler)
+	tamperedEgress := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), types.NamespacedName{Name: egressMainName, Namespace: service.Namespace}, tamperedEgress); err != nil {
+		t.Fatal(err)
+	}
+	tamperedEgress.Spec.PodSelector = metav1.LabelSelector{MatchLabels: map[string]string{"tampered": "true"}}
+	tamperedEgress.Spec.PolicyTypes = []netv1.PolicyType{netv1.PolicyTypeIngress, netv1.PolicyTypeEgress}
+	tamperedEgress.Spec.Ingress = []netv1.NetworkPolicyIngressRule{{}}
+	tamperedEgress.Spec.Egress = []netv1.NetworkPolicyEgressRule{{Ports: []netv1.NetworkPolicyPort{networkPolicyPort(corev1.ProtocolTCP, 443)}}}
+	if err := cl.Update(t.Context(), tamperedEgress); err != nil {
+		t.Fatal(err)
+	}
+	if err := cl.Delete(t.Context(), &netv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{
+		Name: egressSchedulerName, Namespace: service.Namespace,
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := reconcileLLMISVCNetworkPolicies(t.Context(), r, service, config); err != nil {
+		t.Fatalf("egress repair reconcile failed: %v", err)
+	}
+	repairedEgressMain := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), types.NamespacedName{Name: egressMainName, Namespace: service.Namespace}, repairedEgressMain); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(repairedEgressMain.Spec.PodSelector, mainSelector) {
+		t.Fatalf("tampered egress selector was not repaired: got %#v want %#v", repairedEgressMain.Spec.PodSelector, mainSelector)
+	}
+	if !reflect.DeepEqual(repairedEgressMain.Spec.PolicyTypes, []netv1.PolicyType{netv1.PolicyTypeEgress}) {
+		t.Fatalf("tampered egress types were not repaired: %v", repairedEgressMain.Spec.PolicyTypes)
+	}
+	if len(repairedEgressMain.Spec.Egress) != 1 || len(repairedEgressMain.Spec.Egress[0].To) != 0 || len(repairedEgressMain.Spec.Egress[0].Ports) != 0 {
+		t.Fatalf("tampered egress rules were not repaired into an explicit allow-all rule: %#v", repairedEgressMain.Spec.Egress)
+	}
+	if repairedEgressMain.Spec.Ingress != nil {
+		t.Fatalf("repaired egress grant must not create ingress rules: %#v", repairedEgressMain.Spec.Ingress)
+	}
+	recreatedEgressScheduler := &netv1.NetworkPolicy{}
+	if err := cl.Get(t.Context(), types.NamespacedName{Name: egressSchedulerName, Namespace: service.Namespace}, recreatedEgressScheduler); err != nil {
+		t.Fatalf("deleted egress grant was not recreated: %v", err)
+	}
+	if !reflect.DeepEqual(recreatedEgressScheduler.Spec.PodSelector, schedulerSelector) {
+		t.Fatalf("recreated egress selector got %#v, want the stored Deployment selector", recreatedEgressScheduler.Spec.PodSelector)
 	}
 }
 

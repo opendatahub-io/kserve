@@ -72,6 +72,24 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 			Expect(defaultMain.Spec.Ingress).To(Equal([]netv1.NetworkPolicyIngressRule{{}}))
 			Expect(defaultMain.Spec.Egress).To(BeEmpty(), "default-mode policies must not create egress rules")
 
+			// Default mode keeps an explicit per-component allow-all egress grant:
+			// in a namespace with default-deny egress, an absent egress policy is
+			// not an allow-all grant.
+			egressMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main"))
+			Expect(metav1.IsControlledBy(egressMain, llmSvc)).To(BeTrue(), "egress grant must be owned by the service")
+			Expect(egressMain.Spec.PodSelector).To(Equal(*main.Spec.Selector), "egress grant must select the stored main Deployment's Pods")
+			Expect(egressMain.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress))
+			Expect(egressMain.Spec.Ingress).To(BeEmpty(), "the egress grant must not create ingress rules")
+			Expect(egressMain.Spec.Egress).To(Equal([]netv1.NetworkPolicyEgressRule{{}}), "the egress grant must be an explicit allow-all rule")
+			for _, suffix := range managedAllowAllEgressPolicySuffixes() {
+				if suffix == "-networkpolicy-egress-main" {
+					continue
+				}
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "egress policy %s must not exist without a stored component", name)
+			}
+
 			// No broad egress grant is created in default mode.
 			for _, suffix := range []string{"-networkpolicy-egress", "-networkpolicy-allow-all"} {
 				name := kmeta.ChildName(llmSvc.Name, suffix)
@@ -102,6 +120,9 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 			defer testNs.DeleteAndWait(ctx, llmSvc)
 
 			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
+			// The egress grant is mode-independent: capture it and require it to
+			// survive the toggle without churn.
+			egressMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main"))
 
 			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
 				cfg.FeatureGates.StrictNetworkPolicy = false
@@ -122,6 +143,12 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "strict policy %s must be removed after the gate is disabled", name)
 				}).WithContext(ctx).Should(Succeed())
 			}
+
+			// The per-component egress grant survived the toggle unchanged.
+			survivedEgress := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main"))
+			Expect(survivedEgress.UID).To(Equal(egressMain.UID), "the gate toggle must not churn the egress grant")
+			Expect(survivedEgress.ResourceVersion).To(Equal(egressMain.ResourceVersion), "the gate toggle must not rewrite the egress grant")
+			Expect(survivedEgress.Spec).To(Equal(egressMain.Spec), "the gate toggle must not change the egress grant spec")
 		})
 	})
 
@@ -186,12 +213,37 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 			Expect(tokenizer.Spec.Ingress[0].From[0].PodSelector).NotTo(BeNil())
 			Expect(*tokenizer.Spec.Ingress[0].From[0].PodSelector).To(Equal(*schedulerDeployment.Spec.Selector), "tokenizer source must be the stored scheduler selector")
 
-			// No general egress policy is created in strict mode; egress stays
-			// unpoliced unless the opt-in tracing policy governs it.
+			// Egress is mode-independent: the retired legacy broad names stay
+			// absent while every stored component keeps its explicit per-component
+			// allow-all egress grant.
 			for _, suffix := range []string{"-networkpolicy-egress", "-networkpolicy-allow-all"} {
 				name := kmeta.ChildName(llmSvc.Name, suffix)
 				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
-				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "broad egress policy %s must not exist in strict mode", name)
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "legacy broad egress policy %s must not exist in strict mode", name)
+			}
+			for _, component := range []struct {
+				key      string
+				selector *metav1.LabelSelector
+			}{
+				{"main", main.Spec.Selector},
+				{"scheduler", schedulerDeployment.Spec.Selector},
+				{"tokenizer", tokenizerDeployment.Spec.Selector},
+			} {
+				grant := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-"+component.key))
+				Expect(metav1.IsControlledBy(grant, llmSvc)).To(BeTrue(), "egress grant must be owned by the service")
+				Expect(grant.Spec.PodSelector).To(Equal(*component.selector), "egress grant must select the stored %s Deployment's Pods", component.key)
+				Expect(grant.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress))
+				Expect(grant.Spec.Ingress).To(BeEmpty(), "the egress grant must not create ingress rules")
+				Expect(grant.Spec.Egress).To(Equal([]netv1.NetworkPolicyEgressRule{{}}), "the egress grant must be an explicit allow-all rule")
+			}
+			for _, suffix := range managedAllowAllEgressPolicySuffixes() {
+				switch suffix {
+				case "-networkpolicy-egress-main", "-networkpolicy-egress-scheduler", "-networkpolicy-egress-tokenizer":
+					continue
+				}
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "egress policy %s must not exist without a stored component", name)
 			}
 
 			legacy := &netv1.NetworkPolicy{
@@ -266,12 +318,16 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
 			Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
 
-			policyNames := slices.Concat(
+			policySuffixes := slices.Concat(
 				managedIngressPolicySuffixes("strict"),
 				managedIngressPolicySuffixes("default"),
+				managedAllowAllEgressPolicySuffixes(),
 				[]string{"-networkpolicy-egress", "-networkpolicy-allow-all"})
 			Eventually(func(g Gomega, ctx context.Context) {
-				for _, name := range policyNames {
+				// The suffix lists must be mapped through kmeta.ChildName:
+				// checking a raw suffix as an object name would match nothing.
+				for _, suffix := range policySuffixes {
+					name := kmeta.ChildName(llmSvc.Name, suffix)
 					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
 					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), name)
 				}
@@ -325,15 +381,16 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 				g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "service finalization must complete")
 			}).WithContext(ctx).Should(Succeed())
 
-			allManagedPolicyNames := slices.Concat(ownedPolicyNames,
+			allManagedPolicySuffixes := slices.Concat(
 				managedIngressPolicySuffixes("strict"),
 				managedIngressPolicySuffixes("default"),
-				[]string{
-					kmeta.ChildName(llmSvc.Name, "-networkpolicy-allow-all"),
-					kmeta.ChildName(llmSvc.Name, "-otlp-egress"),
-				})
+				managedAllowAllEgressPolicySuffixes(),
+				[]string{"-networkpolicy-allow-all", "-otlp-egress"})
 			Eventually(func(g Gomega, ctx context.Context) {
-				for _, name := range allManagedPolicyNames {
+				// The suffix lists must be mapped through kmeta.ChildName:
+				// checking a raw suffix as an object name would match nothing.
+				for _, suffix := range allManagedPolicySuffixes {
+					name := kmeta.ChildName(llmSvc.Name, suffix)
 					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
 					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "owned policy %s must be removed", name)
 				}
@@ -493,6 +550,25 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 			})
 			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after the policy migration", main, prefill)
 
+			// The mode toggles must not churn the per-component egress grants:
+			// capture their identity after the migration and require it after
+			// every toggle.
+			allowAllEgressNames := childNames(llmSvc.Name, managedAllowAllEgressPolicySuffixes())
+			egressGrantUIDs := func() map[string]types.UID {
+				GinkgoHelper()
+				grants := map[string]types.UID{}
+				policies := &netv1.NetworkPolicyList{}
+				Expect(envTest.List(ctx, policies, client.InNamespace(testNs.Name))).To(Succeed())
+				for i := range policies.Items {
+					if slices.Contains(allowAllEgressNames, policies.Items[i].Name) {
+						grants[policies.Items[i].Name] = policies.Items[i].UID
+					}
+				}
+				return grants
+			}
+			grantsAfterMigration := egressGrantUIDs()
+			Expect(grantsAfterMigration).To(HaveLen(2), "each stored workload keeps exactly one allow-all egress grant")
+
 			// Toggling the ingress mode changes only the policies.
 			EnableStrictNetworkPolicy(ctx, envTest.Client)
 			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
@@ -500,6 +576,7 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 				managedIngressPolicySuffixes("default"),
 				[]string{"-networkpolicy-allow-all", "-networkpolicy-egress"})))
 			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after enabling strict mode", main, prefill)
+			Expect(egressGrantUIDs()).To(Equal(grantsAfterMigration), "enabling strict mode must not churn the egress grants")
 
 			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
 				cfg.FeatureGates.StrictNetworkPolicy = false
@@ -509,18 +586,32 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 				managedIngressPolicySuffixes("strict"),
 				[]string{"-networkpolicy-allow-all", "-networkpolicy-egress"})))
 			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after disabling strict mode", main, prefill)
+			Expect(egressGrantUIDs()).To(Equal(grantsAfterMigration), "disabling strict mode must not churn the egress grants")
 
-			// After the successful migration no general-egress policy remains and
-			// every generated policy is ingress-only with no egress rules.
+			// After the successful migration every generated policy is either an
+			// ingress-only per-component policy with no egress rules or an
+			// egress-only per-component allow-all grant with exactly one
+			// unrestricted egress rule — one grant per stored workload.
 			Consistently(func(g Gomega, ctx context.Context) {
 				policies := &netv1.NetworkPolicyList{}
 				g.Expect(envTest.List(ctx, policies, client.InNamespace(testNs.Name))).To(Succeed())
 				g.Expect(policies.Items).NotTo(BeEmpty())
+				egressGrants := 0
 				for i := range policies.Items {
 					policy := &policies.Items[i]
+					if slices.Contains(allowAllEgressNames, policy.Name) {
+						egressGrants++
+						g.Expect(policy.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress), "%s must be egress-only", policy.Name)
+						g.Expect(policy.Spec.Ingress).To(BeEmpty(), "%s must not create ingress rules", policy.Name)
+						g.Expect(policy.Spec.Egress).To(HaveLen(1), "%s must carry exactly one allow-all egress rule", policy.Name)
+						g.Expect(policy.Spec.Egress[0].To).To(BeEmpty(), "%s must not restrict egress destinations", policy.Name)
+						g.Expect(policy.Spec.Egress[0].Ports).To(BeEmpty(), "%s must not restrict egress ports", policy.Name)
+						continue
+					}
 					g.Expect(policy.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeIngress), "%s must be ingress-only", policy.Name)
 					g.Expect(policy.Spec.Egress).To(BeEmpty(), "%s must not create egress rules", policy.Name)
 				}
+				g.Expect(egressGrants).To(Equal(2), "each of the two stored workloads keeps exactly one allow-all egress grant")
 			}).WithContext(ctx).Should(Succeed())
 		})
 
@@ -545,6 +636,14 @@ var _ = Describe("LLMInferenceService NetworkPolicies", func() {
 				constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
 				constants.KubernetesAppNameLabelKey: llmSvc.Name,
 			}))
+			// Opted-in tracing removes every owned unrestricted egress grant.
+			Eventually(func(g Gomega, ctx context.Context) {
+				for _, suffix := range managedAllowAllEgressPolicySuffixes() {
+					name := kmeta.ChildName(llmSvc.Name, suffix)
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "unrestricted egress grant %s must not exist while tracing is opted in", name)
+				}
+			}).WithContext(ctx).Should(Succeed())
 			main, prefill := waitForWorkloads(ctx, testNs.Name, llmSvc.Name)
 
 			EnableStrictNetworkPolicy(ctx, envTest.Client)
@@ -625,6 +724,20 @@ func managedIngressPolicySuffixes(mode string) []string {
 	suffixes := make([]string, 0, len(components))
 	for _, component := range components {
 		suffixes = append(suffixes, "-networkpolicy-"+mode+"-"+component)
+	}
+	return suffixes
+}
+
+// managedAllowAllEgressPolicySuffixes lists the per-component allow-all
+// egress policy name suffixes, mirroring the controller's bounded
+// component-key set from outside the package. The retired legacy general
+// egress suffix "-networkpolicy-egress" carries no component key and is
+// deliberately not part of this set.
+func managedAllowAllEgressPolicySuffixes() []string {
+	components := []string{"main", "prefill", "scheduler", "tokenizer", "main-mn", "prefill-mn", "pd"}
+	suffixes := make([]string, 0, len(components))
+	for _, component := range components {
+		suffixes = append(suffixes, "-networkpolicy-egress-"+component)
 	}
 	return suffixes
 }

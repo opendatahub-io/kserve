@@ -20,9 +20,11 @@ package llmisvc_test
 
 import (
 	"context"
+	"slices"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -135,13 +137,10 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 				g.Expect(envTest.Get(ctx, types.NamespacedName{
 					Name: kmeta.ChildName(llmSvc.Name, "-otlp-egress"), Namespace: testNs.Name,
 				}, &netv1.NetworkPolicy{})).To(Succeed())
-				for _, suffix := range []string{
-					"-networkpolicy-strict-main", "-networkpolicy-strict-prefill",
-					"-networkpolicy-strict-scheduler", "-networkpolicy-strict-tokenizer",
-					"-networkpolicy-strict-main-mn", "-networkpolicy-strict-prefill-mn",
-					"-networkpolicy-strict-pd", "-networkpolicy-egress", "-networkpolicy-allow-all",
+				for _, suffix := range slices.Concat([]string{
+					"-networkpolicy-egress", "-networkpolicy-allow-all",
 					"-networkpolicy-workload", "-networkpolicy-scheduler", "-networkpolicy-tokenizer",
-				} {
+				}, managedIngressPolicySuffixes("strict"), managedAllowAllEgressPolicySuffixes()) {
 					name := kmeta.ChildName(llmSvc.Name, suffix)
 					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
 					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "%s must not exist", name)
@@ -333,6 +332,19 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 
 		np := waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
 		Expect(np.Spec.Egress).To(HaveLen(3))
+		// The tracing configuration resolved from the base reference opts the
+		// service into the restricted egress state: no owned unrestricted grant
+		// may remain, while ingress stays governed by the mode alone.
+		Eventually(func(g Gomega, ctx context.Context) {
+			for _, suffix := range managedAllowAllEgressPolicySuffixes() {
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "unrestricted egress grant %s must not exist while base-ref tracing is opted in", name)
+			}
+		}).WithContext(ctx).Should(Succeed())
+		strictMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
+		Expect(strictMain.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeIngress))
+		Expect(strictMain.Spec.Egress).To(BeEmpty(), "the ingress policy must not create egress rules")
 
 		collectorSvc := &corev1.Service{
 			ObjectMeta: metav1.ObjectMeta{Name: "otel-collector", Namespace: collectorNs.Name},
@@ -377,6 +389,13 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 			}, &netv1.NetworkPolicy{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}).WithContext(ctx).Should(Succeed())
+
+		// Removing only the tracing spec returns the service to the
+		// unrestricted egress state: the explicit allow-all grant reappears.
+		egressMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main"))
+		Expect(egressMain.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress))
+		Expect(egressMain.Spec.Ingress).To(BeEmpty(), "the egress grant must not create ingress rules")
+		Expect(egressMain.Spec.Egress).To(Equal([]netv1.NetworkPolicyEgressRule{{}}), "the egress grant must be an explicit allow-all rule")
 	})
 
 	It("removes the policy when explicit opt-in is cleared", func(ctx SpecContext) {
@@ -402,6 +421,84 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 			}, &netv1.NetworkPolicy{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}).WithContext(ctx).Should(Succeed())
+
+		// Removing only the annotation returns the service to the
+		// unrestricted egress state: the explicit allow-all grant reappears.
+		egressMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main"))
+		Expect(egressMain.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress))
+		Expect(egressMain.Spec.Ingress).To(BeEmpty(), "the egress grant must not create ingress rules")
+		Expect(egressMain.Spec.Egress).To(Equal([]netv1.NetworkPolicyEgressRule{{}}), "the egress grant must be an explicit allow-all rule")
+	})
+
+	It("switches the egress NetworkPolicy state when only the annotation changes", func(ctx SpecContext) {
+		PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+			cfg.FeatureGates.StrictNetworkPolicy = false
+		})
+		testNs := NewTestNamespace(ctx, envTest)
+		llmSvc := LLMInferenceService("test-llm-tracing-annotation-walk",
+			InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+			WithModelURI("hf://facebook/opt-125m"),
+		)
+		llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
+		Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+		defer testNs.DeleteAndWait(ctx, llmSvc)
+
+		egressMainName := kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main")
+		setAnnotation := func(value string) {
+			Expect(updateLLMInferenceServiceWithRetry(ctx, testNs.Name, llmSvc.Name, func(updated *v1alpha2.LLMInferenceService) {
+				if updated.Annotations == nil {
+					updated.Annotations = map[string]string{}
+				}
+				updated.Annotations[constants.EnableTracingEgressNetworkPolicyAnnotationKey] = value
+			})).To(Succeed())
+		}
+		assertUnrestricted := func() {
+			GinkgoHelper()
+			grant := waitForNetworkPolicy(ctx, testNs.Name, egressMainName)
+			Expect(grant.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress))
+			Expect(grant.Spec.Ingress).To(BeEmpty(), "the egress grant must not create ingress rules")
+			Expect(grant.Spec.Egress).To(Equal([]netv1.NetworkPolicyEgressRule{{}}), "the egress grant must be an explicit allow-all rule")
+			Eventually(func(g Gomega, ctx context.Context) {
+				err := envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(llmSvc.Name, "-otlp-egress"),
+					Namespace: testNs.Name,
+				}, &netv1.NetworkPolicy{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+			}).WithContext(ctx).Should(Succeed())
+		}
+		assertTracing := func() {
+			GinkgoHelper()
+			waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+			Eventually(func(g Gomega, ctx context.Context) {
+				for _, suffix := range managedAllowAllEgressPolicySuffixes() {
+					name := kmeta.ChildName(llmSvc.Name, suffix)
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "unrestricted egress grant %s must not exist while tracing is opted in", name)
+				}
+			}).WithContext(ctx).Should(Succeed())
+		}
+
+		// Without the annotation the unrestricted grant exists and no
+		// tracing policy does.
+		assertUnrestricted()
+		// Opting in with the exact "true" value switches to the tracing
+		// policy and removes every owned unrestricted grant.
+		setAnnotation("true")
+		assertTracing()
+		// Every other value opts back out, including case variants.
+		setAnnotation("false")
+		assertUnrestricted()
+		setAnnotation("True")
+		assertUnrestricted()
+		// Returning to the exact value opts back in.
+		setAnnotation("true")
+		assertTracing()
+
+		// Ingress stays governed by the ingress mode alone through every
+		// egress-state change.
+		defaultMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"))
+		Expect(defaultMain.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeIngress))
+		Expect(defaultMain.Spec.Egress).To(BeEmpty(), "the ingress policy must not create egress rules")
 	})
 
 	It("keeps the opt-in tracing policy while a service is force-stopped", func(ctx SpecContext) {
@@ -460,6 +557,22 @@ var _ = Describe("LLMInferenceService tracing NetworkPolicy", func() {
 			}, &netv1.NetworkPolicy{})
 			g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		}).WithContext(ctx).Should(Succeed())
+
+		// Without the opt-in the egress state stays unrestricted: the explicit
+		// per-component allow-all grant must exist, because an absent egress
+		// policy is not an allow-all grant in a namespace with default-deny
+		// egress.
+		egressMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main"))
+		Expect(metav1.IsControlledBy(egressMain, llmSvc)).To(BeTrue(), "egress grant must be owned by the service")
+		main := &appsv1.Deployment{}
+		Expect(envTest.Get(ctx, types.NamespacedName{
+			Name:      kmeta.ChildName(llmSvc.Name, "-kserve"),
+			Namespace: testNs.Name,
+		}, main)).To(Succeed())
+		Expect(egressMain.Spec.PodSelector).To(Equal(*main.Spec.Selector), "egress grant must select the stored main Deployment's Pods")
+		Expect(egressMain.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress))
+		Expect(egressMain.Spec.Ingress).To(BeEmpty(), "the egress grant must not create ingress rules")
+		Expect(egressMain.Spec.Egress).To(Equal([]netv1.NetworkPolicyEgressRule{{}}), "the egress grant must be an explicit allow-all rule")
 	})
 })
 

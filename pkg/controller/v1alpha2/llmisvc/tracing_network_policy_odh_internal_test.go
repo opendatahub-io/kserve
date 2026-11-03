@@ -29,6 +29,7 @@ import (
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -36,6 +37,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/utils/ptr"
+	duckv1 "knative.dev/pkg/apis/duck/v1"
 	"knative.dev/pkg/kmeta"
 	"knative.dev/pkg/network"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -215,6 +217,164 @@ func TestTracingNetworkPolicyNameIsPerService(t *testing.T) {
 	llmSvc := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{Name: "svc-a", Namespace: "team-a"}}
 	if got, want := tracingNetworkPolicyName(llmSvc), kmeta.ChildName("svc-a", tracingNetworkPolicySuffix); got != want {
 		t.Fatalf("got %q want %q", got, want)
+	}
+}
+
+// TestTracingEgressOptedIn pins the shared tracing opt-in predicate directly:
+// the service opts in only with a tracing configuration in the reconciled
+// spec and the serving.kserve.io/enable-tracing-egress-network-policy
+// annotation carrying the exact value "true". Every other annotation value —
+// including case and padding variants — opts out, which keeps the gate
+// identical for reconcileTracingNetworkPolicy and the allow-all egress
+// lifecycle.
+func TestTracingEgressOptedIn(t *testing.T) {
+	annotation := constants.EnableTracingEgressNetworkPolicyAnnotationKey
+	endpoint := "http://jaeger.observability.svc:4317"
+	tests := []struct {
+		name        string
+		tracing     *v1alpha2.TracingSpec
+		annotations map[string]string
+		want        bool
+	}{
+		{name: "no tracing without the annotation"},
+		{name: "no tracing with the exact annotation opts out", annotations: map[string]string{annotation: "true"}},
+		{name: "tracing without the annotation opts out", tracing: &v1alpha2.TracingSpec{}},
+		{name: "tracing with an empty annotation value opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: ""}},
+		{name: "tracing with annotation false opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "false"}},
+		{name: "tracing with annotation True is not the exact literal", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "True"}},
+		{name: "tracing with annotation TRUE is not the exact literal", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "TRUE"}},
+		{name: "tracing with a padded annotation value opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: " true"}},
+		{name: "tracing with a suffixed annotation value opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "true "}},
+		{name: "tracing with annotation 1 opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "1"}},
+		{name: "tracing with annotation yes opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "yes"}},
+		{
+			name:        "empty tracing spec with the exact annotation opts in",
+			tracing:     &v1alpha2.TracingSpec{},
+			annotations: map[string]string{annotation: "true"},
+			want:        true,
+		},
+		{
+			name:        "tracing with an exporter endpoint and the exact annotation opts in",
+			tracing:     &v1alpha2.TracingSpec{ExporterEndpoint: &endpoint},
+			annotations: map[string]string{annotation: "true"},
+			want:        true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			llmSvc := &v1alpha2.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "model",
+					Namespace:   "team-a",
+					Annotations: tt.annotations,
+				},
+				Spec: v1alpha2.LLMInferenceServiceSpec{Tracing: tt.tracing},
+			}
+			if got := tracingEgressOptedIn(llmSvc); got != tt.want {
+				t.Fatalf("tracingEgressOptedIn got %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestReconcileTracingNetworkPolicyOptInGateBehavior pins the opt-in gate of
+// the tracing egress NetworkPolicy through reconcileTracingNetworkPolicy: the
+// policy and its resolved-service status annotation exist only while
+// spec.tracing is present and the service carries the
+// serving.kserve.io/enable-tracing-egress-network-policy annotation with the
+// exact value "true". Every other combination opts out — a previously created
+// tracing policy is removed and the status annotation is cleared. The gate
+// evaluates the same shared predicate the allow-all egress lifecycle uses;
+// these cases are the behavior it must keep.
+func TestReconcileTracingNetworkPolicyOptInGateBehavior(t *testing.T) {
+	crossNamespaceEndpoint := "http://jaeger.observability.svc:4317"
+	annotation := constants.EnableTracingEgressNetworkPolicyAnnotationKey
+	tests := []struct {
+		name        string
+		tracing     *v1alpha2.TracingSpec
+		annotations map[string]string
+		wantOptIn   bool
+	}{
+		{name: "tracing absent with the exact annotation opts out", annotations: map[string]string{annotation: "true"}},
+		{name: "tracing absent without the annotation opts out"},
+		{name: "tracing present without the annotation opts out", tracing: &v1alpha2.TracingSpec{}},
+		{name: "tracing present with an empty annotation value opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: ""}},
+		{name: "tracing present with annotation false opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "false"}},
+		{name: "tracing present with annotation True is not the exact literal", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "True"}},
+		{name: "tracing present with annotation TRUE is not the exact literal", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "TRUE"}},
+		{name: "tracing present with a padded annotation value opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: " true"}},
+		{name: "tracing present with annotation 1 opts out", tracing: &v1alpha2.TracingSpec{}, annotations: map[string]string{annotation: "1"}},
+		{
+			name:        "empty tracing spec with the exact annotation opts in",
+			tracing:     &v1alpha2.TracingSpec{},
+			annotations: map[string]string{annotation: "true"},
+			wantOptIn:   true,
+		},
+		{
+			name:        "tracing with a cluster-local exporter endpoint and the exact annotation opts in",
+			tracing:     &v1alpha2.TracingSpec{ExporterEndpoint: &crossNamespaceEndpoint},
+			annotations: map[string]string{annotation: "true"},
+			wantOptIn:   true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &v1alpha2.LLMInferenceService{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:        "model",
+					Namespace:   "team-a",
+					UID:         "model-uid",
+					Annotations: tt.annotations,
+				},
+				Spec: v1alpha2.LLMInferenceServiceSpec{Tracing: tt.tracing},
+				// A stale resolved-service key from an earlier opted-in reconcile:
+				// the gate must clear it on opt-out.
+				Status: v1alpha2.LLMInferenceServiceStatus{
+					Status: duckv1.Status{
+						Annotations: map[string]string{constants.LLMTracingServiceStatusAnnotationKey: "stale/jaeger"},
+					},
+				},
+			}
+			// Seed the tracing policy of an earlier opted-in reconcile so the
+			// opt-out cases exercise the cleanup path.
+			cl := newNetworkPolicyTestClient(t, expectedTracingNetworkPolicy(service, netv1.NetworkPolicyPeer{}, 0, false))
+			r := &LLMISVCReconciler{Client: cl, EventRecorder: record.NewFakeRecorder(16)}
+
+			if err := r.reconcileTracingNetworkPolicy(t.Context(), service); err != nil {
+				t.Fatalf("reconcileTracingNetworkPolicy failed: %v", err)
+			}
+
+			stored := &netv1.NetworkPolicy{}
+			err := cl.Get(t.Context(), types.NamespacedName{
+				Name: tracingNetworkPolicyName(service), Namespace: service.Namespace,
+			}, stored)
+			if !tt.wantOptIn {
+				if !apierrors.IsNotFound(err) {
+					t.Fatalf("opted-out service must lose the tracing policy: %v", err)
+				}
+				if _, ok := service.Status.Annotations[constants.LLMTracingServiceStatusAnnotationKey]; ok {
+					t.Fatalf("opted-out service must clear the resolved tracing service annotation: %v", service.Status.Annotations)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("opted-in service must keep the tracing policy: %v", err)
+			}
+			if !metav1.IsControlledBy(stored, service) {
+				t.Fatal("tracing policy is not controlled by the service")
+			}
+			want := expectedTracingNetworkPolicy(service, netv1.NetworkPolicyPeer{}, 0, false)
+			if !reflect.DeepEqual(stored.Spec, want.Spec) {
+				t.Fatalf("tracing policy spec got %#v, want the documented tracing permissions", stored.Spec)
+			}
+			wantStatusKey := ""
+			if endpoint, valid := parseOTLPServiceEndpoint(ptr.Deref(tt.tracing.ExporterEndpoint, ""), service.Namespace); valid {
+				wantStatusKey = tracingServiceKey(endpoint.namespace, endpoint.serviceName)
+			}
+			if got := service.Status.Annotations[constants.LLMTracingServiceStatusAnnotationKey]; got != wantStatusKey {
+				t.Fatalf("resolved tracing service annotation got %q, want %q", got, wantStatusKey)
+			}
+		})
 	}
 }
 

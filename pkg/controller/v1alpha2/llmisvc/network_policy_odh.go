@@ -259,8 +259,8 @@ type networkPolicySchedulerPeer struct {
 // expectedDefaultIngressNetworkPolicies returns the default-mode policy set:
 // one ingress-only policy per inventory entry that selects the entry's Pods
 // through its complete stored selector and allows all ingress to them. No
-// egress rules are created; egress remains governed by the opt-in tracing
-// policy alone.
+// egress rules are created; egress stays governed by the independent egress
+// lifecycle (reconcileEgressNetworkPolicies) alone.
 func expectedDefaultIngressNetworkPolicies(llmSvc *v1alpha2.LLMInferenceService, inventory networkPolicySelectorInventory) []*netv1.NetworkPolicy {
 	policies := make([]*netv1.NetworkPolicy, 0, len(inventory))
 	for _, entry := range inventory {
@@ -712,11 +712,11 @@ func reconcileLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, 
 	}
 
 	strict := config != nil && config.FeatureGates.StrictNetworkPolicy
-	// Ingress coverage and the opt-in tracing policy reconcile independently:
-	// an exporter lookup or write failure must not leave the service without
-	// ingress policies, and an ingress failure must not skip the tracing
-	// lifecycle. Each step's error is collected so one pass reports every
-	// problem and the reconcile retries.
+	// Ingress coverage and the egress lifecycle reconcile independently: an
+	// ingress failure must not skip the egress state, and an egress failure —
+	// including a tracing exporter lookup or write failure — must not leave
+	// the service without ingress policies. Each step's error is collected so
+	// one pass reports every problem and the reconcile retries.
 	var errs error
 	if strict {
 		errs = reconcileStrictNetworkPolicies(ctx, r, llmSvc, config)
@@ -724,23 +724,19 @@ func reconcileLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, 
 		errs = reconcileDefaultModeNetworkPolicies(ctx, r, llmSvc)
 	}
 
-	// The general egress policy earlier builds created is egress-only: its
-	// removal cannot open an ingress gap, so it is independent of the ingress
-	// reconciliation above. Removal stays ownership-checked, and a failure is
-	// reported instead of successful tracing establishment and retried.
-	if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, &netv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{Name: egressNetworkPolicyName(llmSvc), Namespace: llmSvc.GetNamespace()},
-	}); err != nil {
-		errs = errors.Join(errs, fmt.Errorf("failed to remove broad egress NetworkPolicy %s/%s: %w",
-			llmSvc.GetNamespace(), egressNetworkPolicyName(llmSvc), err))
-	}
+	// The egress lifecycle runs in both ingress modes and after an ingress
+	// failure: the allow-all egress policy set is mode-independent, so a mode
+	// toggle never churns egress policy names, and a strict Gateway peer
+	// resolution failure cannot skip the egress grants.
+	errs = errors.Join(errs, r.reconcileEgressNetworkPolicies(ctx, llmSvc))
 
 	// The former monitoring policy and the branch-created combined allow-all
 	// policy are superseded ingress coverage, so they are removed only after
-	// the complete desired ingress set exists: create-before-delete, and no
-	// pruning of prior coverage while an inventory or write failure is being
-	// retried. A prune failure likewise defers this removal to the retry; the
-	// tracing lifecycle below still runs and reports its own errors.
+	// the complete desired ingress and egress sets exist: create-before-delete,
+	// and no pruning of prior coverage while an inventory or write failure is
+	// being retried. A prune failure likewise defers this removal to the retry,
+	// so an egress failure can temporarily retain an old combined egress grant
+	// too.
 	if errs == nil {
 		for _, name := range []string{legacyMonitoringNetworkPolicyName(llmSvc), allowAllNetworkPolicyName(llmSvc)} {
 			policy := &netv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: llmSvc.GetNamespace()}}
@@ -750,20 +746,18 @@ func reconcileLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, 
 			}
 		}
 	} else {
-		log.FromContext(ctx).Info("Deferring superseded NetworkPolicy removal until the desired ingress set is reconciled",
+		log.FromContext(ctx).Info("Deferring superseded NetworkPolicy removal until the desired ingress and egress sets are reconciled",
 			"namespace", llmSvc.GetNamespace(), "service", llmSvc.GetName())
 	}
 
-	// The existing tracing policy is retained when the exporter lookup or the
-	// policy write fails; the error is reported and the reconcile retries
-	// without a broad or deny-all egress fallback.
-	return errors.Join(errs, r.reconcileTracingNetworkPolicy(ctx, llmSvc))
+	return errs
 }
 
 // reconcileStrictNetworkPolicies enforces the least-privilege policy set: one
 // ingress policy per stored component, scoped to that component's stored Pod
-// selector. Egress is not policed unless the opt-in tracing policy governs it.
-// It runs when the llmisvc.featureGates.strictNetworkPolicy gate is enabled.
+// selector. Egress is governed separately by the mode-independent egress
+// lifecycle. It runs when the llmisvc.featureGates.strictNetworkPolicy gate is
+// enabled.
 func reconcileStrictNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
 	inventory, err := r.networkPolicySelectors(ctx, llmSvc)
 	if err != nil {
@@ -812,9 +806,10 @@ func reconcileStrictNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, l
 // reconcileDefaultModeNetworkPolicies runs when the strict gate is off (the
 // default): it maintains one ingress-only allow-all policy per stored
 // component and removes the strict-mode policies from an earlier strict-mode
-// reconcile. Tracing is independent of the gate and of this reconciliation:
-// when tracing is requested the opt-in tracing policy governs egress without
-// changing ingress allowance.
+// reconcile. The egress lifecycle is independent of the gate and of this
+// reconciliation: it establishes the per-component allow-all egress policies
+// — or, on the tracing opt-in, the tracing policy — without changing ingress
+// allowance.
 func reconcileDefaultModeNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService) error {
 	inventory, err := r.networkPolicySelectors(ctx, llmSvc)
 	if err != nil {
@@ -833,8 +828,16 @@ func reconcileDefaultModeNetworkPolicies(ctx context.Context, r *LLMISVCReconcil
 	return deleteOwnedNetworkPolicies(ctx, r, llmSvc, staleIngressNetworkPolicyNames(llmSvc, networkPolicyModeDefault, inventory))
 }
 
+// cleanupLLMISVCNetworkPolicies finalizes every bounded NetworkPolicy name
+// this controller may own: the per-component ingress names of both modes, all
+// seven fixed per-component allow-all egress names, the tracing policy, and
+// the retired legacy names. The list is deliberately independent of the
+// service's current mode, topology, and egress state — finalization must also
+// remove the names a topology change or egress-state transition stopped
+// reconciling. Missing policies are success, foreign policies are skipped
+// with a log, and API failures are returned for the retry.
 func cleanupLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, llmSvc *v1alpha2.LLMInferenceService) error {
-	names := make([]string, 0, 7+2*len(networkPolicyComponentKeys))
+	names := make([]string, 0, 7+3*len(networkPolicyComponentKeys))
 	names = append(names,
 		legacyMonitoringNetworkPolicyName(llmSvc),
 		workloadNetworkPolicyName(llmSvc),
@@ -846,6 +849,7 @@ func cleanupLLMISVCNetworkPolicies(ctx context.Context, r *LLMISVCReconciler, ll
 	)
 	names = append(names, ingressNetworkPolicyNames(llmSvc, networkPolicyModeDefault)...)
 	names = append(names, ingressNetworkPolicyNames(llmSvc, networkPolicyModeStrict)...)
+	names = append(names, allowAllEgressNetworkPolicyNames(llmSvc)...)
 	for _, name := range names {
 		policy := &netv1.NetworkPolicy{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: llmSvc.GetNamespace()}}
 		if err := deleteOwnedNetworkPolicy(ctx, r, llmSvc, policy); err != nil {
