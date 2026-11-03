@@ -54,6 +54,7 @@ func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builde
 		return fmt.Errorf("failed to add Istio v1 APIs to scheme: %w", err)
 	}
 	logger := mgr.GetLogger().WithName("LLMInferenceService.SetupWithManager")
+	r.watchConfidentialDependencies(b, logger)
 	b.Watches(&corev1.Service{}, r.enqueueOnOTLPServiceChange(logger), builder.WithPredicates(otlpServiceChangePredicate()))
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), istioapi.SchemeGroupVersion.String(), "DestinationRule"); ok && err == nil {

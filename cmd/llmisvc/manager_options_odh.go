@@ -24,10 +24,18 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 
+	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc"
 )
 
 func customizeManagerOptions(opts *ctrl.Options) error {
+	// Include the installed helper definitions as well as the global config.
+	for obj, cfg := range opts.Cache.ByObject {
+		if _, ok := obj.(*corev1.ConfigMap); ok {
+			cfg.Namespaces[constants.KServeNamespace] = cache.Config{}
+			opts.Cache.ByObject[obj] = cfg
+		}
+	}
 	// Replace the simple label-based Secret cache with a namespace-aware one that
 	// also watches the platform CA signing secret used for workload TLS certificates.
 	for obj, cfg := range opts.Cache.ByObject {

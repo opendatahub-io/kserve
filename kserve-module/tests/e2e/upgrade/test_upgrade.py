@@ -5,6 +5,8 @@ captures a baseline ConfigMap, and post-upgrade verifies operand and workload
 survival after rolling the kserve-module controller image.
 """
 
+import os
+
 import pytest
 
 from upgrade import utils
@@ -33,7 +35,9 @@ class TestPreUpgrade:
 
     @pytest.mark.pre_upgrade
     @pytest.mark.ocp_only
-    def test_llmisvc_workloads_ready(self, kubectl, upgrade_namespace, deploy_upgrade_workloads):
+    def test_llmisvc_workloads_ready(
+        self, kubectl, upgrade_namespace, deploy_upgrade_workloads
+    ):
         utils.check_llmisvc_workloads_ready(
             kubectl, namespace=upgrade_namespace, name=utils.LLMISVC_NAME
         )
@@ -92,13 +96,33 @@ class TestPostUpgrade:
             utils.wait_for_deployment(kubectl, dep)
 
     @pytest.mark.post_upgrade
-    def test_operand_pods_not_restarted(self, kubectl, cluster_info, upgrade_baseline):
-        """KServe/LLMISVC operand controllers must survive; module controller may restart."""
+    def test_operand_pods_roll_as_expected(
+        self, kubectl, cluster_info, upgrade_baseline
+    ):
+        """Only the LLMISVC controller may roll when CI supplies its PR image."""
+        expected_llmisvc_image = os.environ.get("LLMISVC_CONTROLLER_IMAGE")
         current = utils.capture_operand_baselines(kubectl, cluster_info.is_openshift)
         for dep in utils.operand_pod_identity_deployments(cluster_info.is_openshift):
             assert dep in upgrade_baseline["operands"], f"No baseline for {dep}"
             assert dep in current, f"Operand deployment {dep} missing post-upgrade"
             baseline = upgrade_baseline["operands"][dep]
+            if dep == "llmisvc-controller-manager" and expected_llmisvc_image:
+                deployment = utils.get_resource(
+                    kubectl, "deployment", dep, namespace=utils.NAMESPACE
+                )
+                assert deployment is not None
+                containers = deployment["spec"]["template"]["spec"]["containers"]
+                actual_image = next(
+                    (c["image"] for c in containers if c["name"] == "manager"), None
+                )
+                assert actual_image == expected_llmisvc_image
+                assert baseline["pod_uids"], "No baseline LLMISVC controller pods"
+                assert current[dep]["pod_uids"], "No PR LLMISVC controller pods"
+                assert set(current[dep]["pod_uids"]) - set(baseline["pod_uids"]), (
+                    "LLMISVC controller pod did not roll to the PR image"
+                )
+                continue
+
             utils.assert_operand_pods_not_recreated(
                 baseline["pod_uids"], current[dep]["pod_uids"]
             )
@@ -127,11 +151,16 @@ class TestPostUpgrade:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_isvc_inference_after_upgrade(self, kubectl, upgrade_namespace, upgrade_baseline):
+    def test_isvc_inference_after_upgrade(
+        self, kubectl, upgrade_namespace, upgrade_baseline
+    ):
         current_hash = utils.run_isvc_inference(
             kubectl, namespace=upgrade_namespace, name=utils.ISVC_NAME
         )
-        assert current_hash == upgrade_baseline["workloads"][utils.ISVC_NAME]["inference_hash"]
+        assert (
+            current_hash
+            == upgrade_baseline["workloads"][utils.ISVC_NAME]["inference_hash"]
+        )
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
@@ -189,7 +218,9 @@ class TestPostUpgradeNewWorkloads:
 
     @pytest.mark.post_upgrade
     @pytest.mark.ocp_only
-    def test_new_llmisvc_workloads_ready(self, kubectl, upgrade_namespace, deploy_new_llmisvc):
+    def test_new_llmisvc_workloads_ready(
+        self, kubectl, upgrade_namespace, deploy_new_llmisvc
+    ):
         utils.check_llmisvc_workloads_ready(
             kubectl, namespace=upgrade_namespace, name=deploy_new_llmisvc
         )

@@ -149,7 +149,7 @@ func TestGatewayPeerNamespaces(t *testing.T) {
 func TestPrometheusPeerNamespacesIncludesRHOAIDefault(t *testing.T) {
 	t.Setenv(monitoringNamespaceEnvVar, "")
 
-	got := prometheusPeerNamespaces()
+	got := prometheusPeerNamespaces(nil)
 	want := []string{
 		defaultMonitoringNamespace,
 		defaultUserWorkloadMonitoringNamespace,
@@ -160,14 +160,27 @@ func TestPrometheusPeerNamespacesIncludesRHOAIDefault(t *testing.T) {
 	}
 }
 
-func TestPrometheusPeerNamespacesAddsCustomMonitoringNamespace(t *testing.T) {
-	t.Setenv(monitoringNamespaceEnvVar, "custom-monitoring")
+func TestPrometheusPeerNamespacesPrefersConfigMonitoringNamespace(t *testing.T) {
+	t.Setenv(monitoringNamespaceEnvVar, "from-env")
 
-	got := prometheusPeerNamespaces()
+	got := prometheusPeerNamespaces(&Config{MonitoringNamespace: "from-dsci"})
 	want := []string{
 		defaultMonitoringNamespace,
 		defaultUserWorkloadMonitoringNamespace,
-		defaultRHOAIMonitoringNamespace,
+		"from-dsci",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("got %v want %v", got, want)
+	}
+}
+
+func TestPrometheusPeerNamespacesAddsCustomMonitoringNamespace(t *testing.T) {
+	t.Setenv(monitoringNamespaceEnvVar, "custom-monitoring")
+
+	got := prometheusPeerNamespaces(nil)
+	want := []string{
+		defaultMonitoringNamespace,
+		defaultUserWorkloadMonitoringNamespace,
 		"custom-monitoring",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -178,7 +191,7 @@ func TestPrometheusPeerNamespacesAddsCustomMonitoringNamespace(t *testing.T) {
 func TestPrometheusPeerNamespacesDoesNotDuplicateRHOAIDefault(t *testing.T) {
 	t.Setenv(monitoringNamespaceEnvVar, defaultRHOAIMonitoringNamespace)
 
-	got := prometheusPeerNamespaces()
+	got := prometheusPeerNamespaces(nil)
 	want := []string{
 		defaultMonitoringNamespace,
 		defaultUserWorkloadMonitoringNamespace,

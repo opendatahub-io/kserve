@@ -18,9 +18,11 @@ package llmisvc
 
 import (
 	"context"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"k8s.io/client-go/kubernetes"
@@ -30,6 +32,7 @@ import (
 	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/version"
@@ -134,11 +137,21 @@ const (
 	LLMInferenceServiceNotReadyState LLMInferenceServiceState = "LLMInferenceServiceNotReady"
 )
 
+// DefaultMaxConcurrentReconciles is how many objects each llmisvc controller reconciles at once
+// unless --max-concurrent-reconciles says otherwise.
+const DefaultMaxConcurrentReconciles = 8
+
+// DefaultFinalizationRequeueAfter is how long the reconciler waits before re-checking
+// a finalization that is not complete yet.
+const DefaultFinalizationRequeueAfter = 5 * time.Second
+
 // LLMISVCReconciler reconciles an LLMInferenceService object.
 // It orchestrates the reconciliation of child resources based on the spec.
 type LLMISVCReconciler struct {
 	client.Client
-	Config *rest.Config
+	// APIReader reads resources directly from the API server without using the cache.
+	APIReader client.Reader
+	Config    *rest.Config
 	record.EventRecorder
 	Clientset kubernetes.Interface
 
@@ -147,6 +160,24 @@ type LLMISVCReconciler struct {
 	// installing the LWS operator after startup requires a controller restart, the
 	// same constraint that already applies to LeaderWorkerSet.
 	DisaggregatedSetAvailable bool
+
+	// DisaggregatedSetRoleScalerAvailable reports whether the DisaggregatedSetRoleScaler
+	// CRD was present when SetupWithManager ran.
+	DisaggregatedSetRoleScalerAvailable bool
+
+	// GenerateCertificateKey creates the private key of each workload serving
+	// certificate. Nil means a fresh RSA 4096 key per certificate.
+	GenerateCertificateKey func() (*rsa.PrivateKey, error)
+
+	// FinalizationRequeueAfter overrides DefaultFinalizationRequeueAfter when set.
+	FinalizationRequeueAfter *time.Duration
+}
+
+func (r *LLMISVCReconciler) finalizationRequeueAfter() time.Duration {
+	if r.FinalizationRequeueAfter != nil {
+		return *r.FinalizationRequeueAfter
+	}
+	return DefaultFinalizationRequeueAfter
 }
 
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceservices,verbs=get;list;watch;create;update;patch;delete
@@ -156,8 +187,10 @@ type LLMISVCReconciler struct {
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=llminferenceserviceconfigs/finalizers,verbs=update
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes;clusterservingruntimes,verbs=get;list;watch
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
 //+kubebuilder:rbac:groups=leaderworkerset.x-k8s.io,resources=leaderworkersets,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=disaggregatedset.x-k8s.io,resources=disaggregatedsets,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=disaggregatedset.x-k8s.io,resources=disaggregatedsetrolescalers,verbs=get;list;watch
 //+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 // Secret access stays cluster-scoped so Owns() can watch TLS cert secrets in workload namespaces.
 // Keep create/update/patch/delete so reconcile and force-stop can manage TLS secrets.
@@ -223,7 +256,7 @@ func (r *LLMISVCReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 				if statusErr := r.updateStatus(ctx, original); statusErr != nil {
 					logger.Error(statusErr, "Failed to persist finalization status")
 				}
-				return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+				return ctrl.Result{RequeueAfter: r.finalizationRequeueAfter()}, nil
 			}
 
 			// Cleanup successful, remove finalizer to allow deletion
@@ -303,10 +336,32 @@ func (r *LLMISVCReconciler) reconcile(ctx context.Context, llmSvc *v1alpha2.LLMI
 	// We are only writing to status, so we can safely use the original object.
 	llmSvc.Spec = baseCfg.Spec
 
+	if migrated := migrateLegacyPoolGroup(&llmSvc.Spec); len(migrated) > 0 {
+		logger.Info("Rewrote deprecated InferencePool API group in --pool-group",
+			"from", constants.InferencePoolV1Alpha2APIGroupName, "to", constants.InferencePoolV1APIGroupName, "templates", migrated)
+		r.Eventf(llmSvc, corev1.EventTypeWarning, "DeprecatedInferencePoolGroup",
+			"--pool-group=%s is no longer supported by llm-d-router and was rewritten to %s in %s; update the template to use %s",
+			constants.InferencePoolV1Alpha2APIGroupName, constants.InferencePoolV1APIGroupName,
+			strings.Join(migrated, ", "), constants.InferencePoolV1APIGroupName)
+	}
+
+	if !utils.GetForceStopRuntime(llmSvc) {
+		if err := validatePVCEvictorContainerTemplates(llmSvc); err != nil {
+			llmSvc.MarkPVCEvictorNotReady("InvalidPVCEvictorConfiguration", "%s", err.Error())
+			llmSvc.DetermineWorkloadReadiness()
+			return reconcile.TerminalError(fmt.Errorf("invalid PVC evictor configuration: %w", err))
+		}
+	}
+
 	RecordAcceleratorAnnotation(llmSvc)
 
 	if err := r.reconcileWorkload(ctx, llmSvc, config); err != nil {
 		return fmt.Errorf("failed to reconcile workload: %w", err)
+	}
+
+	var pvcEvictorErr error
+	if err := r.reconcilePVCEvictors(ctx, llmSvc, config); err != nil {
+		pvcEvictorErr = fmt.Errorf("failed to reconcile PVC evictors: %w", err)
 	}
 
 	if err := r.reconcileRouter(ctx, llmSvc, config); err != nil {
@@ -324,6 +379,9 @@ func (r *LLMISVCReconciler) reconcile(ctx context.Context, llmSvc *v1alpha2.LLMI
 		return fmt.Errorf("failed to observe workload status: %w", err)
 	}
 
+	if pvcEvictorErr != nil {
+		return pvcEvictorErr
+	}
 	return nil
 }
 
@@ -344,6 +402,9 @@ func (r *LLMISVCReconciler) finalize(ctx context.Context, llmSvc *v1alpha2.LLMIn
 	// surfaces in the controller logs.
 	if err := r.finalizePlatformResources(ctx, llmSvc); err != nil {
 		return false, err
+	}
+	if err := r.finalizePVCEvictors(ctx, llmSvc); err != nil {
+		return false, fmt.Errorf("failed to finalize PVC evictors: %w", err)
 	}
 
 	if err := r.reconcileSchedulerServiceAccount(ctx, llmSvc); err != nil {
@@ -437,16 +498,24 @@ func GetFailConditions(svc *v1alpha2.LLMInferenceService) string {
 // The controller conditionally registers watchers based on CRD availability to avoid errors in environments where optional CRDs are not installed.
 func (r *LLMISVCReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	logger := mgr.GetLogger().WithName("LLMInferenceService.SetupWithManager")
+	r.APIReader = mgr.GetAPIReader()
 
 	if err := setupGroupFieldIndex(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return fmt.Errorf("failed to set up field indexer for routing group: %w", err)
 	}
+	if err := setupPVCEvictorIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
+		return fmt.Errorf("failed to set up field indexes for PVC evictors: %w", err)
+	}
 
 	b := ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha2.LLMInferenceService{}).
+		Watches(&v1alpha2.LLMInferenceService{}, r.enqueueOnPVCEvictorServiceChange(), builder.WithPredicates(pvcEvictorServiceChangePredicate())).
 		Watches(&v1alpha2.LLMInferenceServiceConfig{}, r.enqueueOnLLMInferenceServiceConfigChange(logger)).
 		Owns(&netv1.Ingress{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&appsv1.Deployment{}, builder.WithPredicates(childResourcesPredicate)).
+		Watches(&appsv1.Deployment{}, r.enqueueOnPVCEvictorResourceChange(), builder.WithPredicates(pvcEvictorDeploymentPredicate())).
+		Watches(&corev1.ServiceAccount{}, r.enqueueOnPVCEvictorResourceChange(), builder.WithPredicates(pvcEvictorServiceAccountPredicate())).
+		Watches(&corev1.PersistentVolumeClaim{}, r.enqueueOnPVCEvictorPVCChange(), builder.WithPredicates(pvcEvictorPVCPredicate())).
 		Owns(&corev1.Secret{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&corev1.Service{}, builder.WithPredicates(childResourcesPredicate)).
 		Owns(&autoscalingv2.HorizontalPodAutoscaler{}, builder.WithPredicates(childResourcesPredicate)).
@@ -454,7 +523,13 @@ func (r *LLMISVCReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Watches(&corev1.ConfigMap{}, r.enqueueOnInferenceServiceConfigMapChange(logger), builder.WithPredicates(inferenceServiceConfigMapPredicate)).
 		Watches(&corev1.Pod{},
 			handler.EnqueueRequestsFromMapFunc(r.EnqueueOnLLMInferenceServicePods),
-			builder.WithPredicates(PodStatusPredicate()))
+			builder.WithPredicates(PodStatusPredicate())).
+		Watches(&corev1.ServiceAccount{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueOnServiceAccountChange(logger)),
+			builder.WithPredicates(serviceAccountImagePullSecretsChangedPredicate())).
+		Watches(&corev1.Pod{},
+			handler.EnqueueRequestsFromMapFunc(r.EnqueueOnLLMInferenceServicePods),
+			builder.WithPredicates(pvcEvictorConsumerPodPredicate()))
 
 	b = b.Watches(
 		&v1alpha2.LLMInferenceService{},
@@ -495,6 +570,13 @@ func (r *LLMISVCReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), disaggregatedsetv1.GroupVersion.String(), "DisaggregatedSet"); ok && err == nil {
 		r.DisaggregatedSetAvailable = true
 		b = b.Owns(&disaggregatedsetv1.DisaggregatedSet{}, builder.WithPredicates(childResourcesPredicate))
+	}
+
+	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), disaggregatedsetv1.GroupVersion.String(), "DisaggregatedSetRoleScaler"); ok && err == nil {
+		r.DisaggregatedSetRoleScalerAvailable = true
+		b = b.Watches(&disaggregatedsetv1.DisaggregatedSetRoleScaler{},
+			handler.EnqueueRequestsFromMapFunc(r.enqueueOnDisaggregatedSetRoleScalerChange(logger)),
+			builder.WithPredicates(predicate.GenerationChangedPredicate{}))
 	}
 
 	if ok, err := utils.IsCrdAvailable(mgr.GetConfig(), resourcev1.SchemeGroupVersion.String(), "ResourceClaimTemplate"); ok && err == nil {
@@ -710,6 +792,30 @@ func (r *LLMISVCReconciler) enqueueOnInferencePoolChange(logger logr.Logger) han
 
 		return reqs
 	})
+}
+
+// enqueueOnDisaggregatedSetRoleScalerChange triggers reconciliation of the
+// LLMInferenceService whose DisaggregatedSet owns a changed DisaggregatedSetRoleScaler.
+func (r *LLMISVCReconciler) enqueueOnDisaggregatedSetRoleScalerChange(logger logr.Logger) handler.MapFunc {
+	logger = logger.WithName("enqueueOnDisaggregatedSetRoleScalerChange")
+	return func(ctx context.Context, object client.Object) []reconcile.Request {
+		dsRef := metav1.GetControllerOf(object)
+		if dsRef == nil || dsRef.Kind != "DisaggregatedSet" || dsRef.APIVersion != disaggregatedsetv1.GroupVersion.String() {
+			return nil
+		}
+		ds := &disaggregatedsetv1.DisaggregatedSet{}
+		if err := r.Get(ctx, types.NamespacedName{Namespace: object.GetNamespace(), Name: dsRef.Name}, ds); err != nil {
+			if !apierrors.IsNotFound(err) {
+				logger.Error(err, "Failed to get DisaggregatedSet", "name", dsRef.Name, "namespace", object.GetNamespace())
+			}
+			return nil
+		}
+		ownerRef := metav1.GetControllerOf(ds)
+		if ownerRef == nil || ownerRef.Kind != "LLMInferenceService" || ownerRef.APIVersion != v1alpha2.LLMInferenceServiceGVK.GroupVersion().String() {
+			return nil
+		}
+		return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: ds.Namespace, Name: ownerRef.Name}}}
+	}
 }
 
 // enqueueOnLLMInferenceServiceConfigChange triggers reconciliation of every LLMInferenceService

@@ -19,6 +19,7 @@ limitations under the License.
 package inferenceservice
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
@@ -32,8 +33,11 @@ import (
 	"knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
 // getExpectedIsvcStatusODH is the ODH counterpart of getExpectedIsvcStatus: the URL scheme and
@@ -101,6 +105,59 @@ func getExpectedIsvcStatusODH(serviceKey types.NamespacedName, protocol, host, c
 	}
 }
 
+// applyExpectedManagedProxyTLS mirrors the profile resolution used when the
+// controller generates a managed auth-proxy sidecar. Integration-test expected
+// objects must account for the envtest cluster's APIServer profile rather than
+// assuming the proxy's legacy hard-coded defaults.
+func applyExpectedManagedProxyTLS(expected *appsv1.Deployment, reader client.Reader) error {
+	var proxy *corev1.Container
+	for i := range expected.Spec.Template.Spec.Containers {
+		if expected.Spec.Template.Spec.Containers[i].Name == constants.KubeRbacContainerName {
+			proxy = &expected.Spec.Template.Spec.Containers[i]
+			break
+		}
+	}
+	if proxy == nil {
+		return nil
+	}
+
+	workloadTLS, err := distrotls.ResolveWorkloadArgs(context.Background(), reader)
+	if err != nil {
+		return fmt.Errorf("resolve expected auth-proxy TLS arguments: %w", err)
+	}
+	tlsArgs := []string{"--tls-min-version=" + workloadTLS.MinVersion}
+	if workloadTLS.CipherSuites != "" {
+		tlsArgs = append(tlsArgs, "--tls-cipher-suites="+workloadTLS.CipherSuites)
+	}
+	if workloadTLS.CurveIDs != "" {
+		tlsArgs = append(tlsArgs, "--tls-curve-preferences="+workloadTLS.CurveIDs)
+	}
+
+	args := make([]string, 0, len(proxy.Args)+len(tlsArgs))
+	insertedTLSArgs := false
+	for _, arg := range proxy.Args {
+		if strings.HasPrefix(arg, "--tls-min-version=") ||
+			strings.HasPrefix(arg, "--tls-cipher-suites=") ||
+			strings.HasPrefix(arg, "--tls-curve-preferences=") {
+			if !insertedTLSArgs {
+				args = append(args, tlsArgs...)
+				insertedTLSArgs = true
+			}
+			continue
+		}
+		args = append(args, arg)
+	}
+	if !insertedTLSArgs {
+		args = append(args, tlsArgs...)
+	}
+	proxy.Args = args
+	if expected.Spec.Template.Annotations == nil {
+		expected.Spec.Template.Annotations = make(map[string]string)
+	}
+	expected.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
+	return nil
+}
+
 // kubeRbacProxyContainer returns the kube-rbac-proxy sidecar container for an InferenceService deployment.
 // If upstreamTimeoutSeconds is non-nil, --upstream-timeout=<N>s is appended to the args.
 func kubeRbacProxyContainer(upstreamTimeoutSeconds *int64) corev1.Container {
@@ -113,6 +170,9 @@ func kubeRbacProxyContainer(upstreamTimeoutSeconds *int64) corev1.Container {
 		`--tls-private-key-file=/etc/tls/private/tls.key`,
 		`--config-file=/etc/kube-rbac-proxy/config-file.yaml`,
 		`--v=4`,
+		`--tls-min-version=VersionTLS12`,
+		`--tls-cipher-suites=TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256`,
+		`--tls-curve-preferences=4588,29,23,24`,
 	}
 	if upstreamTimeoutSeconds != nil {
 		args = append(args, fmt.Sprintf("--upstream-timeout=%ds", *upstreamTimeoutSeconds))

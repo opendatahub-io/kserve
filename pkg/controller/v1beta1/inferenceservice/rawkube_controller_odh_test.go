@@ -142,6 +142,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(applyExpectedManagedProxyTLS(&expectedDeployment, k8sClient)).To(Succeed())
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// Verify INFERENCE_SERVICE_NAME environment variable is set
@@ -594,6 +595,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedDeployment, k8sClient)).To(Succeed())
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check isvc status
@@ -1031,6 +1033,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedDeployment, k8sClient)).To(Succeed())
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -3640,6 +3643,8 @@ var _ = Describe("v1beta1 inference service controller", func() {
 			servingRuntimeToUpdate := &v1alpha1.ServingRuntime{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: servingRuntimeName, Namespace: isvcNamespace}, servingRuntimeToUpdate)).Should(Succeed())
 			servingRuntimeToUpdate.Spec.Labels["key1"] = "updatedServingRuntime"
+			servingRuntimeToUpdate.Spec.Containers[0].Ports = []corev1.ContainerPort{{ContainerPort: 8081}}
+			servingRuntimeToUpdate.Spec.Containers[0].Args[1] = "--rest_api_port=8081"
 			Expect(k8sClient.Update(ctx, servingRuntimeToUpdate)).Should(Succeed())
 
 			// Wait until the ServingRuntime reflects the updated spec.
@@ -3654,12 +3659,12 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			// Check to make sure deployment didn't update
 			deploymentAfterUpdate := &appsv1.Deployment{}
-			Consistently(func() (string, error) {
+			Consistently(func() (corev1.PodTemplateSpec, error) {
 				if err := k8sClient.Get(ctx, types.NamespacedName{Name: deploymentName, Namespace: serviceKey.Namespace}, deploymentAfterUpdate); err != nil {
-					return "", err
+					return corev1.PodTemplateSpec{}, err
 				}
-				return deploymentAfterUpdate.Spec.Template.ObjectMeta.Labels["key1"], nil
-			}, fastTimeout, interval).Should(Equal("val1FromSR"))
+				return deploymentAfterUpdate.Spec.Template, nil
+			}, fastTimeout, interval).Should(Equal(originalDeployment.Spec.Template))
 		})
 		It("InferenceService should reconcile only if the matching serving runtime was updated even if multiple exist", func() {
 			// Create configmap
@@ -3962,6 +3967,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(applyExpectedManagedProxyTLS(&expectedDeployment, k8sClient)).To(Succeed())
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -4157,6 +4163,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(applyExpectedManagedProxyTLS(&expectedDeployment, k8sClient)).To(Succeed())
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -4639,6 +4646,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedPredictorDeployment, k8sClient)).To(Succeed())
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check transformer deployment
@@ -4726,6 +4734,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedTransformerDeployment, k8sClient)).To(Succeed())
 			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
 
 			// check predictor service
@@ -5420,6 +5429,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedPredictorDeployment, k8sClient)).To(Succeed())
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check Explainer deployment
@@ -5434,6 +5444,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedExplainerDeployment := getExpectedDeploymentODH(explainerDeploymentKey, serviceName, serviceKey, predictorServiceKey)
 			expectedExplainerDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = explainerDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(applyExpectedManagedProxyTLS(&expectedExplainerDeployment, k8sClient)).To(Succeed())
 			Expect(actualExplainerDeployment.Spec).To(BeComparableTo(expectedExplainerDeployment.Spec))
 
 			// check predictor service
@@ -6052,6 +6063,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(applyExpectedManagedProxyTLS(&expectedDeployment, k8sClient)).To(Succeed())
 			Expect(actualDeployment.Spec).To(BeComparableTo(expectedDeployment.Spec))
 
 			// check service
@@ -6585,6 +6597,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedPredictorDeployment, k8sClient)).To(Succeed())
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check transformer deployment
@@ -6672,6 +6685,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedTransformerDeployment, k8sClient)).To(Succeed())
 			Expect(actualTransformerDeployment.Spec).To(BeComparableTo(expectedTransformerDeployment.Spec))
 
 			// check predictor service
@@ -7415,6 +7429,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 					ProgressDeadlineSeconds: ptr.To(PROGRESSION_DEADLINE_SECODS),
 				},
 			}
+			Expect(applyExpectedManagedProxyTLS(expectedPredictorDeployment, k8sClient)).To(Succeed())
 			Expect(actualPredictorDeployment.Spec).To(BeComparableTo(expectedPredictorDeployment.Spec))
 
 			// check Explainer deployment
@@ -7429,6 +7444,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedExplainerDeployment := getExpectedDeploymentODH(explainerDeploymentKey, serviceName, serviceKey, predictorServiceKey)
 			expectedExplainerDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = explainerDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(applyExpectedManagedProxyTLS(&expectedExplainerDeployment, k8sClient)).To(Succeed())
 			Expect(actualExplainerDeployment.Spec).To(BeComparableTo(expectedExplainerDeployment.Spec))
 
 			// check predictor service
@@ -8409,6 +8425,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 
 			expectedDeployment := getDeploymentWithKServiceLabelODH(predictorDeploymentKey, serviceName, isvc)
 			expectedDeployment.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation] = predictorDeploymentKey.Name + constants.ServingCertSecretSuffix
+			Expect(applyExpectedManagedProxyTLS(&expectedDeployment, k8sClient)).To(Succeed())
 			Expect(actualDeployment.Spec).To(Equal(expectedDeployment.Spec))
 
 			// check service
@@ -8808,6 +8825,7 @@ var _ = Describe("v1beta1 inference service controller", func() {
 				},
 			}
 
+			Expect(applyExpectedManagedProxyTLS(expectedDeployment, k8sClient)).To(Succeed())
 			// Use cmpopts.SortMaps for consistent comparison that ignores map key ordering
 			Expect(actualDeployment.Spec).To(Equal(expectedDeployment.Spec),
 				cmp.Diff(expectedDeployment.Spec, actualDeployment.Spec, cmpopts.SortMaps(func(a, b string) bool { return a < b })))

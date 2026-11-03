@@ -58,6 +58,16 @@ func TestSettingsEqual(t *testing.T) {
 	if settingsEqual(a, c) {
 		t.Fatal("expected different settings")
 	}
+
+	a.ProfileSpec.Groups = []configv1.TLSGroup{configv1.TLSGroupSecP256r1}
+	b.ProfileSpec.Groups = []configv1.TLSGroup{configv1.TLSGroupSecP256r1}
+	if !settingsEqual(a, b) {
+		t.Fatal("expected identical group preferences to be equal")
+	}
+	b.ProfileSpec.Groups = []configv1.TLSGroup{configv1.TLSGroupSecP384r1}
+	if settingsEqual(a, b) {
+		t.Fatal("expected group preference changes to differ")
+	}
 }
 
 func TestResolveProfileSpec(t *testing.T) {

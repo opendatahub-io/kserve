@@ -6398,6 +6398,11 @@ spec:
                                             type: string
                                           authenticationRef:
                                             properties:
+                                              kind:
+                                                enum:
+                                                - TriggerAuthentication
+                                                - ClusterTriggerAuthentication
+                                                type: string
                                               name:
                                                 type: string
                                             required:
@@ -23835,6 +23840,11 @@ spec:
                                       type: string
                                     authenticationRef:
                                       properties:
+                                        kind:
+                                          enum:
+                                          - TriggerAuthentication
+                                          - ClusterTriggerAuthentication
+                                          type: string
                                         name:
                                           type: string
                                       required:
@@ -27317,6 +27327,11 @@ spec:
                                       type: string
                                     authenticationRef:
                                       properties:
+                                        kind:
+                                          enum:
+                                          - TriggerAuthentication
+                                          - ClusterTriggerAuthentication
+                                          type: string
                                         name:
                                           type: string
                                       required:
@@ -43128,6 +43143,11 @@ spec:
                                       type: string
                                     authenticationRef:
                                       properties:
+                                        kind:
+                                          enum:
+                                          - TriggerAuthentication
+                                          - ClusterTriggerAuthentication
+                                          type: string
                                         name:
                                           type: string
                                       required:
@@ -51832,6 +51852,15 @@ spec:
                 type: object
               model:
                 properties:
+                  confidential:
+                    properties:
+                      enabled:
+                        type: boolean
+                      resourceId:
+                        type: string
+                    required:
+                    - enabled
+                    type: object
                   criticality:
                     enum:
                     - Critical
@@ -52498,9 +52527,6 @@ spec:
                     - maxReplicas
                     type: object
                     x-kubernetes-validations:
-                    - message: either wva or keda must be specified when scaling is
-                        configured
-                      rule: has(self.wva) || has(self.keda)
                     - message: wva and keda are mutually exclusive
                       rule: '!(has(self.wva) && has(self.keda))'
                     - message: at least one trigger is required when using direct
@@ -61246,6 +61272,7 @@ spec:
                                     retry:
                                       properties:
                                         attempts:
+                                          minimum: 1
                                           type: integer
                                         backoff:
                                           type: string
@@ -61255,7 +61282,7 @@ spec:
                                             minimum: 400
                                             type: integer
                                           type: array
-                                          x-kubernetes-list-type: atomic
+                                          x-kubernetes-list-type: set
                                       type: object
                                     sessionPersistence:
                                       properties:
@@ -61270,8 +61297,6 @@ spec:
                                               - Session
                                               type: string
                                           type: object
-                                        idleTimeout:
-                                          type: string
                                         sessionName:
                                           maxLength: 128
                                           type: string
@@ -61354,7 +61379,6 @@ spec:
                                     - FailClose
                                     type: string
                                   group:
-                                    maxLength: 253
                                     type: string
                                   kind:
                                     maxLength: 63
@@ -69581,8 +69605,6 @@ spec:
                 - maxReplicas
                 type: object
                 x-kubernetes-validations:
-                - message: either wva or keda must be specified when scaling is configured
-                  rule: has(self.wva) || has(self.keda)
                 - message: wva and keda are mutually exclusive
                   rule: '!(has(self.wva) && has(self.keda))'
                 - message: at least one trigger is required when using direct KEDA
@@ -78270,9 +78292,6 @@ spec:
                     - maxReplicas
                     type: object
                     x-kubernetes-validations:
-                    - message: either wva or keda must be specified when scaling is
-                        configured
-                      rule: has(self.wva) || has(self.keda)
                     - message: wva and keda are mutually exclusive
                       rule: '!(has(self.wva) && has(self.keda))'
                     - message: at least one trigger is required when using direct
@@ -87018,6 +87037,7 @@ spec:
                                     retry:
                                       properties:
                                         attempts:
+                                          minimum: 1
                                           type: integer
                                         backoff:
                                           type: string
@@ -87027,7 +87047,7 @@ spec:
                                             minimum: 400
                                             type: integer
                                           type: array
-                                          x-kubernetes-list-type: atomic
+                                          x-kubernetes-list-type: set
                                       type: object
                                     sessionPersistence:
                                       properties:
@@ -87042,8 +87062,6 @@ spec:
                                               - Session
                                               type: string
                                           type: object
-                                        idleTimeout:
-                                          type: string
                                         sessionName:
                                           maxLength: 128
                                           type: string
@@ -87182,7 +87200,6 @@ spec:
                                 type: array
                                 x-kubernetes-list-type: atomic
                             required:
-                            - endpointPickerRef
                             - selector
                             - targetPorts
                             type: object
@@ -95384,8 +95401,6 @@ spec:
                 - maxReplicas
                 type: object
                 x-kubernetes-validations:
-                - message: either wva or keda must be specified when scaling is configured
-                  rule: has(self.wva) || has(self.keda)
                 - message: wva and keda are mutually exclusive
                   rule: '!(has(self.wva) && has(self.keda))'
                 - message: at least one trigger is required when using direct KEDA
@@ -103457,6 +103472,15 @@ spec:
                 type: object
               model:
                 properties:
+                  confidential:
+                    properties:
+                      enabled:
+                        type: boolean
+                      resourceId:
+                        type: string
+                    required:
+                    - enabled
+                    type: object
                   criticality:
                     enum:
                     - Critical
@@ -104123,9 +104147,6 @@ spec:
                     - maxReplicas
                     type: object
                     x-kubernetes-validations:
-                    - message: either wva or keda must be specified when scaling is
-                        configured
-                      rule: has(self.wva) || has(self.keda)
                     - message: wva and keda are mutually exclusive
                       rule: '!(has(self.wva) && has(self.keda))'
                     - message: at least one trigger is required when using direct
@@ -113442,6 +113463,7 @@ spec:
                                     retry:
                                       properties:
                                         attempts:
+                                          minimum: 1
                                           type: integer
                                         backoff:
                                           pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
@@ -113452,7 +113474,7 @@ spec:
                                             minimum: 400
                                             type: integer
                                           type: array
-                                          x-kubernetes-list-type: atomic
+                                          x-kubernetes-list-type: set
                                       type: object
                                     sessionPersistence:
                                       properties:
@@ -113468,9 +113490,6 @@ spec:
                                               - Session
                                               type: string
                                           type: object
-                                        idleTimeout:
-                                          pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
-                                          type: string
                                         sessionName:
                                           maxLength: 128
                                           type: string
@@ -113638,8 +113657,6 @@ spec:
                                     - FailClose
                                     type: string
                                   group:
-                                    maxLength: 253
-                                    pattern: ^$|^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$
                                     type: string
                                   kind:
                                     maxLength: 63
@@ -121904,8 +121921,6 @@ spec:
                 - maxReplicas
                 type: object
                 x-kubernetes-validations:
-                - message: either wva or keda must be specified when scaling is configured
-                  rule: has(self.wva) || has(self.keda)
                 - message: wva and keda are mutually exclusive
                   rule: '!(has(self.wva) && has(self.keda))'
                 - message: at least one trigger is required when using direct KEDA
@@ -130780,9 +130795,6 @@ spec:
                     - maxReplicas
                     type: object
                     x-kubernetes-validations:
-                    - message: either wva or keda must be specified when scaling is
-                        configured
-                      rule: has(self.wva) || has(self.keda)
                     - message: wva and keda are mutually exclusive
                       rule: '!(has(self.wva) && has(self.keda))'
                     - message: at least one trigger is required when using direct
@@ -140099,6 +140111,7 @@ spec:
                                     retry:
                                       properties:
                                         attempts:
+                                          minimum: 1
                                           type: integer
                                         backoff:
                                           pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
@@ -140109,7 +140122,7 @@ spec:
                                             minimum: 400
                                             type: integer
                                           type: array
-                                          x-kubernetes-list-type: atomic
+                                          x-kubernetes-list-type: set
                                       type: object
                                     sessionPersistence:
                                       properties:
@@ -140125,9 +140138,6 @@ spec:
                                               - Session
                                               type: string
                                           type: object
-                                        idleTimeout:
-                                          pattern: ^([0-9]{1,5}(h|m|s|ms)){1,4}$
-                                          type: string
                                         sessionName:
                                           maxLength: 128
                                           type: string
@@ -140367,7 +140377,6 @@ spec:
                                 - message: port number must be unique
                                   rule: self.all(p1, self.exists_one(p2, p1.number==p2.number))
                             required:
-                            - endpointPickerRef
                             - selector
                             - targetPorts
                             type: object
@@ -148603,8 +148612,6 @@ spec:
                 - maxReplicas
                 type: object
                 x-kubernetes-validations:
-                - message: either wva or keda must be specified when scaling is configured
-                  rule: has(self.wva) || has(self.keda)
                 - message: wva and keda are mutually exclusive
                   rule: '!(has(self.wva) && has(self.keda))'
                 - message: at least one trigger is required when using direct KEDA
@@ -156836,6 +156843,22 @@ spec:
             type: object
           spec:
             properties:
+              imagePullSecrets:
+                items:
+                  properties:
+                    name:
+                      default: ""
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                maxItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: imagePullSecrets.name must be non-empty
+                  rule: self.all(s, s.name != '')
               modelSize:
                 anyOf:
                 - type: integer
@@ -156947,6 +156970,16 @@ spec:
                   - NodeDownloadError
                   type: string
                 type: object
+              sharedPVCImport:
+                properties:
+                  completionTime:
+                    format: date-time
+                    type: string
+                  pvcUID:
+                    type: string
+                required:
+                - pvcUID
+                type: object
             type: object
         type: object
     served: true
@@ -156981,6 +157014,22 @@ spec:
             type: object
           spec:
             properties:
+              imagePullSecrets:
+                items:
+                  properties:
+                    name:
+                      default: ""
+                      type: string
+                  type: object
+                  x-kubernetes-map-type: atomic
+                maxItems: 1
+                type: array
+                x-kubernetes-list-map-keys:
+                - name
+                x-kubernetes-list-type: map
+                x-kubernetes-validations:
+                - message: imagePullSecrets.name must be non-empty
+                  rule: self.all(s, s.name != '')
               modelSize:
                 anyOf:
                 - type: integer
@@ -157105,6 +157154,16 @@ spec:
                   - NodeDownloaded
                   - NodeDownloadError
                   type: string
+                type: object
+              sharedPVCImport:
+                properties:
+                  completionTime:
+                    format: date-time
+                    type: string
+                  pvcUID:
+                    type: string
+                required:
+                - pvcUID
                 type: object
             type: object
         type: object
@@ -157835,6 +157894,19 @@ spec:
               localModels:
                 items:
                   properties:
+                    imagePullSecrets:
+                      items:
+                        properties:
+                          name:
+                            default: ""
+                            type: string
+                        type: object
+                        x-kubernetes-map-type: atomic
+                      maxItems: 1
+                      type: array
+                      x-kubernetes-list-map-keys:
+                      - name
+                      x-kubernetes-list-type: map
                     modelName:
                       type: string
                     namespace:

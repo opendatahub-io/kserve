@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	k8serr "k8s.io/apimachinery/pkg/api/errors"
@@ -40,17 +41,21 @@ func TestCleanupWVAComponent_DeletesCRsAndCRDAndStripsConfigKey(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: variantAutoscalingCRDName},
 	}
 	va := leftoverVariantAutoscaling("leftover-va", "opendatahub")
+	deploy := leftoverWVADeployment()
 
 	cli := fake.NewClientBuilder().
 		WithScheme(wvaTestScheme()).
 		WithRESTMapper(wvaTestRESTMapper()).
-		WithObjects(cm, crd, va).
+		WithObjects(cm, crd, va, deploy).
 		Build()
 	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "opendatahub"}
 
 	g.Expect(cleanupWVAComponent(context.Background(), r)).To(Succeed())
 
-	err := cli.Get(context.Background(), client.ObjectKey{Name: variantAutoscalingCRDName}, &apiextensionsv1.CustomResourceDefinition{})
+	err := cli.Get(context.Background(), client.ObjectKey{Name: wvaControllerDeployment, Namespace: "opendatahub"}, &appsv1.Deployment{})
+	g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
+
+	err = cli.Get(context.Background(), client.ObjectKey{Name: variantAutoscalingCRDName}, &apiextensionsv1.CustomResourceDefinition{})
 	g.Expect(k8serr.IsNotFound(err)).To(BeTrue())
 
 	updated := &corev1.ConfigMap{}
@@ -80,6 +85,24 @@ func TestStripWVAAutoscalingConfig_NoopsWhenKeyAbsent(t *testing.T) {
 	g.Expect(updated.Data).To(HaveKey(ingressConfigKeyName))
 }
 
+func leftoverWVADeployment() *appsv1.Deployment {
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      wvaControllerDeployment,
+			Namespace: "opendatahub",
+		},
+		Spec: appsv1.DeploymentSpec{
+			Selector: &metav1.LabelSelector{
+				MatchLabels: map[string]string{"control-plane": wvaControllerDeployment},
+			},
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"control-plane": wvaControllerDeployment}},
+				Spec:       corev1.PodSpec{Containers: []corev1.Container{{Name: "manager", Image: "wva:test"}}},
+			},
+		},
+	}
+}
+
 func leftoverVariantAutoscaling(name, namespace string) *unstructured.Unstructured {
 	va := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "llmd.ai/v1alpha1",
@@ -95,6 +118,7 @@ func leftoverVariantAutoscaling(name, namespace string) *unstructured.Unstructur
 
 func wvaTestScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
+	_ = appsv1.AddToScheme(s)
 	_ = corev1.AddToScheme(s)
 	_ = apiextensionsv1.AddToScheme(s)
 	return s
@@ -104,6 +128,7 @@ func wvaTestRESTMapper() apimeta.RESTMapper {
 	rm := apimeta.NewDefaultRESTMapper(nil)
 	rm.Add(schema.GroupVersionKind{Group: "apiextensions.k8s.io", Version: "v1", Kind: "CustomResourceDefinition"}, testClusterScope)
 	rm.Add(schema.GroupVersionKind{Group: "", Version: "v1", Kind: "ConfigMap"}, testNamespaceScope)
+	rm.Add(schema.GroupVersionKind{Group: "apps", Version: "v1", Kind: "Deployment"}, testNamespaceScope)
 	rm.Add(variantAutoscalingGVK, testNamespaceScope)
 	return rm
 }

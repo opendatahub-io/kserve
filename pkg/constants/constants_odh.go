@@ -46,14 +46,15 @@ type AuditLoggingProfile string
 
 // Midstream networking constants
 const (
-	ODHKserveRawAuth                                   = "security.opendatahub.io/enable-auth"
-	ODHKserveAuditLoggingProfile                       = "observability.opendatahub.io/audit-logging-profile"
-	AuditLoggingProfileNone        AuditLoggingProfile = "none"
-	AuditLoggingProfileMetadata    AuditLoggingProfile = "metadata"
-	ODHAuthProxyTypeAnnotation                         = "security.opendatahub.io/auth-proxy-type"
-	ODHRouteEnabled                                    = "exposed"
-	ServingCertSecretSuffix                            = "-serving-cert"
-	OpenshiftServingCertAnnotation                     = "service.beta.openshift.io/serving-cert-secret-name"
+	ODHKserveRawAuth                                           = "security.opendatahub.io/enable-auth"
+	ODHKserveAuditLoggingProfile                               = "observability.opendatahub.io/audit-logging-profile"
+	AuditLoggingProfileNone                AuditLoggingProfile = "none"
+	AuditLoggingProfileMetadata            AuditLoggingProfile = "metadata"
+	ODHAuthProxyTypeAnnotation                                 = "security.opendatahub.io/auth-proxy-type"
+	ODHKserveAuthProxyTLSManagedAnnotation                     = "security.opendatahub.io/auth-proxy-tls-managed"
+	ODHRouteEnabled                                            = "exposed"
+	ServingCertSecretSuffix                                    = "-serving-cert"
+	OpenshiftServingCertAnnotation                             = "service.beta.openshift.io/serving-cert-secret-name"
 )
 
 // Midstream container names
@@ -82,6 +83,9 @@ const (
 const (
 	OpenShiftServiceCaConfigMapName = "openshift-service-ca.crt"
 )
+
+// ODHKServeCustomCABundleConfigMapName is the CA bundle ConfigMap odh-model-controller keeps in user namespaces.
+const ODHKServeCustomCABundleConfigMapName = "odh-kserve-custom-ca-bundle"
 
 // ODH Connections API
 const ODHS3Endpoint = "AWS_S3_ENDPOINT"

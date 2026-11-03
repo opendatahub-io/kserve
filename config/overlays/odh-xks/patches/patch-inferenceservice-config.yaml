@@ -4,11 +4,14 @@ metadata:
   name: inferenceservice-config
   namespace: opendatahub
 data:
+  # Keep the generic Kubernetes fallback FIPS-compatible; CHACHA20 is not FIPS-approved.
   ingress: |-
     {
         "enableGatewayApi": true,
         "kserveIngressGateway": "$(NAMESPACE)/inference-gateway",
         "enableLLMInferenceServiceTLS": true,
+        "llmInferenceServiceTLSMinVersion": "VersionTLS12",
+        "llmInferenceServiceTLSCipherSuites": "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
         "loraModelRoutingStrategy": "regex",
         "ingressGateway" : "knative-serving/knative-ingress-gateway",
         "knativeLocalGatewayService" : "knative-local-gateway.istio-system.svc.cluster.local",

@@ -13,11 +13,10 @@
 # limitations under the License.
 
 """
-E2E tests for LLMISVC direct KEDA autoscaling (spec.scaling.keda, no WVA).
+E2E tests for LLMISVC direct KEDA autoscaling (spec.scaling.keda).
 
 These tests verify:
 - ScaledObject is created with user-defined triggers
-- WVA discovery annotations are NOT set
 - Lifecycle cleanup works when scaling is removed
 
 Tagged with autoscaling_keda so they run in the existing KEDA CI job.
@@ -109,7 +108,7 @@ def patch_llmisvc(kserve_client, llm_isvc, patch_body):
 def assert_direct_keda_scaled_object(
     service_name, *, namespace, trigger_type="prometheus"
 ):
-    """Assert ScaledObject exists with user triggers and without WVA annotations."""
+    """Assert ScaledObject exists with the user-defined triggers."""
     name = scaled_object_name(service_name)
     wait_for_resource(KEDA_GROUP, KEDA_VERSION, KEDA_PLURAL, name, namespace)
 
@@ -262,9 +261,8 @@ def test_llm_autoscaling_direct_keda_cleanup(test_case: TestCase):
 # Idle scale-to-zero: direct KEDA + idleReplicaCount: 0
 # =============================================================================
 #
-# Scoped to the direct-KEDA path only. Idle scale-down depends on the
-# EPP request-rate trigger going idle; there is no WVA saturation-metric
-# path in these tests.
+# Scoped to direct KEDA: idle scale-down depends on its EPP request-rate
+# trigger going idle, not on simulator saturation metrics.
 
 
 @pytest.mark.autoscaling_keda

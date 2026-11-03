@@ -4,6 +4,11 @@ metadata:
   name: inferenceservice-config
   namespace: kserve
 data:
+  confidentialBareMetal: |-
+    {
+      "luksResourceId": "kbs:///default/kserve-luks-password/key",
+      "initData": ""
+    }
   explainers: "{}"
   oauthProxy: |- 
     {
@@ -148,7 +153,7 @@ data:
   localModel: |-
     {
       "enabled": false,
-      "jobNamespace": "opendatahub",
+      "jobNamespace": "model-serving-cache",
       "defaultJobImage" : "REPLACE_IMAGE",
       "fsGroup": 1000,
       "localModelAgentImage": "REPLACE_IMAGE",

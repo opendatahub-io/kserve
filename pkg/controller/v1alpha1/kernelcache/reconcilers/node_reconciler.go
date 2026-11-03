@@ -165,7 +165,7 @@ func (r *KernelCacheNodeReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 func (r *KernelCacheNodeReconciler) inferenceServiceConfigMapPredicate() predicate.Predicate {
 	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
-		return obj.GetNamespace() == constants.KServeNamespace && obj.GetName() == constants.InferenceServiceConfigMapName
+		return obj.GetNamespace() == inferenceServiceConfigNamespace() && obj.GetName() == constants.InferenceServiceConfigMapName
 	})
 }
 

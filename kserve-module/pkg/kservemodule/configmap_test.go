@@ -104,6 +104,55 @@ func TestCustomizeKserveConfigMap_NoConfigMap(t *testing.T) {
 	g.Expect(result).Should(BeEmpty())
 }
 
+func TestUpdateInferenceCM_ModelCacheTrustBundle(t *testing.T) {
+	tests := []struct {
+		name        string
+		trustBundle string
+		want        string
+	}{
+		{
+			name:        "rewrites upstream default",
+			trustBundle: "kserve/kernelcache-root-ca",
+			want:        modelCacheNamespace + "/kernelcache-root-ca",
+		},
+		{
+			name:        "fills empty default",
+			trustBundle: "",
+			want:        modelCacheNamespace + "/kernelcache-root-ca",
+		},
+		{
+			name:        "preserves custom reference",
+			trustBundle: "custom-ca/custom-root",
+			want:        "custom-ca/custom-root",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cm := &corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{Name: kserveConfigMapName, Namespace: "applications"},
+				Data: map[string]string{
+					"kernelcache": `{"artifactSecurity":{"cert":{"trustBundle":"` + tt.trustBundle + `"}}}`,
+				},
+			}
+
+			if err := updateInferenceCM(cm, buildTestKserve(platformv1alpha1.KserveRawHeadless, nil, nil)); err != nil {
+				t.Fatalf("updateInferenceCM() error = %v", err)
+			}
+
+			var kernelCache map[string]any
+			if err := json.Unmarshal([]byte(cm.Data["kernelcache"]), &kernelCache); err != nil {
+				t.Fatalf("decode kernelcache config: %v", err)
+			}
+			security := kernelCache["artifactSecurity"].(map[string]any)
+			cert := security["cert"].(map[string]any)
+			if got := cert["trustBundle"]; got != tt.want {
+				t.Fatalf("trustBundle = %v, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestCustomizeKserveConfigMap_EnableTLS_Nil(t *testing.T) {
 	g := NewWithT(t)
 
@@ -128,6 +177,27 @@ func TestCustomizeKserveConfigMap_EnableTLS_True(t *testing.T) {
 	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
 	g.Expect(err).ShouldNot(HaveOccurred())
 	g.Expect(cm.Data[ingressConfigKeyName]).Should(ContainSubstring(`"enableLLMInferenceServiceTLS": true`))
+}
+
+func TestCustomizeKserveConfigMap_MonitoringIngressNetworkPolicy(t *testing.T) {
+	g := NewWithT(t)
+
+	t.Setenv("MONITORING_NAMESPACE", "custom-ods-monitoring")
+
+	resources := buildTestResources(t)
+	enabled := true
+	result, err := customizeKserveConfigMap(resources, &platformv1alpha1.Kserve{
+		Spec: platformv1alpha1.KserveSpec{
+			RawDeploymentServiceConfig:                 platformv1alpha1.KserveRawHeadless,
+			EnableLLMMonitoringIngressNetworkPolicy:    &enabled,
+		},
+	})
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data[llmisvcConfigKeyName]).Should(ContainSubstring(`"monitoringIngressNetworkPolicy": true`))
+	g.Expect(cm.Data[llmisvcConfigKeyName]).Should(ContainSubstring(`"monitoringNamespace": "custom-ods-monitoring"`))
 }
 
 func TestCustomizeKserveConfigMap_EnableTLS_False(t *testing.T) {

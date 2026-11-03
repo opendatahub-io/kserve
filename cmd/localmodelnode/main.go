@@ -131,6 +131,7 @@ func main() {
 	}
 
 	mgr, err := manager.New(cfg, manager.Options{
+		Cache:                  modelCacheConfigMapCacheOptions(),
 		Metrics:                metricsServerOptions,
 		LeaderElection:         options.enableLeaderElection,
 		LeaderElectionID:       LeaderLockName,
@@ -159,6 +160,7 @@ func main() {
 	localModelNodeEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
 	reconciler := &localmodelnodecontroller.LocalModelNodeReconciler{
 		Client:    mgr.GetClient(),
+		APIReader: mgr.GetAPIReader(),
 		Clientset: clientSet,
 		Log:       ctrl.Log.WithName("v1alpha1Controllers").WithName("LocalModelNode"),
 		Scheme:    mgr.GetScheme(),

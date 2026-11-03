@@ -37,7 +37,8 @@ func (s *SchedulerSpec) InferencePoolName(llmSvc *LLMInferenceService) string {
 func (r *RouterSpec) EPPServiceName(llmSvc *LLMInferenceService) string {
 	if r != nil && r.Scheduler != nil && r.Scheduler.Pool != nil &&
 		!r.Scheduler.Pool.HasRef() &&
-		r.Scheduler.Pool.Spec != nil && r.Scheduler.Pool.Spec.EndpointPickerRef.Name != "" {
+		r.Scheduler.Pool.Spec != nil && r.Scheduler.Pool.Spec.EndpointPickerRef != nil &&
+		r.Scheduler.Pool.Spec.EndpointPickerRef.Name != "" {
 		return string(r.Scheduler.Pool.Spec.EndpointPickerRef.Name)
 	}
 	return kmeta.ChildName(llmSvc.GetName(), "-epp-service")
@@ -178,6 +179,15 @@ func (s *LLMInferenceService) HasManagedDRA() bool {
 		return false
 	}
 	return kservevalidation.HasManagedDRA(s.Annotations)
+}
+
+// ModelExpressMode returns the ModelExpress mode requested via annotation, or ""
+// when ModelExpress is not enabled.
+func (s *LLMInferenceService) ModelExpressMode() (kservevalidation.ModelExpressMode, error) {
+	if s == nil {
+		return "", nil
+	}
+	return kservevalidation.ModelExpressModeFromAnnotations(s.Annotations)
 }
 
 // DisaggregatedSetRequested reports whether this service asks for the DisaggregatedSet

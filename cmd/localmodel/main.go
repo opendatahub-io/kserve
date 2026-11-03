@@ -140,6 +140,7 @@ func main() {
 	}
 
 	mgr, err := manager.New(cfg, manager.Options{
+		Cache:   modelCacheConfigMapCacheOptions(),
 		Metrics: metricsServerOptions,
 		WebhookServer: webhook.NewServer(webhook.Options{
 			Port:    options.webhookPort,
@@ -231,6 +232,10 @@ func main() {
 		Log:    ctrl.Log.WithName("v1alpha1Controllers").WithName("KernelCache"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "v1alpha1Controllers", "KernelCache")
+		os.Exit(1)
+	}
+	if err := setupDistroControllers(mgr); err != nil {
+		setupLog.Error(err, "unable to create distro controllers")
 		os.Exit(1)
 	}
 

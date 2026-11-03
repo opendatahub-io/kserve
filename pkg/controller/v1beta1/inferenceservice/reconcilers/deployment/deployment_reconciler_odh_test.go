@@ -19,25 +19,31 @@ package deployment
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 	"testing"
 
+	configv1 "github.com/openshift/api/config/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	errors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/ptr"
 	kclient "sigs.k8s.io/controller-runtime/pkg/client"
+	fakeclient "sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
+	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
 const (
@@ -499,6 +505,84 @@ func TestTransformerTLSPortAndProbeOverride(t *testing.T) {
 			expectedPort:     8443,
 			expectedHttpPort: "8443",
 		},
+		{
+			name: "zero --http_port falls back to 8443",
+			args: []string{"--http_port", "0"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "negative --http_port falls back to 8443",
+			args: []string{"--http_port", "-1"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "oversized --http_port falls back to 8443",
+			args: []string{"--http_port=65536"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "malformed --http_port falls back to 8443",
+			args: []string{"--http_port", "not-a-port"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "invalid duplicate equals form falls back to 8443",
+			args: []string{"--http_port", "9000", "--http_port=0"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
+		{
+			name: "invalid duplicate two-element form falls back to 8443",
+			args: []string{"--http_port=9000", "--http_port", "65536"},
+			existingProbe: &corev1.Probe{
+				ProbeHandler: corev1.ProbeHandler{
+					TCPSocket: &corev1.TCPSocketAction{
+						Port: intstr.IntOrString{IntVal: 8080},
+					},
+				},
+			},
+			expectedPort:     constants.TransformerHTTPSPort,
+			expectedHttpPort: strconv.Itoa(int(constants.TransformerHTTPSPort)),
+		},
 	}
 
 	for _, tt := range tests {
@@ -542,7 +626,7 @@ func TestTransformerTLSPortAndProbeOverride(t *testing.T) {
 				"readiness probe should target port %d", tt.expectedPort)
 
 			// Verify --http_port in args
-			argVal, ok := getArgValue(container.Args, constants.ArgumentHttpPort)
+			argVal, ok := isvcutils.GetArgValue(container.Args, constants.ArgumentHttpPort)
 			assert.True(t, ok, "expected --http_port in args")
 			assert.Equal(t, tt.expectedHttpPort, argVal)
 		})
@@ -604,6 +688,7 @@ type mockClientForAuthProxyDetection struct {
 	kclient.Client
 	existingDeployment      *appsv1.Deployment
 	deploymentNotFound      bool
+	deploymentPatches       int
 	inferenceServiceGets    int
 	patchedInferenceService *v1beta1.InferenceService
 }
@@ -751,6 +836,9 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	existingDeployment := &appsv1.Deployment{
 		Spec: appsv1.DeploymentSpec{
 			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					constants.ODHKserveAuthProxyTLSManagedAnnotation: "true",
+				}},
 				Spec: corev1.PodSpec{
 					AutomountServiceAccountToken: &trueVal,
 					Containers: []corev1.Container{
@@ -796,6 +884,8 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	}
 
 	copyAuthProxyFromExisting(existingDeployment, desiredDeployment, constants.KubeRbacContainerName)
+	require.Equal(t, "true", desiredDeployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation],
+		"reconciled template must retain ownership of generated TLS arguments")
 
 	var foundContainer *corev1.Container
 	for i, c := range desiredDeployment.Spec.Template.Spec.Containers {
@@ -835,6 +925,17 @@ func TestCopyAuthProxyFromExisting(t *testing.T) {
 	}
 	assert.Contains(t, mountNames, "user-data", "user volume mount should be preserved")
 	assert.Contains(t, mountNames, "proxy-tls", "proxy-tls mount should be added")
+
+	// The next reconcile starts with a fresh desired template and copies from
+	// the deployment produced above. The marker must survive that cycle too.
+	secondDesiredDeployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+			Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}},
+		}},
+	}
+	copyAuthProxyFromExisting(desiredDeployment, secondDesiredDeployment, constants.KubeRbacContainerName)
+	require.Equal(t, "true", secondDesiredDeployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation],
+		"ownership marker must survive repeated reconciles")
 }
 
 func TestOauthProxyPreservation(t *testing.T) {
@@ -1031,6 +1132,422 @@ func TestOauthProxyPreservation(t *testing.T) {
 	}
 }
 
+func TestPreservedKubeRbacProxyUpdatesUpstreamForLogger(t *testing.T) {
+	existingDeployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  constants.InferenceServiceContainerName,
+							Ports: []corev1.ContainerPort{{ContainerPort: 8888}},
+						},
+						{
+							Name:  constants.KubeRbacContainerName,
+							Image: constants.OauthProxyImage,
+							Args:  []string{"--secure-listen-address=:8443", "--upstream=http://localhost:8888"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	client := &mockClientForAuthProxyDetection{existingDeployment: existingDeployment}
+	clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      constants.InferenceServiceConfigMapName,
+			Namespace: constants.KServeNamespace,
+		},
+		Data: map[string]string{oauthProxyISVCConfigKey: oauthProxyConfig},
+	})
+
+	objectMeta := metav1.ObjectMeta{
+		Name:        "test-predictor",
+		Namespace:   "test-ns",
+		Annotations: map[string]string{constants.ODHKserveRawAuth: "true"},
+		Labels:      map[string]string{constants.InferenceServicePodLabelKey: "test-isvc"},
+	}
+	componentExt := &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}}
+	podSpec := &corev1.PodSpec{
+		Containers: []corev1.Container{
+			{
+				Name:  constants.InferenceServiceContainerName,
+				Image: "test-image",
+				Ports: []corev1.ContainerPort{{ContainerPort: 8888}},
+			},
+		},
+	}
+
+	reconciler, err := NewDeploymentReconciler(
+		isvcutils.WithInferenceServiceReconcile(t.Context()),
+		client,
+		clientset,
+		nil,
+		objectMeta,
+		metav1.ObjectMeta{},
+		componentExt,
+		podSpec,
+		nil,
+		nil,
+	)
+
+	require.NoError(t, err)
+	require.NotNil(t, reconciler)
+	require.Len(t, reconciler.DeploymentList, 1)
+
+	var proxy *corev1.Container
+	for i := range reconciler.DeploymentList[0].Spec.Template.Spec.Containers {
+		container := &reconciler.DeploymentList[0].Spec.Template.Spec.Containers[i]
+		if container.Name == constants.KubeRbacContainerName {
+			proxy = container
+			break
+		}
+	}
+	require.NotNil(t, proxy)
+	assert.Contains(t, proxy.Args, "--upstream=http://localhost:9081")
+}
+
+func TestDeploymentReconcilerUnchangedTopologyDoesNotPatchDeployment(t *testing.T) {
+	tests := []struct {
+		name         string
+		componentExt *v1beta1.ComponentExtensionSpec
+		stale        bool
+		upstreamPort string
+	}{
+		{name: "direct model route", componentExt: &v1beta1.ComponentExtensionSpec{}, upstreamPort: "8888"},
+		{name: "correct logger route", componentExt: &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}}},
+		{name: "upgrade preserves stale logger route", componentExt: &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}}, stale: true},
+		{name: "upgrade preserves stale batcher route", componentExt: &v1beta1.ComponentExtensionSpec{Batcher: &v1beta1.Batcher{}}, stale: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: map[string]string{oauthProxyISVCConfigKey: oauthProxyConfig},
+			})
+
+			componentMeta := metav1.ObjectMeta{
+				Name:      "test-predictor",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					constants.ODHKserveRawAuth: "true",
+				},
+				Labels: map[string]string{
+					constants.InferenceServicePodLabelKey: "test-isvc",
+				},
+			}
+			componentExt := tt.componentExt
+			if componentExt.Logger != nil {
+				componentMeta.Annotations[constants.LoggerInternalAnnotationKey] = "true"
+			}
+			if componentExt.Batcher != nil {
+				componentMeta.Annotations[constants.BatcherInternalAnnotationKey] = "true"
+			}
+			podSpec := &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  constants.InferenceServiceContainerName,
+						Image: "test-image",
+						Ports: []corev1.ContainerPort{{ContainerPort: 8888}},
+					},
+				},
+			}
+			ctx := isvcutils.WithInferenceServiceReconcile(t.Context())
+
+			initialClient := &mockClientForAuthProxyDetection{deploymentNotFound: true}
+			initialReconciler, err := NewDeploymentReconciler(
+				ctx,
+				initialClient,
+				clientset,
+				nil,
+				componentMeta,
+				metav1.ObjectMeta{},
+				componentExt,
+				podSpec,
+				nil,
+				nil,
+			)
+			require.NoError(t, err)
+			require.Len(t, initialReconciler.DeploymentList, 1)
+			initialDeployment := initialReconciler.DeploymentList[0].DeepCopy()
+			var initialProxy *corev1.Container
+			for i := range initialDeployment.Spec.Template.Spec.Containers {
+				container := &initialDeployment.Spec.Template.Spec.Containers[i]
+				if container.Name == constants.KubeRbacContainerName || container.Name == constants.OauthProxyContainerName {
+					initialProxy = container
+					break
+				}
+			}
+			require.NotNil(t, initialProxy)
+			upstreamPort := tt.upstreamPort
+			if upstreamPort == "" {
+				upstreamPort = "9081"
+			}
+			assert.Contains(t, initialProxy.Args, "--upstream=http://localhost:"+upstreamPort)
+			if tt.stale {
+				for index, arg := range initialProxy.Args {
+					if strings.HasPrefix(arg, "--upstream=") {
+						initialProxy.Args[index] = "--upstream=http://localhost:8888"
+					}
+				}
+			}
+
+			reconcileClient := &mockClientForAuthProxyDetection{existingDeployment: initialDeployment}
+			reconciler, err := NewDeploymentReconciler(
+				ctx,
+				reconcileClient,
+				clientset,
+				nil,
+				componentMeta,
+				metav1.ObjectMeta{},
+				componentExt,
+				podSpec,
+				nil,
+				nil,
+			)
+			require.NoError(t, err)
+			require.Len(t, reconciler.DeploymentList, 1)
+
+			initialSpec, err := json.Marshal(initialDeployment.Spec)
+			require.NoError(t, err)
+			desiredSpec, err := json.Marshal(reconciler.DeploymentList[0].Spec)
+			require.NoError(t, err)
+			assert.JSONEq(t, string(initialSpec), string(desiredSpec))
+
+			reconciledDeployments, err := reconciler.Reconcile(ctx)
+			require.NoError(t, err)
+			require.Len(t, reconciledDeployments, 1)
+			assert.Equal(t, initialDeployment.Name, reconciledDeployments[0].Name)
+			assert.Zero(t, reconcileClient.deploymentPatches,
+				"an unchanged topology must take the CheckResultExisted path")
+		})
+	}
+}
+
+func TestPreservedAuthProxyKeepsCustomUpstream(t *testing.T) {
+	deployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name: constants.KubeRbacContainerName,
+							Args: []string{"--upstream=https://custom.example.test:9443"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	existingDeployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  constants.InferenceServiceContainerName,
+							Ports: []corev1.ContainerPort{{ContainerPort: 8888}},
+						},
+						{
+							Name: constants.KubeRbacContainerName,
+							Args: []string{"--upstream=https://custom.example.test:9443"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	updatePreservedAuthProxyUpstream(
+		existingDeployment,
+		deployment,
+		&v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}},
+		&corev1.PodSpec{Containers: []corev1.Container{{Name: constants.InferenceServiceContainerName}}},
+	)
+
+	assert.Equal(t, []string{"--upstream=https://custom.example.test:9443"}, deployment.Spec.Template.Spec.Containers[0].Args)
+}
+
+func TestPreservedAuthProxyUpstreamTransitions(t *testing.T) {
+	tests := []struct {
+		name                string
+		proxyName           string
+		existingModelPort   int32
+		existingLogger      bool
+		existingUpstreamArg string
+		componentExt        *v1beta1.ComponentExtensionSpec
+		desiredModelPort    int32
+		expectedUpstreamArg string
+	}{
+		{
+			name:                "batcher changes model upstream to agent",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   7777,
+			existingUpstreamArg: "--upstream=http://localhost:7777",
+			componentExt:        &v1beta1.ComponentExtensionSpec{Batcher: &v1beta1.Batcher{}},
+			desiredModelPort:    7777,
+			expectedUpstreamArg: "--upstream=http://localhost:9081",
+		},
+		{
+			name:                "removing logger changes agent upstream to model",
+			existingLogger:      true,
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:9081",
+			componentExt:        &v1beta1.ComponentExtensionSpec{},
+			desiredModelPort:    8888,
+			expectedUpstreamArg: "--upstream=http://localhost:8888",
+		},
+		{
+			name:                "permitted runtime port change updates model upstream",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:8888",
+			componentExt:        &v1beta1.ComponentExtensionSpec{},
+			desiredModelPort:    9999,
+			expectedUpstreamArg: "--upstream=http://localhost:9999",
+		},
+		{
+			name:                "unchanged model port preserves upstream",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:8888",
+			componentExt:        &v1beta1.ComponentExtensionSpec{},
+			desiredModelPort:    8888,
+			expectedUpstreamArg: "--upstream=http://localhost:8888",
+		},
+		{
+			name:                "permitted runtime port change preserves custom upstream",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:15000",
+			componentExt:        &v1beta1.ComponentExtensionSpec{},
+			desiredModelPort:    9999,
+			expectedUpstreamArg: "--upstream=http://localhost:15000",
+		},
+		{
+			name:                "permitted runtime port change refreshes stale logger upstream",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingLogger:      true,
+			existingUpstreamArg: "--upstream=http://localhost:8888",
+			componentExt:        &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}},
+			desiredModelPort:    9999,
+			expectedUpstreamArg: "--upstream=http://localhost:9081",
+		},
+		{
+			name:                "no agent model port edit preserves custom agent-port endpoint",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:9081",
+			componentExt:        &v1beta1.ComponentExtensionSpec{},
+			desiredModelPort:    9999,
+			expectedUpstreamArg: "--upstream=http://localhost:9081",
+		},
+		{
+			name:                "replacing logger with batcher preserves upstream",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingLogger:      true,
+			existingUpstreamArg: "--upstream=http://localhost:9081",
+			componentExt:        &v1beta1.ComponentExtensionSpec{Batcher: &v1beta1.Batcher{}},
+			desiredModelPort:    8888,
+			expectedUpstreamArg: "--upstream=http://localhost:9081",
+		},
+		{
+			name:                "unrelated component edit preserves stale logger upstream",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingLogger:      true,
+			existingUpstreamArg: "--upstream=http://localhost:8888",
+			componentExt:        &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}, TimeoutSeconds: ptr.To(int64(90))},
+			desiredModelPort:    8888,
+			expectedUpstreamArg: "--upstream=http://localhost:8888",
+		},
+		{
+			name:                "legacy oauth proxy is updated",
+			proxyName:           constants.OauthProxyContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:8888",
+			componentExt:        &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}},
+			desiredModelPort:    8888,
+			expectedUpstreamArg: "--upstream=http://localhost:9081",
+		},
+		{
+			name:                "custom localhost port is preserved",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:15000",
+			componentExt:        &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}},
+			desiredModelPort:    8888,
+			expectedUpstreamArg: "--upstream=http://localhost:15000",
+		},
+		{
+			name:                "custom localhost path is preserved",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:15000/health",
+			componentExt:        &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}},
+			desiredModelPort:    8888,
+			expectedUpstreamArg: "--upstream=http://localhost:15000/health",
+		},
+		{
+			name:                "already configured agent upstream is unchanged",
+			proxyName:           constants.KubeRbacContainerName,
+			existingModelPort:   8888,
+			existingUpstreamArg: "--upstream=http://localhost:9081",
+			componentExt:        &v1beta1.ComponentExtensionSpec{Logger: &v1beta1.LoggerSpec{}},
+			desiredModelPort:    8888,
+			expectedUpstreamArg: "--upstream=http://localhost:9081",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			existingModelContainer := corev1.Container{Name: constants.InferenceServiceContainerName}
+			if tt.existingModelPort != 0 {
+				existingModelContainer.Ports = []corev1.ContainerPort{{ContainerPort: tt.existingModelPort}}
+			}
+			existing := &appsv1.Deployment{
+				Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						existingModelContainer,
+						{Name: tt.proxyName, Args: []string{"--secure-listen-address=:8443", tt.existingUpstreamArg, "--v=4"}},
+					},
+				}}},
+			}
+			if tt.existingLogger {
+				existing.Spec.Template.Annotations = map[string]string{constants.LoggerInternalAnnotationKey: "true"}
+			}
+			desired := existing.DeepCopy()
+			updatePreservedAuthProxyUpstream(
+				existing,
+				desired,
+				tt.componentExt,
+				&corev1.PodSpec{Containers: []corev1.Container{{
+					Name:  constants.InferenceServiceContainerName,
+					Ports: []corev1.ContainerPort{{ContainerPort: tt.desiredModelPort}},
+				}}},
+			)
+
+			var proxy *corev1.Container
+			for i := range desired.Spec.Template.Spec.Containers {
+				if desired.Spec.Template.Spec.Containers[i].Name == tt.proxyName {
+					proxy = &desired.Spec.Template.Spec.Containers[i]
+					break
+				}
+			}
+			require.NotNil(t, proxy)
+			assert.Equal(t, []string{"--secure-listen-address=:8443", tt.expectedUpstreamArg, "--v=4"}, proxy.Args)
+		})
+	}
+}
+
 func TestDeploymentReconcilerCondition(t *testing.T) {
 	oauthProxyConfig := fmt.Sprintf(`{"image": "%s", "memoryRequest": "%s", "memoryLimit": "%s", "cpuRequest": "%s", "cpuLimit": "%s"}`,
 		constants.OauthProxyImage,
@@ -1177,6 +1694,7 @@ func TestDeploymentReconcilerCondition(t *testing.T) {
 				assert.Equal(t, tt.expectedReason, conditions[0].Reason)
 				assert.Equal(t, corev1.ConditionFalse, conditions[0].Status)
 				assert.Equal(t, v1beta1.LatestDeploymentReady, conditions[0].Type)
+				assert.Equal(t, "Preserving existing auth proxy container to avoid pod restart", conditions[0].Message)
 			} else {
 				assert.Empty(t, conditions, "expected no condition")
 			}
@@ -2039,7 +2557,7 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			}
 			assert.Equal(t, tt.wantWarning, authProxyPreserved)
 			if tt.wantProxyArgs != nil {
-				assert.Equal(t, tt.wantProxyArgs, proxy.Args)
+				assert.Equal(t, tt.wantProxyArgs, argsWithoutManagedTLS(proxy.Args))
 			} else {
 				assert.NotContains(t, proxy.Args, "--legacy-unrelated-arg")
 				assert.NotContains(t, proxy.Args, "--audit-future-option=unchanged")
@@ -2055,6 +2573,109 @@ func TestCreateRawDeploymentODHAuditLogging(t *testing.T) {
 			}
 		})
 	}
+}
+
+func argsWithoutManagedTLS(args []string) []string {
+	result := make([]string, 0, len(args))
+	for _, arg := range args {
+		if strings.HasPrefix(arg, "--tls-min-version=") || strings.HasPrefix(arg, "--tls-cipher-suites=") || strings.HasPrefix(arg, "--tls-curve-preferences=") {
+			continue
+		}
+		result = append(result, arg)
+	}
+	return result
+}
+
+func TestPlatformAuthProxyTLSNeedsUpdateOnProfileChange(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	client := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence: configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{
+				Type: configv1.TLSProfileModernType,
+			},
+		},
+	}).Build()
+
+	deployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+					constants.ODHKserveAuthProxyTLSManagedAnnotation: "true",
+				}},
+				Spec: corev1.PodSpec{Containers: []corev1.Container{{
+					Name: constants.KubeRbacContainerName,
+					Args: []string{
+						"--tls-min-version=VersionTLS12",
+						"--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+					},
+				}}},
+			},
+		},
+	}
+
+	changed, err := platformAuthProxyTLSNeedsUpdate(t.Context(), client, deployment, constants.KubeRbacContainerName)
+	require.NoError(t, err)
+	assert.True(t, changed)
+
+	deployment.Spec.Template.Spec.Containers[0].Args = []string{"--tls-min-version=VersionTLS13"}
+	changed, err = platformAuthProxyTLSNeedsUpdate(t.Context(), client, deployment, constants.KubeRbacContainerName)
+	require.NoError(t, err)
+	assert.True(t, changed, "curve-preferences must also match the resolved profile")
+}
+
+func TestPlatformAuthProxyTLSNeedsUpdateDoesNotClaimUserTLSArgs(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	reader := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence:       configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileModernType},
+		},
+	}).Build()
+	deployment := &appsv1.Deployment{Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+		Spec: corev1.PodSpec{Containers: []corev1.Container{{
+			Name: constants.KubeRbacContainerName,
+			Args: []string{"--tls-min-version=VersionTLS13"},
+		}}},
+	}}}
+	changed, err := platformAuthProxyTLSNeedsUpdate(t.Context(), reader, deployment, constants.KubeRbacContainerName)
+	require.NoError(t, err)
+	assert.False(t, changed, "TLS flags on an unmarked user template must remain user-owned")
+}
+
+func TestSetManagedAuthProxyTLSArgsPreservesUnmanagedArgs(t *testing.T) {
+	deployment := &appsv1.Deployment{
+		Spec: appsv1.DeploymentSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{
+						Name: constants.KubeRbacContainerName,
+						Args: []string{
+							"--upstream=http://localhost:8080",
+							"--tls-min-version=VersionTLS12",
+							"--audit-future-option=keep-me",
+							"--tls-cipher-suites=old-suite",
+						},
+					}},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, setManagedAuthProxyTLSArgs(deployment, desiredAuthProxyTLSArgs(distrotls.WorkloadTLSArgs{
+		MinVersion: "VersionTLS13",
+		CurveIDs:   "23,29",
+	})))
+	assert.Equal(t, []string{
+		"--upstream=http://localhost:8080",
+		"--audit-future-option=keep-me",
+		"--tls-min-version=VersionTLS13",
+		"--tls-curve-preferences=23,29",
+	}, deployment.Spec.Template.Spec.Containers[0].Args)
 }
 
 func TestCreateRawDeploymentODHPreservesAnnotationlessConfiguredProxy(t *testing.T) {
@@ -2292,6 +2913,9 @@ func (m *mockClientForAuthProxyDetection) Create(ctx context.Context, obj kclien
 }
 
 func (m *mockClientForAuthProxyDetection) Patch(ctx context.Context, obj kclient.Object, patch kclient.Patch, opts ...kclient.PatchOption) error {
+	if _, ok := obj.(*appsv1.Deployment); ok {
+		m.deploymentPatches++
+	}
 	if isvc, ok := obj.(*v1beta1.InferenceService); ok {
 		m.patchedInferenceService = isvc.DeepCopy()
 	}
@@ -2596,6 +3220,46 @@ func TestCustomizeDeploymentsServingCertAnnotation(t *testing.T) {
 
 	assert.Equal(t, "head-predictor"+constants.ServingCertSecretSuffix, head.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation])
 	assert.Equal(t, "worker-predictor"+constants.ServingCertSecretSuffix, worker.Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation])
+}
+
+func TestCustomizeDeploymentsInjectsPythonTLSProfile(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	reader := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence: configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{
+				Type: configv1.TLSProfileCustomType,
+				Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
+					MinTLSVersion: configv1.VersionTLS12,
+					Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+				}},
+			},
+		},
+	}).Build()
+	componentMeta := metav1.ObjectMeta{Name: "predictor", Namespace: "test-ns", Labels: map[string]string{}}
+	podSpec := &corev1.PodSpec{Containers: []corev1.Container{{
+		Name: constants.InferenceServiceContainerName,
+		Env: []corev1.EnvVar{
+			{Name: constants.TransformerTLSCertEnvVar, Value: "/tls/tls.crt"},
+			{Name: constants.TransformerTLSKeyEnvVar, Value: "/tls/tls.key"},
+		},
+	}}}
+
+	reconciler, err := NewDeploymentReconciler(t.Context(), reader, nil, nil, componentMeta, metav1.ObjectMeta{},
+		&v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, reconciler.DeploymentList, 1)
+
+	container := reconciler.DeploymentList[0].Spec.Template.Spec.Containers[0]
+	env := make(map[string]string, len(container.Env))
+	for _, item := range container.Env {
+		env[item.Name] = item.Value
+	}
+	assert.Equal(t, "openshift", env["KSERVE_TLS_PROFILE_PROVIDER"])
+	assert.Equal(t, "VersionTLS12", env["KSERVE_TLS_MIN_VERSION"])
+	assert.Equal(t, "ECDHE-RSA-AES128-GCM-SHA256", env["KSERVE_TLS_CIPHERS"])
 }
 
 func TestCustomizeDeploymentsInferenceGraphMountsServingCertWithoutProxy(t *testing.T) {

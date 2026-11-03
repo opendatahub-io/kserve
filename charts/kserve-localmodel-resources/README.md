@@ -67,6 +67,8 @@ $ helm install kserve-localmodel-resources oci://ghcr.io/kserve/charts/kserve-lo
 | kserve.kernelcache.registry.caConfigMapRef.key | string | `""` |  |
 | kserve.kernelcache.registry.caConfigMapRef.name | string | `""` |  |
 | kserve.kernelcache.registry.endpoint | string | `""` |  |
+| kserve.kernelcache.runtimeImagePrefetch.enabled | bool | `false` |  |
+| kserve.kernelcache.runtimeImagePrefetch.jobTTLSecondsAfterFinished | int | `86400` |  |
 | kserve.kernelcachenode.controller.affinity | object | `{}` |  |
 | kserve.kernelcachenode.controller.image | string | `"kserve/kserve-kernelcachenode-agent"` |  |
 | kserve.kernelcachenode.controller.imagePullPolicy | string | `"IfNotPresent"` |  |
@@ -99,6 +101,7 @@ $ helm install kserve-localmodel-resources oci://ghcr.io/kserve/charts/kserve-lo
 | kserve.localmodel.jobNamespace | string | `"kserve-localmodel-jobs"` |  |
 | kserve.localmodel.jobTTLSecondsAfterFinished | int | `3600` |  |
 | kserve.localmodel.securityContext.fsGroup | int | `1000` |  |
+| kserve.localmodel.sharedPVCImportFSGroup | int | `1000` | fsGroup for shared-PVC import Jobs, which run in the cache's namespace. Independent of securityContext.fsGroup (per-node download Jobs). Set to null to omit it and let namespace admission (e.g. an OpenShift SCC) assign the group. |
 | kserve.localmodelnode.controller.affinity | object | `{}` |  |
 | kserve.localmodelnode.controller.image | string | `"kserve/kserve-localmodelnode-agent"` |  |
 | kserve.localmodelnode.controller.imagePullPolicy | string | `"IfNotPresent"` |  |

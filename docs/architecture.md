@@ -28,6 +28,8 @@ Hook pattern: upstream calls e.g. `extendControllerSetup()` → `controller_setu
 
 `Makefile.overrides.mk` sets `GOTAGS=distro`. Tag must propagate Makefile → Docker `GOTAGS` build-arg → `go build -tags` (missing tag silently drops ODH code). CI: `.github/workflows/distro-build-check.yml`.
 
+The reasoning, the upstream-first workflow and the full placement table are in [`docs/odh/midstream-conventions.md`](odh/midstream-conventions.md).
+
 ## InferenceService (ISVC)
 
 `pkg/controller/v1beta1/inferenceservice/` · `InferenceServiceReconciler.Reconcile()`
@@ -48,11 +50,11 @@ Hook pattern: upstream calls e.g. `extendControllerSetup()` → `controller_setu
 1. Finalizer; `finalize()` cleans platform resources (ODH: monitoring) and scheduler SA on delete
 2. CA bundle ConfigMap reconcile
 3. `reconcileBaseRefs()` — merge `LLMInferenceServiceConfig` refs into effective spec (failure sets condition, short-circuits)
-4. `reconcileWorkload()` — TLS certs, platform permissions, then all topology types every pass (single Deployment, LeaderWorkerSet multi-node, prefill/decode disaggregated, HPA/KEDA/VariantAutoscaling)
+4. `reconcileWorkload()` — platform workload preparation (ODH: confidential namespace helpers and customer-provided block PVC validation), TLS certs, platform permissions, then all topology types every pass (single Deployment, LeaderWorkerSet multi-node, prefill/decode disaggregated, HPA/KEDA/VariantAutoscaling)
 5. `reconcileRouter()` — HTTPRoutes, InferencePool (v1/v1alpha2), scheduler; `ensureGatewayPreconditions()` marks status without requeue on missing CRDs
-6. `reconcilePlatformResources()` (ODH: monitoring) → `observeWorkloadStatus()` → status (composite `Ready` from workload + router sub-conditions)
+6. `reconcilePlatformResources()` (ODH: monitoring; per-LLMISVC prometheus-scraping ingress NP when `llmisvc.featureGates.monitoringIngressNetworkPolicy`, default off) → `observeWorkloadStatus()` → status (composite `Ready` from workload + router sub-conditions)
 
-**ODH:** `controller_setup_odh.go`, `platform_resources_odh.go`, `monitoring{,_network_policy}_odh.go`, `workload_{tls_cert,tls_rotation,permissions}_odh.go`, `router_{preconditions,platform_networking,discovery_additional}_odh.go`, `distro/controller_rbac_odh.go`
+**ODH:** `controller_setup_odh.go`, `platform_resources_odh.go`, `monitoring{,_network_policy}_odh.go`, `workload_{tls_cert,tls_rotation,permissions,confidential,modelexpress}_odh.go`, `confidential_{config,helpers,watches}_odh.go`, `router_{preconditions,platform_networking,discovery_additional}_odh.go`, `distro/controller_rbac_odh.go`
 
 ## InferenceGraph
 

@@ -87,6 +87,8 @@ kserve:
     defaultJobTag: ''
     securityContext:
       fsGroup: 1000
+    # -- (int) fsGroup for shared-PVC import Jobs, which run in the cache's namespace. Independent of securityContext.fsGroup (per-node download Jobs). Set to null to omit it and let namespace admission (e.g. an OpenShift SCC) assign the group.
+    sharedPVCImportFSGroup: 1000
     disableVolumeManagement: false
     agent:
       nodeSelector: {}
@@ -109,6 +111,9 @@ kserve:
     mcvTag: ''
     prefetchImage: 'registry.access.redhat.com/ubi9/ubi-minimal:latest'
     prefetchTag: ''
+    runtimeImagePrefetch:
+      enabled: false
+      jobTTLSecondsAfterFinished: 86400
     registry:
       endpoint: ''
       caConfigMapRef:

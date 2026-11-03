@@ -1,0 +1,40 @@
+apiVersion: security.openshift.io/v1
+kind: SecurityContextConstraints
+metadata:
+  name: openshift-ai-llmisvc-confidential-bare-metal
+# Admission selects this SCC only for pods that need these permissions.
+priority: null
+allowPrivilegedContainer: true
+allowPrivilegeEscalation: true
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+# The preset does not request additional named capabilities.
+allowedCapabilities: []
+runAsUser:
+  type: RunAsAny
+seLinuxContext:
+  type: RunAsAny
+fsGroup:
+  type: RunAsAny
+supplementalGroups:
+  type: RunAsAny
+seccompProfiles: [runtime/default]
+volumes:
+- configMap
+- secret
+- projected
+- emptyDir
+- persistentVolumeClaim
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: openshift-ai-llmisvc-confidential-bare-metal
+rules:
+- apiGroups: [security.openshift.io]
+  resources: [securitycontextconstraints]
+  resourceNames: [openshift-ai-llmisvc-confidential-bare-metal]
+  verbs: [use]

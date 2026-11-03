@@ -101,6 +101,74 @@ To fully tear down the test setup:
 make undeploy-ocp
 ```
 
+## LLMInferenceService audit logging e2e (RHCL)
+
+`test/e2e/llmisvc/test_llm_audit_logging.py` (marker `audit_logging`, part of `llmisvc_core`) covers
+[RHAISTRAT-1799](https://redhat.atlassian.net/browse/RHAISTRAT-1799) audit logging. It expects the
+Gateway-scoped `TelemetryPolicy` `openshift-ingress/openshift-ai-inference-audit-logging` that the CI
+setup creates on RHCL builds with TelemetryPolicy logging support (fields `client_identity`,
+`client_anonymous`, `request_method` and `request_path`, emitted by Authorino under the `custom.` prefix)
+and skips itself when the APIs or the policy are absent. It tags requests with `?audit=<id>` and asserts
+on the Authorino decision records for them: identity/method/path on allowed requests, no identity on
+unauthenticated or invalid-token requests, identity kept on authorization denials, `client_anonymous=true`
+with `enable-auth=false`, unresolvable `auth.*` expressions omitted, oversized values truncated at
+`loggingFieldsMaxValueBytes`, and a stable EnvoyFilter generation. Probe fields are added to the gateway
+TelemetryPolicy for the duration of a test and removed afterwards; `request.*` expressions are evaluated
+by the wasm shim, so probes on headers are guarded with `has()` (CONNLINK-1887), and removed fields are
+verified gone from the rendered config, re-creating the policy when they survive or when no route is left
+to verify against (CONNLINK-1888); baseline records are checked for leaked probe fields. Redaction of
+a credential-header field is covered by a dual-mode test: fixed RHCL builds reject such a policy
+(`Accepted=False`, CONNLINK-1884) and the test passes on that; older builds accept it and the test
+reports an expected failure when the value is logged in clear. Run it
+alone with:
+
+```bash
+PYTEST_ARGS="llmisvc/test_llm_audit_logging.py" ./test/scripts/openshift-ci/run-e2e-tests.sh audit_logging 1 llm-d
+```
+
+## LLMInferenceService audit logging (RHCL)
+
+`infra/deploy.kuadrant.sh` configures the CI cluster for
+[RHAISTRAT-1799](https://redhat.atlassian.net/browse/RHAISTRAT-1799) audit logging when the installed
+RHCL build supports it: it sets `spec.enableLoggingFields: true`, `logMode: production` and
+`logLevel: info` on the managed Authorino CR and creates a Gateway-scoped `TelemetryPolicy`
+(`openshift-ingress/openshift-ai-inference-audit-logging`) whose `logging.default.fields` add
+`client_identity`, `client_anonymous`, `request_method` and `request_path` to Authorino's info-level
+decision log records (emitted under the `custom.` prefix). Support is gated twice: the installed RHCL
+version (the CSV `spec.version` behind the `rhcl-operator` subscription) must be at least
+`RHCL_AUDIT_LOGGING_MIN_VERSION`, and the CRD schemas must expose `Authorino.spec.enableLoggingFields`
+and `TelemetryPolicy.spec.logging`. The default floor is `1.5.1`, the RHCL release the Kuadrant fixes the
+feature depends on are planned for ([CONNLINK-1884](https://redhat.atlassian.net/browse/CONNLINK-1884) header
+values logged in clear, [CONNLINK-1887](https://redhat.atlassian.net/browse/CONNLINK-1887) 500 on a failing
+`request.*` expression, [CONNLINK-1888](https://redhat.atlassian.net/browse/CONNLINK-1888) stale bindings,
+[kuadrant-operator#2357](https://github.com/Kuadrant/kuadrant-operator/pull/2357) EnvoyFilter rewrite
+loop); a build that already exposes the API but predates them is left alone. On blocked or older builds the
+Authorino CR is rendered as before (`logLevel: debug`, no `logMode`), no TelemetryPolicy is created, and the
+setup logs the installed version, the floor and the reason. After applying the CR the setup waits for the
+authorino Deployment to carry the requested `--log-level` / `--log-mode` / `--enable-logging-fields` args
+before waiting for its rollout.
+
+| Variable | Description | Default |
+|---|---|---|
+| `LLMISVC_AUDIT_LOGGING` | `auto` enables audit logging only when the installed RHCL meets the version floor and exposes the APIs; `true` fails setup when either is unmet; `false` skips it | `auto` |
+| `RHCL_AUDIT_LOGGING_MIN_VERSION` | Minimum installed RHCL version (CSV `spec.version`) for enabling audit logging, enforced in `auto` and `true`. Empty disables the version check, e.g. for upstream Kuadrant catalogs (`kuadrant-operator.v0.0.0`, `kuadrant-operator.v1.6.0-rc4`) | `1.5.1` |
+| `AUTHORINO_LOG_LEVEL` | Authorino operand log level, applied in both modes when set | `info` with audit logging, otherwise `debug` |
+
+Pre-release suffixes are ignored by the comparison (`1.5.1-ea.1` counts as `1.5.1`); an undeterminable
+version counts as below the floor.
+
+The identity field is `auth.identity.user.username`: the gateway AuthPolicy authenticates with
+`kubernetesTokenReview`, so the identity object is a `TokenReviewStatus` and the OIDC-style
+`auth.identity.sub` never resolves on RHOAI. Requests that fail authentication carry the request fields
+only; authorization denials still carry the identity; anonymous (auth-disabled) requests carry
+`client_anonymous=true`.
+
+`print_e2e_environment_summary` (run on setup exit) and the failure paths in `deploy.kuadrant.sh` print
+the installed RHCL CSV and version with the configured floor, the Kuadrant / Authorino operand images, the
+Authorino logging spec and the TelemetryPolicy conditions so a build below the floor, a build without the
+feature, a policy that was not enforced and an operand that did not pick up the configuration can be told
+apart from the CI log.
+
 ## \[Optional\] Build and push custom images
 
 `Makefile.overrides.mk` aligns image names with ODH registry conventions so

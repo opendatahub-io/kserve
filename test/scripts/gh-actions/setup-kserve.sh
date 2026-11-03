@@ -191,6 +191,8 @@ else
   fi
 fi
 
+ENABLE_KEDA="${ENABLE_KEDA:-false}"
+
 echo "Show inferenceservice-config configmap..."
 kubectl get configmap inferenceservice-config -n kserve
 

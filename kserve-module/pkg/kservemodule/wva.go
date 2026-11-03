@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -22,6 +23,9 @@ var variantAutoscalingGVK = schema.GroupVersionKind{
 }
 
 func cleanupWVAComponent(ctx context.Context, r *KserveModuleReconciler) error {
+	if err := r.deleteLeftoverWVAController(ctx); err != nil {
+		return err
+	}
 	if err := r.deleteVariantAutoscalingCRs(ctx); err != nil {
 		return err
 	}
@@ -29,6 +33,28 @@ func cleanupWVAComponent(ctx context.Context, r *KserveModuleReconciler) error {
 		return err
 	}
 	return r.stripWVAAutoscalingConfig(ctx)
+}
+
+func (r *KserveModuleReconciler) deleteLeftoverWVAController(ctx context.Context) error {
+	// Force-delete: 3.5 leftovers were applied by the WVA overlay, so they lack
+	// platform.opendatahub.io/part-of=kserve. After stop-clone, defaultCleanup
+	// has no overlay to render and no-ops ("manifest directory not found").
+	deploy := &appsv1.Deployment{}
+	key := client.ObjectKey{Name: wvaControllerDeployment, Namespace: r.getApplicationsNamespace()}
+	if err := r.Get(ctx, key, deploy); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return nil
+		}
+		return fmt.Errorf("getting leftover WVA Deployment %s: %w", key, err)
+	}
+	if err := r.Delete(ctx, deploy); err != nil {
+		if client.IgnoreNotFound(err) == nil {
+			return nil
+		}
+		return fmt.Errorf("deleting leftover WVA Deployment %s: %w", key, err)
+	}
+	ctrl.LoggerFrom(ctx).Info("deleted leftover WVA controller Deployment", "namespace", key.Namespace, "name", key.Name)
+	return nil
 }
 
 func (r *KserveModuleReconciler) deleteVariantAutoscalingCRs(ctx context.Context) error {

@@ -65,6 +65,7 @@ func SetupTestEnv(ctx context.Context) *TestEnv {
 
 	CreateCRD(ctx, cli, "operators.coreos.com", "v1alpha1", "Subscription", apiextensionsv1.NamespaceScoped)
 	CreateCRD(ctx, cli, "olm.operatorframework.io", "v1", "ClusterExtension", apiextensionsv1.ClusterScoped)
+	CreateCRD(ctx, cli, "serving.kserve.io", "v1alpha1", "ClusterServingRuntime", apiextensionsv1.ClusterScoped)
 
 	workDir := ginkgo.GinkgoT().TempDir()
 	WriteMinimalManifests(workDir)
@@ -110,6 +111,7 @@ metadata:
   name: inferenceservice-config
   namespace: opendatahub
 data:
+  confidentialBareMetal: '{"luksResourceId":"kbs:///default/kserve-luks-password/key","initData":""}'
   ingress: "{}"
   service: "{}"
   oauthProxy: '{"image":"registry.example.com/oauth-proxy:latest","memoryRequest":"64Mi","memoryLimit":"128Mi","cpuRequest":"100m","cpuLimit":"200m"}'
@@ -121,6 +123,14 @@ metadata:
   namespace: opendatahub
 data:
   enabled: "true"
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterServingRuntime
+metadata:
+  name: csr-kserve-vllm-cuda
+spec:
+  supportedModelFormats:
+  - name: vllm
 `
 	// WVA carries a CRD next to the Deployment so the CRD-preservation test
 	// can check defaultCleanup skips it when WVA is Removed.

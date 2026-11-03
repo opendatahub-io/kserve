@@ -59,9 +59,10 @@ type LocalModelReconciler struct {
 // Step 4 - Creates PV & PVCs for namespaces with isvcs using this cached model
 func (c *LocalModelReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	c.Log.Info("Reconciling localmodel", "name", req.Name)
-	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(ctx, c.Clientset)
+	configNamespace := inferenceServiceConfigNamespace()
+	isvcConfigMap, err := getInferenceServiceConfigMap(ctx, c.Clientset)
 	if err != nil {
-		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", constants.KServeNamespace)
+		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", configNamespace)
 		return reconcile.Result{}, err
 	}
 	localModelConfig, err := v1beta1.NewLocalModelConfig(isvcConfigMap)
@@ -248,9 +249,10 @@ func (c *LocalModelReconciler) localmodelNodeFunc(ctx context.Context, obj clien
 }
 
 func (c *LocalModelReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	isvcConfigMap, err := v1beta1.GetInferenceServiceConfigMap(context.Background(), c.Clientset)
+	configNamespace := inferenceServiceConfigNamespace()
+	isvcConfigMap, err := getInferenceServiceConfigMap(context.Background(), c.Clientset)
 	if err != nil {
-		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", constants.KServeNamespace)
+		c.Log.Error(err, "unable to get configmap", "name", constants.InferenceServiceConfigMapName, "namespace", configNamespace)
 		return err
 	}
 	localModelConfig, err := v1beta1.NewLocalModelConfig(isvcConfigMap)
@@ -367,6 +369,7 @@ func (c *LocalModelReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		}
 	}
 
+	c.setupConfigMapWatch(controllerBuilder)
 	return controllerBuilder.
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(c.nodeFunc), builder.WithPredicates(nodePredicates)).
 		// Updates model status when localmodelnode status changes

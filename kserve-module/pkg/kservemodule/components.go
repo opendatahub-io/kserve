@@ -61,7 +61,7 @@ var components = []componentConfig{
 	{
 		name:         WVAComponentName,
 		sourcePath:   WVAManifestSourcePathOCP,
-		imageMap:     wvaImageParamMap,
+		imageMap:     map[string]string{},
 		enabled:      isWVAEnabled,
 		postRender:   wvaPostRender,
 		extraCleanup: cleanupWVAComponent,
@@ -112,13 +112,13 @@ func kservePostRender(ctx context.Context, r *KserveModuleReconciler,
 		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
 	}
 
-	resources, err := customizeKserveConfigMap(resources, kserve)
+	var err error
+	resources, err = customizeKserveConfigMap(resources, kserve)
 	if err != nil {
 		return nil, fmt.Errorf("customizing configmap: %w", err)
 	}
 
-	versionPrefix := r.getVersionPrefix(ctx, kserve)
-	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, versionPrefix)
+	resources, err = versionedWellKnownLLMInferenceServiceConfigs(resources, r.versionPrefix)
 	if err != nil {
 		return nil, fmt.Errorf("versioning LLMInferenceServiceConfigs: %w", err)
 	}
@@ -247,8 +247,9 @@ func consoleDashboardsPostRender(ctx context.Context, r *KserveModuleReconciler,
 
 // isWVAEnabled always returns false: WVA is removed from the product in
 // RHOAI 3.6 (RHAISTRAT-2756). The WVA componentConfig entry is kept so
-// defaultCleanup still tears down leftover WVA resources on clusters
-// upgrading from 3.5 where WVA was Managed.
+// extraCleanup (cleanupWVAComponent) tears down leftovers on clusters
+// upgrading from 3.5. defaultCleanup cannot do this after the WVA overlay
+// is no longer cloned.
 func isWVAEnabled(_ *platformv1alpha1.Kserve) bool {
 	return false
 }
@@ -277,8 +278,8 @@ func modelControllerExtraParams(kserve *platformv1alpha1.Kserve) map[string]stri
 	}
 }
 
-func modelControllerPostRender(ctx context.Context, _ *KserveModuleReconciler,
-	_ *platformv1alpha1.Kserve,
+func modelControllerPostRender(ctx context.Context, r *KserveModuleReconciler,
+	kserve *platformv1alpha1.Kserve,
 	resources []unstructured.Unstructured) ([]unstructured.Unstructured, error) {
 
 	log := ctrl.LoggerFrom(ctx)
@@ -287,6 +288,19 @@ func modelControllerPostRender(ctx context.Context, _ *KserveModuleReconciler,
 	if afterCount := len(result); beforeCount != afterCount {
 		log.Info("filtered fast-variant resources", "before", beforeCount, "after", afterCount, "removed", beforeCount-afterCount)
 	}
+
+	beforeCSR := len(result)
+	result = versionedClusterServingRuntimes(result, r.versionPrefix)
+	stampedCount := 0
+	for i := range result {
+		if result[i].GroupVersionKind().GroupKind() == clusterServingRuntimeGK {
+			stampedCount++
+		}
+	}
+	if stampedCount > 0 {
+		log.Info("versioned ClusterServingRuntimes", "prefix", r.versionPrefix, "stamped", stampedCount, "total", beforeCSR)
+	}
+
 	return result, nil
 }
 

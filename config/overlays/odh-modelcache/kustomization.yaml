@@ -9,7 +9,7 @@ resources:
 # This will be created by the operator
 # - localmodelnode-pv-pvc.yaml
 
-namespace: opendatahub
+namespace: model-serving-cache
 
 components:
 - ../../components/localmodel
@@ -74,6 +74,13 @@ patches:
       name: kserve-kernelcachenode-agent-role
 - target:
     kind: ClusterRoleBinding
+    name: kserve-kernelcache-nodegroup-manager
+  patch: |-
+    - op: replace
+      path: /subjects/0/namespace
+      value: model-serving-cache
+- target:
+    kind: ClusterRoleBinding
     name: kserve-kernelcachenode-agent-rolebinding
   patch: |-
     $patch: delete
@@ -111,6 +118,15 @@ patches:
     name: kserve-localmodelnode-agent
   path: patches/secure-metrics-localmodelnode-patch.yaml
 # ClusterRole SCC use for agent
+- target:
+    kind: ClusterRole
+    name: kserve-localmodelnode-agent-role
+  patch: |-
+    - op: test
+      path: /rules/0/resources/0
+      value: configmaps
+    - op: remove
+      path: /rules/0
 - target:
     kind: ClusterRole
     name: kserve-localmodelnode-agent-role

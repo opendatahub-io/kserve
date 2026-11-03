@@ -56,6 +56,11 @@ const (
 )
 
 // InferenceService Constants
+const (
+	KServeManagedLabelKey   = "serving.kserve.io/managed-by"
+	KServeManagedLabelValue = "kserve-controller-manager"
+)
+
 var (
 	InferenceServiceName                  = "inferenceservice"
 	InferenceServiceAPIName               = "inferenceservices"
@@ -149,6 +154,17 @@ var (
 	ManagedDRACelSelectorAnnotationKey   = KServeAPIGroupName + "/exp-dra-cel-selector"
 	ManagedDRADeviceCountAnnotationKey   = KServeAPIGroupName + "/exp-dra-device-count"
 	ManagedDRAContainerNameAnnotationKey = KServeAPIGroupName + "/exp-dra-container-name"
+	// ModelExpress Experimental Annotations
+	// The mode annotation enables ModelExpress weight loading for an LLMInferenceService:
+	// "layered" keeps KServe's model delivery and adds peer-to-peer transfer, "native"
+	// hands weight loading to ModelExpress.
+	ModelExpressModeAnnotationKey          = KServeAPIGroupName + "/exp-modelexpress-mode"
+	ModelExpressAddressAnnotationKey       = KServeAPIGroupName + "/exp-modelexpress-address"
+	ModelExpressTokenAudienceAnnotationKey = KServeAPIGroupName + "/exp-modelexpress-token-audience"
+	ModelExpressRevisionAnnotationKey      = KServeAPIGroupName + "/exp-modelexpress-revision"
+	// ConfigMap in the service's namespace, and its key, holding the CA bundle for an https:// server.
+	ModelExpressCABundleConfigMapAnnotationKey = KServeAPIGroupName + "/exp-modelexpress-ca-bundle-configmap"
+	ModelExpressCABundleKeyAnnotationKey       = KServeAPIGroupName + "/exp-modelexpress-ca-bundle-key"
 )
 
 // ServingRuntime Server Type Annotations
@@ -441,7 +457,10 @@ const (
 	LLMDRoleLabelKey = "llm-d.ai/role"
 	LLMDRoleDecode   = "decode"
 	LLMDRolePrefill  = "prefill"
-	LLMDRoleBoth     = "both"
+	// llm-d-router v0.11.0 no longer accepts "both"; it only remains on workloads created in old version
+	// use LLMDRolePrefillDecode to replace for newer version
+	LLMDRoleBoth          = "both"
+	LLMDRolePrefillDecode = "prefill-decode"
 )
 
 // LLMInferenceService label constants (uses Kubernetes recommended label keys above)
@@ -1046,4 +1065,13 @@ const LoRAModelRoutingStrategyAnnotationKey = KServeAPIGroupName + "/lora-model-
 const (
 	LoRAModelRoutingStrategyExact = "exact"
 	LoRAModelRoutingStrategyRegex = "regex"
+)
+
+// RouteRuleNamingAnnotationKey is read from spec.annotations, so a preset can
+// carry it.
+const RouteRuleNamingAnnotationKey = KServeAPIGroupName + "/route-rule-naming"
+
+const (
+	RouteRuleNamingPreset = "preset"
+	RouteRuleNamingUnique = "unique"
 )

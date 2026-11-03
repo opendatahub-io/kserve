@@ -42,10 +42,14 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
 	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
+	distrotls "github.com/kserve/kserve/pkg/tls/distro"
+	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
-	tlsVolumeName = "proxy-tls"
+	tlsVolumeName           = "proxy-tls"
+	authProxyUpstreamPrefix = "--upstream=http://localhost:"
+	authProxyUpstreamFormat = "--upstream=http://localhost:%s"
 )
 
 // workloadResourceType is the kind of resource that owns the raw Deployment.
@@ -142,6 +146,9 @@ func (r *DeploymentReconciler) customizePlatformDeployments(ctx context.Context,
 	if err := mountTransformerTLSInfrastructure(headDeployment, componentMeta); err != nil {
 		return false, fmt.Errorf("failed to mount transformer TLS infrastructure: %w", err)
 	}
+	if err := distrotls.InjectPythonTLSProfile(ctx, r.client, &headDeployment.Spec.Template.Spec); err != nil {
+		return false, fmt.Errorf("failed to inject TLS security profile provider: %w", err)
+	}
 
 	return authProxyPreservationWarning, nil
 }
@@ -221,6 +228,10 @@ func (r *DeploymentReconciler) customizeAuthProxy(ctx context.Context,
 	refreshPreservedSARConfig := false
 	if shouldAddAuthProxy {
 		auditConfigChanged := platformAuthProxyNeedsUpdate(auditLoggingProfile, manageAuditLogging, existingDeployment, componentMeta, isvcname)
+		tlsConfigChanged, err := platformAuthProxyTLSNeedsUpdate(ctx, r.client, existingDeployment, existingProxyType)
+		if err != nil {
+			return false, err
+		}
 		wantsMigration := false
 		if val, ok := componentMeta.Annotations[constants.ODHAuthProxyTypeAnnotation]; ok {
 			wantsMigration = val == constants.KubeRbacProxyType
@@ -251,12 +262,24 @@ func (r *DeploymentReconciler) customizeAuthProxy(ctx context.Context,
 					configuredKubeRbacImage = oauthConfig.Image
 				}
 				configuredImageMatches := configuredKubeRbacImage != "" && existingProxyImage == configuredKubeRbacImage
-				if auditConfigChanged {
+				switch {
+				case auditConfigChanged:
 					err := addOauthContainerToDeployment(ctx, r.client, r.clientset, oauthConfig, headDeployment, componentMeta, r.componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
 					if err != nil {
 						return false, err
 					}
-				} else {
+				case tlsConfigChanged && configuredImageMatches:
+					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
+					workloadTLS, err := distrotls.ResolveWorkloadArgs(ctx, r.client)
+					if err != nil {
+						return false, err
+					}
+					if err := setManagedAuthProxyTLSArgs(headDeployment, desiredAuthProxyTLSArgs(workloadTLS)); err != nil {
+						return false, err
+					}
+					authProxyReused = true
+					refreshPreservedSARConfig = true
+				default:
 					log.Info("Preserving existing auth proxy container",
 						"isvc", isvcname, "type", existingProxyType,
 						"existingImage", existingProxyImage, "configImage", configuredKubeRbacImage)
@@ -265,6 +288,11 @@ func (r *DeploymentReconciler) customizeAuthProxy(ctx context.Context,
 					refreshPreservedSARConfig = configuredImageMatches
 					copyAuthProxyFromExisting(existingDeployment, headDeployment, existingProxyType)
 				}
+			}
+			if authProxyReused {
+				// Preserve the proxy container, but reconcile its controller-managed
+				// localhost upstream when Logger or Batcher is added later.
+				updatePreservedAuthProxyUpstream(existingDeployment, headDeployment, r.componentExt, podSpec)
 			}
 		} else {
 			err := addOauthContainerToDeployment(ctx, r.client, r.clientset, oauthConfig, headDeployment, componentMeta, r.componentExt, podSpec, isvcname, sarVolumeName, auditLoggingProfile, manageAuditLogging)
@@ -338,19 +366,8 @@ func addOauthContainerToDeployment(ctx context.Context,
 	auditLoggingProfile constants.AuditLoggingProfile,
 	manageAuditLogging bool,
 ) error {
-	var upstreamPort, upstreamTimeout string
-
-	switch {
-	case componentExt != nil && componentExt.Batcher != nil:
-		upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-	case componentExt != nil && componentExt.Logger != nil:
-		upstreamPort = constants.InferenceServiceDefaultAgentPortStr
-	default:
-		upstreamPort = GetKServeContainerPort(podSpec)
-		if upstreamPort == "" {
-			upstreamPort = constants.InferenceServiceDefaultHttpPort
-		}
-	}
+	upstreamPort := authProxyUpstreamPort(componentExt, podSpec)
+	var upstreamTimeout string
 
 	if componentExt != nil && componentExt.TimeoutSeconds != nil {
 		upstreamTimeout = strconv.FormatInt(*componentExt.TimeoutSeconds, 10)
@@ -362,11 +379,34 @@ func addOauthContainerToDeployment(ctx context.Context,
 	}
 	oauthProxyContainer.Args = customizeAuthProxyArgs(auditLoggingProfile, manageAuditLogging, componentMeta, oauthProxyContainer.Args, isvcName)
 	updatedPodSpec := deployment.Spec.Template.Spec.DeepCopy()
+	if deployment.Spec.Template.Annotations == nil {
+		deployment.Spec.Template.Annotations = make(map[string]string)
+	}
+	deployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
 	// ODH override. See: https://issues.redhat.com/browse/RHOAIENG-19904
 	updatedPodSpec.AutomountServiceAccountToken = proto.Bool(true)
 	updatedPodSpec.Containers = append(updatedPodSpec.Containers, *oauthProxyContainer)
 	deployment.Spec.Template.Spec = *updatedPodSpec
 	return nil
+}
+
+func authProxyUpstreamPort(componentExt *v1beta1.ComponentExtensionSpec, podSpec *corev1.PodSpec) string {
+	switch {
+	case componentExt != nil && componentExt.Batcher != nil:
+		return constants.InferenceServiceDefaultAgentPortStr
+	case componentExt != nil && componentExt.Logger != nil:
+		return constants.InferenceServiceDefaultAgentPortStr
+	default:
+		return modelUpstreamPort(podSpec)
+	}
+}
+
+func modelUpstreamPort(podSpec *corev1.PodSpec) string {
+	upstreamPort := GetKServeContainerPort(podSpec)
+	if upstreamPort == "" {
+		return constants.InferenceServiceDefaultHttpPort
+	}
+	return upstreamPort
 }
 
 func GetKServeContainerPort(podSpec *corev1.PodSpec) string {
@@ -418,13 +458,24 @@ func generateOauthProxyContainer(ctx context.Context, client kclient.Client, cli
 	args := []string{
 		`--secure-listen-address=:` + strconv.Itoa(constants.OauthProxyPort),
 		`--proxy-endpoints-port=8643`,
-		`--upstream=http://localhost:` + upstreamPort,
+		fmt.Sprintf(authProxyUpstreamFormat, upstreamPort),
 		`--auth-header-fields-enabled=true`,
 		`--tls-cert-file=/etc/tls/private/tls.crt`,
 		`--tls-private-key-file=/etc/tls/private/tls.key`,
 		// Defines the SAR
 		`--config-file=/etc/kube-rbac-proxy/config-file.yaml`,
 		`--v=4`,
+	}
+	workloadTLS, err := distrotls.ResolveWorkloadArgs(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	args = append(args, "--tls-min-version="+workloadTLS.MinVersion)
+	if workloadTLS.CipherSuites != "" {
+		args = append(args, "--tls-cipher-suites="+workloadTLS.CipherSuites)
+	}
+	if workloadTLS.CurveIDs != "" {
+		args = append(args, "--tls-curve-preferences="+workloadTLS.CurveIDs)
 	}
 	if oauthUpstreamTimeout != "" {
 		if _, err = strconv.ParseInt(oauthUpstreamTimeout, 10, 64); err != nil {
@@ -597,6 +648,12 @@ func copyAuthProxyFromExisting(existing, desired *appsv1.Deployment, containerNa
 	if authProxyContainer == nil {
 		return
 	}
+	if existing.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] == "true" {
+		if desired.Spec.Template.Annotations == nil {
+			desired.Spec.Template.Annotations = make(map[string]string)
+		}
+		desired.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
+	}
 
 	desiredSpec.Containers = append(desiredSpec.Containers, *authProxyContainer)
 	desiredSpec.AutomountServiceAccountToken = existingSpec.AutomountServiceAccountToken
@@ -626,6 +683,52 @@ func copyAuthProxyFromExisting(existing, desired *appsv1.Deployment, containerNa
 				}
 			}
 			break
+		}
+	}
+}
+
+func updatePreservedAuthProxyUpstream(existing, desired *appsv1.Deployment, componentExt *v1beta1.ComponentExtensionSpec, podSpec *corev1.PodSpec) {
+	if existing == nil || desired == nil {
+		return
+	}
+
+	// Existing Pod-template annotations record the agent topology already applied
+	// to this workload. Only an activation transition or a permitted model-port
+	// change may update a reused proxy. A stale route alone must not trigger a
+	// rollout. Ready workloads with auto-update disabled are paused by the caller.
+	annotations := existing.Spec.Template.Annotations
+	existingAgentEnabled := annotations[constants.LoggerInternalAnnotationKey] == "true" ||
+		annotations[constants.BatcherInternalAnnotationKey] == "true"
+	desiredAgentEnabled := componentExt != nil && (componentExt.Logger != nil || componentExt.Batcher != nil)
+	existingModelPort := modelUpstreamPort(&existing.Spec.Template.Spec)
+	if existingAgentEnabled == desiredAgentEnabled &&
+		(podSpec == nil || existingModelPort == modelUpstreamPort(podSpec)) {
+		return
+	}
+
+	// The preservation path intentionally copies the old proxy arguments. Only
+	// replace values that this controller could have generated, leaving explicit
+	// user-provided localhost endpoints and endpoint paths untouched.
+	managedUpstreamPorts := map[string]struct{}{
+		existingModelPort: {},
+	}
+	if existingAgentEnabled {
+		managedUpstreamPorts[constants.InferenceServiceDefaultAgentPortStr] = struct{}{}
+	}
+	desiredUpstream := fmt.Sprintf(authProxyUpstreamFormat, authProxyUpstreamPort(componentExt, podSpec))
+	for i := range desired.Spec.Template.Spec.Containers {
+		container := &desired.Spec.Template.Spec.Containers[i]
+		if container.Name != constants.KubeRbacContainerName && container.Name != constants.OauthProxyContainerName {
+			continue
+		}
+		for j, arg := range container.Args {
+			if !strings.HasPrefix(arg, authProxyUpstreamPrefix) {
+				continue
+			}
+			if _, managed := managedUpstreamPorts[strings.TrimPrefix(arg, authProxyUpstreamPrefix)]; managed {
+				container.Args[j] = desiredUpstream
+				return
+			}
 		}
 	}
 }
@@ -782,14 +885,14 @@ func mountTransformerTLSInfrastructure(deployment *appsv1.Deployment, componentM
 			// the HTTPS port; if the user explicitly set a non-default
 			// port, respect their choice.
 			servingPort := constants.TransformerHTTPSPort
-			if userPort, ok := getArgValue(podSpec.Containers[i].Args, constants.ArgumentHttpPort); ok {
+			if userPort, ok := isvcutils.GetArgValue(podSpec.Containers[i].Args, constants.ArgumentHttpPort); ok {
 				if userPort != constants.InferenceServiceDefaultHttpPort {
-					if parsed, err := strconv.ParseInt(userPort, 10, 32); err == nil {
-						servingPort = int32(parsed)
+					if parsed, err := utils.ParsePort(userPort); err == nil {
+						servingPort = parsed
 					}
 				}
 			}
-			podSpec.Containers[i].Args = setArgValue(podSpec.Containers[i].Args,
+			podSpec.Containers[i].Args = isvcutils.SetArgValue(podSpec.Containers[i].Args,
 				constants.ArgumentHttpPort, strconv.Itoa(int(servingPort)))
 
 			podSpec.Containers[i].Ports = append(podSpec.Containers[i].Ports, corev1.ContainerPort{
@@ -840,6 +943,77 @@ func platformAuthProxyNeedsUpdate(profile constants.AuditLoggingProfile, manage 
 		}
 	}
 	return false
+}
+
+func platformAuthProxyTLSNeedsUpdate(ctx context.Context, reader kclient.Reader, existing *appsv1.Deployment, proxyType string) (bool, error) {
+	if existing == nil || proxyType != constants.KubeRbacContainerName ||
+		existing.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] != "true" {
+		return false, nil
+	}
+	desired, err := distrotls.ResolveWorkloadArgs(ctx, reader)
+	if err != nil {
+		return false, err
+	}
+	want := desiredAuthProxyTLSArgs(desired)
+	for _, container := range existing.Spec.Template.Spec.Containers {
+		if container.Name == proxyType {
+			return !sameArgs(managedAuthProxyTLSArgs(container.Args), want), nil
+		}
+	}
+	return false, nil
+}
+
+func desiredAuthProxyTLSArgs(desired distrotls.WorkloadTLSArgs) []string {
+	args := []string{"--tls-min-version=" + desired.MinVersion}
+	if desired.CipherSuites != "" {
+		args = append(args, "--tls-cipher-suites="+desired.CipherSuites)
+	}
+	if desired.CurveIDs != "" {
+		args = append(args, "--tls-curve-preferences="+desired.CurveIDs)
+	}
+	return args
+}
+
+func setManagedAuthProxyTLSArgs(deployment *appsv1.Deployment, desired []string) error {
+	if deployment == nil {
+		return errors.New("deployment is nil while updating auth proxy TLS args")
+	}
+	for i := range deployment.Spec.Template.Spec.Containers {
+		container := &deployment.Spec.Template.Spec.Containers[i]
+		if container.Name != constants.KubeRbacContainerName {
+			continue
+		}
+		updated := make([]string, 0, len(container.Args)+len(desired))
+		for _, arg := range container.Args {
+			if !isManagedAuthProxyTLSArg(arg) {
+				updated = append(updated, arg)
+			}
+		}
+		updated = append(updated, desired...)
+		container.Args = updated
+		if deployment.Spec.Template.Annotations == nil {
+			deployment.Spec.Template.Annotations = make(map[string]string)
+		}
+		deployment.Spec.Template.Annotations[constants.ODHKserveAuthProxyTLSManagedAnnotation] = "true"
+		return nil
+	}
+	return fmt.Errorf("container %q not found while updating auth proxy TLS args", constants.KubeRbacContainerName)
+}
+
+func isManagedAuthProxyTLSArg(arg string) bool {
+	return strings.HasPrefix(arg, "--tls-min-version=") ||
+		strings.HasPrefix(arg, "--tls-cipher-suites=") ||
+		strings.HasPrefix(arg, "--tls-curve-preferences=")
+}
+
+func managedAuthProxyTLSArgs(args []string) []string {
+	managed := make([]string, 0, 3)
+	for _, arg := range args {
+		if isManagedAuthProxyTLSArg(arg) {
+			managed = append(managed, arg)
+		}
+	}
+	return managed
 }
 
 // desiredAuditArgs builds controller-managed arguments for the effective profile.

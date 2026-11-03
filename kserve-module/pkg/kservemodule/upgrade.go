@@ -343,6 +343,7 @@ var knownConditionTypes = map[string]bool{
 	ConditionModelCacheReady:                          true,
 	ConditionDependenciesAvailable:                    true,
 	ConditionTracingConfigAvailable:                   true,
+	ConditionAuditLoggingReady:                        true,
 	conditionLLMISVCDeps:                              true,
 	conditionLLMISVCWideEPDeps:                        true,
 	conditionLLMDWVADeps:                              true,

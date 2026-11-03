@@ -62,10 +62,10 @@ PROMETHEUS_SERVER_ADDRESS = os.environ.get(
 # scaled-to-zero deployment (no ready endpoints) only increment the error
 # counter, and `or vector(0)` keeps each side from going empty when idle.
 EPP_REQUEST_RATE_QUERY = (
-    "(sum(rate(inference_objective_request_total"
+    "(sum(rate(llm_d_epp_request_total"
     '{namespace="{{ .ObjectMeta.Namespace }}"}[1m])) or vector(0))'
     " + "
-    "(sum(rate(inference_objective_request_error_total"
+    "(sum(rate(llm_d_epp_request_error_total"
     '{namespace="{{ .ObjectMeta.Namespace }}"}[1m])) or vector(0))'
 )
 
@@ -97,6 +97,30 @@ def _vllm_running_requests_trigger(pod_prefix_template, threshold):
         "avg(vllm:num_requests_running{"
         'namespace="{{ .ObjectMeta.Namespace }}",'
         'pod=~"^' + pod_prefix_template + '-[a-z0-9]+-[a-z0-9]+$"'
+        "})"
+    )
+    return {
+        "type": "prometheus",
+        "name": "vllm-running-requests",
+        "metadata": {
+            "serverAddress": PROMETHEUS_SERVER_ADDRESS,
+            "query": query,
+            "threshold": threshold,
+            "unsafeSsl": "true",
+        },
+    }
+
+
+def _ds_vllm_running_requests_trigger(role, threshold="1"):
+    """Build a KEDA `prometheus` trigger for one DisaggregatedSet role.
+
+    The regex matches the role's pods, named
+    <svc>-kserve-pd-<slice>-<revision>-<role>-<group index>.
+    """
+    query = (
+        "avg(vllm:num_requests_running{"
+        'namespace="{{ .ObjectMeta.Namespace }}",'
+        'pod=~"^{{ .ObjectMeta.Name }}-kserve-pd-[0-9]+-[a-z0-9]+-' + role + '-[0-9]+$"'
         "})"
     )
     return {
@@ -379,6 +403,49 @@ if not 1 <= LORA_ADAPTER_COUNT <= LORA_REALISTIC_FIXTURE_SIZE:
     )
 LORA_REALISTIC_ADAPTER_NAMES = _LORA_REALISTIC_FIXTURE_NAMES[:LORA_ADAPTER_COUNT]
 
+# ModelExpress: the server installed by test/scripts/gh-actions/setup-modelexpress.sh,
+# and a vLLM image with the modelexpress client for GPU tests.
+MODELEXPRESS_ADDRESS = os.environ.get(
+    "MODELEXPRESS_ADDRESS", "modelexpress.modelexpress.svc:8001"
+)
+MODELEXPRESS_VLLM_CUDA_IMAGE = os.environ.get("MODELEXPRESS_VLLM_CUDA_IMAGE", "")
+# A safetensors model seeded by test/scripts/gh-actions/seed-s3-model.sh.
+MODELEXPRESS_MODEL_URI = os.environ.get(
+    "MODELEXPRESS_MODEL_URI", "s3://example-models/Qwen/Qwen2.5-0.5B-Instruct"
+)
+MODELEXPRESS_MODEL_NAME = os.environ.get(
+    "MODELEXPRESS_MODEL_NAME", "Qwen/Qwen2.5-0.5B-Instruct"
+)
+# Extended resource that attaches an RDMA NIC to the pod, e.g. "rdma/ib".
+MODELEXPRESS_RDMA_RESOURCE = os.environ.get("MODELEXPRESS_RDMA_RESOURCE", "")
+
+
+def _modelexpress_gpu_workload():
+    limits = {"nvidia.com/gpu": "1"}
+    if MODELEXPRESS_RDMA_RESOURCE:
+        limits[MODELEXPRESS_RDMA_RESOURCE] = "1"
+    return {
+        "template": {
+            "containers": [
+                {
+                    "name": "main",
+                    "image": MODELEXPRESS_VLLM_CUDA_IMAGE,
+                    "resources": {
+                        "limits": dict(limits),
+                        "requests": {**limits, "cpu": "4", "memory": "32Gi"},
+                    },
+                    "securityContext": {
+                        "allowPrivilegeEscalation": False,
+                        "runAsNonRoot": True,
+                        "capabilities": {"add": ["IPC_LOCK"], "drop": ["ALL"]},
+                        "seccompProfile": {"type": "RuntimeDefault"},
+                    },
+                }
+            ],
+        },
+    }
+
+
 LLMINFERENCESERVICE_CONFIGS = {
     "workload-single-cpu": {
         "template": {
@@ -493,6 +560,10 @@ LLMINFERENCESERVICE_CONFIGS = {
     },
     "model-fb-opt-125m": {
         "model": {"uri": OPT_125M_MODEL_URI, "name": "facebook/opt-125m"},
+    },
+    "workload-single-gpu-modelexpress": _modelexpress_gpu_workload(),
+    "model-modelexpress": {
+        "model": {"uri": MODELEXPRESS_MODEL_URI, "name": MODELEXPRESS_MODEL_NAME},
     },
     "model-fb-opt-125m-oci": {
         "model": {"uri": OPT_125M_OCI_MODEL_URI, "name": "facebook/opt-125m"},
@@ -939,7 +1010,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "scheduler": {
                 "config": {
                     "inline": {
-                        "apiVersion": "llm-d.ai/v1alpha1",
+                        "apiVersion": "llm-d.ai/v1",
                         "kind": "EndpointPickerConfig",
                         "plugins": [
                             {"type": "single-profile-handler"},
@@ -967,7 +1038,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "scheduler": {
                 "config": {
                     "inline": {
-                        "apiVersion": "llm-d.ai/v1alpha1",
+                        "apiVersion": "llm-d.ai/v1",
                         "kind": "EndpointPickerConfig",
                         "plugins": [
                             {"type": "single-profile-handler"},
@@ -1032,7 +1103,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "args": [
                                 "--config-text",
                                 (
-                                    "apiVersion: llm-d.ai/v1alpha1\n"
+                                    "apiVersion: llm-d.ai/v1\n"
                                     "kind: EndpointPickerConfig\n"
                                     "plugins:\n"
                                     "- type: single-profile-handler\n"
@@ -1078,7 +1149,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "scheduler": {
                 "config": {
                     "inline": {
-                        "apiVersion": "llm-d.ai/v1alpha1",
+                        "apiVersion": "llm-d.ai/v1",
                         "kind": "EndpointPickerConfig",
                         "plugins": [
                             {"type": "single-profile-handler"},
@@ -1302,7 +1373,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                 "--cert-path",
                                 "/var/run/kserve/tls",
                                 "--pool-group",
-                                "inference.networking.x-k8s.io",
+                                "inference.networking.k8s.io",
                                 "--pool-name",
                                 "{{ ChildName .ObjectMeta.Name `-inference-pool` }}",
                                 "--pool-namespace",
@@ -1320,7 +1391,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                 "vllm:kv_cache_usage_perc",
                                 "--config-text",
                                 (
-                                    "apiVersion: llm-d.ai/v1alpha1\n"
+                                    "apiVersion: llm-d.ai/v1\n"
                                     "kind: EndpointPickerConfig\n"
                                     "plugins:\n"
                                     "- type: single-profile-handler\n"
@@ -1569,6 +1640,13 @@ LLMINFERENCESERVICE_CONFIGS = {
             "prometheus.io/path": "/metrics",
         },
     },
+    # Suffixes the managed HTTPRoute rule names with the service's identity, so
+    # services on a shared gateway no longer share rule names.
+    "route-rule-naming-unique": {
+        "annotations": {
+            "serving.kserve.io/route-rule-naming": "unique",
+        },
+    },
     # Like "prometheus-scrape" but for the P/D simulator, which listens on
     # different ports per role: main/decode on 8001, prefill on 8000. The
     # prefill pod template is a separate WorkloadSpec, so it needs its own
@@ -1637,7 +1715,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             },
         }
     },
-    # Direct KEDA (standalone, no WVA) with a fallback replica count: when the
+    # Direct KEDA with a fallback replica count: when the
     # Prometheus scaler repeatedly fails to reach the server (outage), KEDA
     # holds the deployment at `fallback.replicas` instead of scaling to zero.
     "scaling-direct-keda-fallback": {
@@ -1692,6 +1770,34 @@ LLMINFERENCESERVICE_CONFIGS = {
                         threshold="1",
                     )
                 ],
+            },
+        }
+    },
+    # Direct KEDA triggers for roles on the DisaggregatedSet backend. Role pods
+    # are named <svc>-kserve-pd-<slice>-<revision>-<role>-<group index>.
+    "scaling-prefill-ds-keda": {
+        "prefill": {
+            "scaling": {
+                "minReplicas": 1,
+                "maxReplicas": 3,
+                "keda": {
+                    "pollingInterval": 5,
+                    "cooldownPeriod": 10,
+                    "initialCooldownPeriod": 0,
+                    "triggers": [_ds_vllm_running_requests_trigger("prefill")],
+                },
+            }
+        }
+    },
+    "scaling-decode-ds-keda": {
+        "scaling": {
+            "minReplicas": 1,
+            "maxReplicas": 3,
+            "keda": {
+                "pollingInterval": 5,
+                "cooldownPeriod": 10,
+                "initialCooldownPeriod": 0,
+                "triggers": [_ds_vllm_running_requests_trigger("decode")],
             },
         }
     },
@@ -1754,7 +1860,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "scheduler": {
                 "config": {
                     "inline": {
-                        "apiVersion": "llm-d.ai/v1alpha1",
+                        "apiVersion": "llm-d.ai/v1",
                         "kind": "EndpointPickerConfig",
                         "featureGates": ["flowControl"],
                         "plugins": [
@@ -2152,8 +2258,62 @@ def inject_k8s_proxy():
         logger.info("No HTTP proxy configured for k8s client")
 
 
+def has_istio():
+    try:
+        client.ApiextensionsV1Api().read_custom_resource_definition(
+            "destinationrules.networking.istio.io"
+        )
+        return True
+    except client.ApiException:
+        return False
+
+
+def apply_epp_tls_workaround(ns):
+    """Apply Istio DestinationRules for EPP TLS. Idempotent.
+
+    Istio's sidecar proxy enforces mTLS between services by default, but
+    the EPP scheduler generates its own self-signed TLS cert rather than
+    using Istio mesh certs. Without a DestinationRule, Istio initiates
+    mTLS to EPP, EPP presents its self-signed cert, and Istio rejects
+    the connection - leaving InferencePool stuck in WaitingForGateway.
+
+    The DestinationRule switches to SIMPLE TLS (accept any server cert)
+    for EPP services, bypassing the mTLS mismatch. Only needed on Istio;
+    Envoy Gateway handles EPP TLS natively.
+    """
+    core = client.CoreV1Api()
+    api = client.CustomObjectsApi()
+    svcs = core.list_namespaced_service(ns)
+    for svc in svcs.items:
+        if "epp" not in svc.metadata.name:
+            continue
+        name = f"{svc.metadata.name}-tls"
+        body = {
+            "apiVersion": "networking.istio.io/v1",
+            "kind": "DestinationRule",
+            "metadata": {"name": name, "namespace": ns},
+            "spec": {
+                "host": f"{svc.metadata.name}.{ns}.svc.cluster.local",
+                "trafficPolicy": {
+                    "tls": {"mode": "SIMPLE", "insecureSkipVerify": True}
+                },
+            },
+        }
+        try:
+            api.create_namespaced_custom_object(
+                "networking.istio.io", "v1", ns, "destinationrules", body
+            )
+        except client.ApiException as e:
+            if e.status == 409:
+                api.patch_namespaced_custom_object(
+                    "networking.istio.io", "v1", ns, "destinationrules", name, body
+                )
+            else:
+                raise
+
+
 # Scheduler config YAML used for ConfigMap ref tests
-SCHEDULER_CONFIG_YAML = """apiVersion: llm-d.ai/v1alpha1
+SCHEDULER_CONFIG_YAML = """apiVersion: llm-d.ai/v1
 kind: EndpointPickerConfig
 plugins:
 - type: single-profile-handler
@@ -2229,7 +2389,7 @@ def delete_scheduler_configmap(namespace):
 
 
 INFERENCE_OBJECTIVE_GROUP = "llm-d.ai"
-INFERENCE_OBJECTIVE_VERSION = "v1alpha2"
+INFERENCE_OBJECTIVE_VERSION = "v1"
 INFERENCE_OBJECTIVE_PLURAL = "inferenceobjectives"
 
 
@@ -2253,7 +2413,7 @@ def create_inference_objectives(pool_name, objectives, namespace):
                 "namespace": namespace,
             },
             "spec": {
-                "poolRef": {"name": pool_name},
+                "poolRefs": [{"name": pool_name}],
                 "priority": obj["priority"],
             },
         }

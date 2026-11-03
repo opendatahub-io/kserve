@@ -43,7 +43,7 @@ import (
 
 // --- Operand resources (namespace-scoped, cluster-wide because operands may span user namespaces) ---
 // +kubebuilder:rbac:groups="",resources=configmaps;services;serviceaccounts,verbs=create;delete;get;list;patch;update;watch
-// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=create;get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=get;list;watch
 // +kubebuilder:rbac:groups="",resources=secrets,verbs=create;delete;patch;update,resourceNames=kserve-webhook-server-secret;workload-variant-autoscaler-controller-manager-token;workload-variant-autoscaler-epp-metrics-token;workload-variant-autoscaler-metrics-reader-token
 // +kubebuilder:rbac:groups="",resources=configmaps/status,verbs=get;update;patch
@@ -55,7 +55,7 @@ import (
 // --- Operand RBAC (cluster-scoped: operand ClusterRoles grant end-user access across namespaces) ---
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles;rolebindings;clusterroles;clusterrolebindings,verbs=create;delete;get;list;patch;update;watch
 // escalate/bind scoped to the exact roles and clusterroles deployed by this controller
-// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-inferencegraph-distro-role;kserve-kernelcache-nodegroup-manager;kserve-kernelcache-token-requester;kserve-metrics-reader;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;odh-model-controller-openshift-distro-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role;kserve-tls-distro-role;modelexpress-operator;modelexpress-operator-openshift
+// +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=clusterroles,verbs=bind;escalate,resourceNames=account-editor-role;account-viewer-role;kserve-admin;kserve-edit;kserve-models-admin;kserve-models-edit;kserve-models-view;kserve-view;kserve-manager-role;kserve-proxy-role;kserve-llmisvc-manager-role;kserve-llmisvc-distro-role;kserve-inferenceservice-distro-role;kserve-inferencegraph-distro-role;kserve-kernelcache-nodegroup-manager;kserve-kernelcache-token-requester;kserve-metrics-reader;kserve-metrics-reader-cluster-role;openshift-ai-llminferenceservice-scc;openshift-ai-llmisvc-confidential-bare-metal;openshift-ai-inferenceservice-image-volume-scc;odh-model-controller-role;odh-model-controller-openshift-distro-role;proxy-role;model-serving-api;metrics-reader;kserve-prometheus-k8s;workload-variant-autoscaler-manager-role;workload-variant-autoscaler-metrics-auth-role;workload-variant-autoscaler-epp-metrics-reader-role;workload-variant-autoscaler-variantautoscaling-admin-role;workload-variant-autoscaler-variantautoscaling-editor-role;workload-variant-autoscaler-variantautoscaling-viewer-role;workload-variant-autoscaler-metrics-reader;kserve-localmodel-manager-role;kserve-localmodel-distro-role;kserve-localmodel-permfix-role;kserve-localmodelnode-agent-role;kserve-localmodelnode-distro-role;kserve-tls-distro-role;modelexpress-operator;modelexpress-operator-openshift
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles,verbs=bind;escalate,resourceNames=kserve-leader-election-role;llmisvc-leader-election-role;leader-election-role;workload-variant-autoscaler-leader-election-role
 // +kubebuilder:rbac:groups=rbac.authorization.k8s.io,resources=roles/finalizers;rolebindings/finalizers;clusterroles/finalizers;clusterrolebindings/finalizers,verbs=update
 
@@ -71,7 +71,7 @@ import (
 // no delete — CRDs survive component removal (consistent with odh-operator GC unremovables)
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,verbs=create;get;list;patch;update;watch
 //
-// --- WVA extraCleanup: leftover VariantAutoscaling CRD/CRs defaultCleanup skips ---
+// --- WVA extraCleanup: leftover controller Deployment, VA CRD/CRs, ConfigMap key ---
 // +kubebuilder:rbac:groups=llmd.ai,resources=variantautoscalings,verbs=list;delete
 // +kubebuilder:rbac:groups=apiextensions.k8s.io,resources=customresourcedefinitions,resourceNames=variantautoscalings.llmd.ai,verbs=delete
 
@@ -114,13 +114,22 @@ import (
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnodegroups,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelcaches;localmodelnamespacecaches,verbs=get;list
 // +kubebuilder:rbac:groups=apps,resources=daemonsets,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list
 
 // --- Upgrade path: HardwareProfile migration ---
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=inferenceservices,verbs=list;patch
 // +kubebuilder:rbac:groups=serving.kserve.io,resources=servingruntimes,verbs=get
 // +kubebuilder:rbac:groups=infrastructure.opendatahub.io,resources=hardwareprofiles,verbs=get
 // +kubebuilder:rbac:groups=opendatahub.io,resources=odhdashboardconfigs,verbs=get
+
+// --- RHCL TelemetryPolicy for LLMInferenceService OCSF audit logging ---
+// This is an optional external dependency. The reconciler checks the installed
+// CRD schema before using these permissions, so older RHCL versions do not
+// block unrelated KServe reconciliation.
+// +kubebuilder:rbac:groups=extensions.kuadrant.io,resources=telemetrypolicies,verbs=create;delete;get;list;patch;update;watch
 
 type ResourceDeployer interface {
 	Deploy(ctx context.Context, input deploy.DeployInput) error
@@ -149,6 +158,10 @@ type KserveModuleReconciler struct {
 	// present, not just those in a node's status.allocatable.
 	draResourceSliceGVK schema.GroupVersionKind
 
+	// versionPrefix is the platform version prefix (e.g. "v3-6-0") computed
+	// once per reconcile and reused by all postRender functions.
+	versionPrefix string
+
 	// expectedPresets holds the preset names from the most recent render, written
 	// by reconcile and read by updateComponentReadiness later in the same call.
 	expectedPresets []string
@@ -156,6 +169,10 @@ type KserveModuleReconciler struct {
 	// tracingConfigError records a non-fatal Monitoring read error so the
 	// reconcile can report it and retry without blocking other components.
 	tracingConfigError error
+
+	// ocsfAuditLoggingCondition records an optional RHCL dependency or gateway
+	// configuration problem without failing unrelated KServe components.
+	ocsfAuditLoggingCondition *auditLoggingCondition
 
 	// removalBlockers holds, per disabled component, what keeps it deployed,
 	// written by reconcile and read by updateComponentReadiness in the same call.
@@ -225,7 +242,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{}, cleanupErr
 		}
 
-		if cleanupErr := r.cleanupOnDelete(ctx); cleanupErr != nil {
+		if cleanupErr := r.cleanupOnDelete(ctx, kserve); cleanupErr != nil {
 			log.Error(cleanupErr, "component extra-cleanup failed during CR deletion")
 			if statusErr := r.setDeletionBlocked(ctx, kserve, []string{"component cleanup failed: " + cleanupErr.Error()}); statusErr != nil {
 				log.Error(statusErr, "failed to record component cleanup failure on status")
@@ -269,11 +286,20 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
+	r.versionPrefix = r.getVersionPrefix(ctx, kserve)
 	r.expectedPresets = nil
 	r.tracingConfigError = nil
+	r.ocsfAuditLoggingCondition = nil
 	r.removalBlockers = map[string][]string{}
 	componentErrors := r.reconcile(ctx, kserve)
+	if componentErrors == nil {
+		componentErrors = make(map[string]error)
+	}
+	if err := r.reconcileOCSFAuditLogging(ctx, kserve); err != nil {
+		componentErrors["auditLogging"] = err
+	}
 	applyProvisioningCondition(condMgr, componentErrors)
+	applyOCSFAuditLoggingCondition(condMgr, kserve, r.ocsfAuditLoggingCondition)
 	if len(componentErrors) > 0 {
 		var msgs []string
 		for _, name := range slices.Sorted(maps.Keys(componentErrors)) {
@@ -328,6 +354,8 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 	}
 
 	var allResources []unstructured.Unstructured
+	var modelCacheResources []unstructured.Unstructured
+	var modelCacheRendered bool
 	componentErrors := make(map[string]error, len(components))
 
 	for _, comp := range components {
@@ -346,6 +374,10 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 					continue
 				}
 				allResources = append(allResources, resources...)
+				if comp.name == ModelCacheComponentName && len(resources) > 0 {
+					modelCacheResources = resources
+					modelCacheRendered = true
+				}
 				continue
 			}
 			if err := r.defaultCleanup(ctx, comp); err != nil {
@@ -366,10 +398,19 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 			continue
 		}
 		allResources = append(allResources, resources...)
+		if comp.name == ModelCacheComponentName && len(resources) > 0 {
+			modelCacheResources = resources
+			modelCacheRendered = true
+		}
 	}
 
 	if len(componentErrors) > 0 {
 		return componentErrors
+	}
+	if modelCacheRendered {
+		if err := r.prepareModelCacheCutover(ctx, modelCacheResources); err != nil {
+			return map[string]error{ModelCacheComponentName: fmt.Errorf("preparing ModelCache namespace cutover: %w", err)}
+		}
 	}
 
 	owned, unowned, llmISVCDrainResources := splitByOwnership(allResources)
@@ -478,8 +519,11 @@ func (r *KserveModuleReconciler) detachLLMISVCDrainResources(
 	return nil
 }
 
-func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context) error {
+func (r *KserveModuleReconciler) cleanupOnDelete(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
 	var errs []error
+	if err := r.cleanupOCSFAuditPolicies(ctx, nil, kserve.Name, kserve.UID); err != nil {
+		errs = append(errs, fmt.Errorf("%s: %w", telemetryPolicyComponentValue, err))
+	}
 	for _, comp := range components {
 		if comp.extraCleanup == nil {
 			continue
@@ -557,7 +601,7 @@ func (r *KserveModuleReconciler) reconcileComponent(ctx context.Context,
 	}
 
 	renderPath := filepath.Join(manifestDir, comp.dirName(), sourcePath)
-	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
+	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.componentNamespace(comp)))
 	if err != nil {
 		return nil, fmt.Errorf("rendering %s kustomize: %w", comp.name, err)
 	}
@@ -650,6 +694,13 @@ func (r *KserveModuleReconciler) getApplicationsNamespace() string {
 	}
 
 	return "opendatahub"
+}
+
+func (r *KserveModuleReconciler) componentNamespace(comp componentConfig) string {
+	if comp.name == ModelCacheComponentName {
+		return modelCacheNamespace
+	}
+	return r.getApplicationsNamespace()
 }
 
 // getCertManagerNamespace dynamically discovers the namespace where cert-manager
