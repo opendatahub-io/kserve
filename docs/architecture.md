@@ -165,4 +165,27 @@ Pre-downloads models to node-local storage for ISVCs/LLMISVCs labeled `serving.k
 
 **Watches re-enqueue cache CRs on:** ISVC/LLMISVC local-model label change, matching Node ready, LocalModelNode status change, owned PVC change.
 
-**ODH:** `localmodelnode/{platform,file_utils}_odh.go`, `localmodel/distro/controller_rbac_odh.go`, `localmodelnode/distro/controller_rbac_odh.go`
+### Download egress NetworkPolicies (ODH)
+
+Two egress-only policies keep download Jobs working in namespaces with default-deny
+egress (details: [`docs/odh/modelcache-download-networkpolicies.md`](odh/modelcache-download-networkpolicies.md)):
+
+- **Static per-node:** `kserve-localmodel-download` ships in the odh-modelcache overlay
+  and selects `serving.kserve.io/localmodel-download: node`, stamped onto download Job
+  pod templates by the `enhanceDownloadJob` hook. The manifest owns its lifecycle: no
+  controller RBAC, watch, or cleanup.
+- **Cache-owned import:** one `<cache-name>-import-egress` per shared-PVC-mode (`pvcRef`)
+  `LocalModelNamespaceCache` that reaches import reconciliation — after PVC preflight and
+  destination checks; `nodeGroups`-mode caches never get one — in that CR's namespace,
+  owned via `SetControllerReference`. Created before the import
+  Job and kept across retries/replacement/completion; garbage-collected with the cache
+  (the existing finalizer does not delete it). Watched as an owned resource for
+  delete/drift recovery; only policies controlled by the exact cache UID are reconciled
+  — a foreign or stale-UID policy blocks the import instead of being adopted.
+
+Both use one empty `egress: [{}]` rule (explicit allow-all: download destinations are
+deployment-specific) and add no ingress rules. Labels go only onto newly built Jobs;
+existing Jobs are never relabeled. Selection is name-based (role plus cache-name
+labels); no UID-based selector isolation is claimed.
+
+**ODH:** `localmodelnode/{platform,file_utils}_odh.go`, `localmodel/reconcilers/sharedpvc_platform_{default,odh}.go`, `localmodel/distro/controller_rbac_odh.go`, `localmodelnode/distro/controller_rbac_odh.go`

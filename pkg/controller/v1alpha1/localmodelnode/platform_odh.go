@@ -105,6 +105,14 @@ func (c *LocalModelNodeReconciler) enhanceDownloadJob(ctx context.Context, job *
 	container.VolumeMounts[0].SubPath = ""
 	container.Args = []string{container.Args[0], filepath.Join(MountPath, "models", storageKey)}
 
+	// Stamp the pod template so the static kserve-localmodel-download egress
+	// NetworkPolicy (odh-modelcache overlay) selects this Job's pods. Merge into
+	// the template metadata: labels and annotations set by callers must survive.
+	if job.Spec.Template.Labels == nil {
+		job.Spec.Template.Labels = map[string]string{}
+	}
+	job.Spec.Template.Labels[constants.DownloadJobLabelKey] = constants.DownloadJobLabelValueNode
+
 	podSecurityContext := &corev1.PodSecurityContext{}
 	if FSGroup != nil {
 		podSecurityContext.RunAsUser = FSGroup

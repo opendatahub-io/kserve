@@ -20,8 +20,11 @@ package localmodelnode
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -36,9 +39,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/utils/ptr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,6 +51,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	"github.com/kserve/kserve/pkg/controller/v1alpha1/localmodel/jobs"
 	controllerutils "github.com/kserve/kserve/pkg/controller/v1alpha1/utils"
 	"github.com/kserve/kserve/pkg/credentials/s3"
 	pkgtypes "github.com/kserve/kserve/pkg/types"
@@ -485,6 +491,208 @@ func TestMountODHCustomCABundleReadError(t *testing.T) {
 	if err := reconciler.mountODHCustomCABundle(context.Background(), job); err == nil {
 		t.Fatal("expected ConfigMap read error to stop Job creation and trigger reconcile retry")
 	}
+}
+
+// newFakeClusterClientset stands in for the reconciler's Clientset field, whose
+// concrete *kubernetes.Clientset type cannot be replaced by client-go fakes. It
+// serves the namespace carrying the given OpenShift MCS annotation, which
+// enhanceDownloadJob resolves through resolveMCSLevel.
+func newFakeClusterClientset(t *testing.T, namespace, mcsLevel string) *kubernetes.Clientset {
+	t.Helper()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/namespaces/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(&corev1.Namespace{
+			TypeMeta:   metav1.TypeMeta{APIVersion: "v1", Kind: "Namespace"},
+			ObjectMeta: metav1.ObjectMeta{Name: namespace, Annotations: map[string]string{"openshift.io/sa.scc.mcs": mcsLevel}},
+		})
+	})
+	server := httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+	// An explicit content type keeps client-gen's protobuf default from kicking
+	// in, so the handler above sees and returns JSON.
+	clientset, err := kubernetes.NewForConfig(&rest.Config{
+		Host:          server.URL,
+		ContentConfig: rest.ContentConfig{ContentType: "application/json"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return clientset
+}
+
+// downloadPolicySelector mirrors the podSelector of the static
+// kserve-localmodel-download NetworkPolicy in
+// config/overlays/odh-modelcache/network-policies.yaml.
+func downloadPolicySelector(t *testing.T) labels.Selector {
+	t.Helper()
+	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
+		MatchLabels: map[string]string{constants.DownloadJobLabelKey: constants.DownloadJobLabelValueNode},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return selector
+}
+
+func TestEnhanceDownloadJob(t *testing.T) {
+	const sourceNamespace = "applications-enhance-test"
+	const cacheNamespace = "model-serving-cache"
+	const storageKey = "0123456789abcdef"
+	const sourceModelUri = "s3://mybucket/mymodel"
+	t.Setenv(controllerutils.KServeConfigNamespaceEnv, sourceNamespace)
+
+	oldJobNamespace, oldStorageConfig, oldFSGroup := jobNamespace, storageInitializerConfig, FSGroup
+	t.Cleanup(func() {
+		jobNamespace, storageInitializerConfig, FSGroup = oldJobNamespace, oldStorageConfig, oldFSGroup
+	})
+	jobNamespace = cacheNamespace
+	storageInitializerConfig = nil
+	FSGroup = nil
+	clientset := newFakeClusterClientset(t, cacheNamespace, "s0:c1,c2")
+
+	newReconciler := func(t *testing.T) *LocalModelNodeReconciler {
+		t.Helper()
+		scheme := runtime.NewScheme()
+		if err := corev1.AddToScheme(scheme); err != nil {
+			t.Fatal(err)
+		}
+		reader := fake.NewClientBuilder().WithScheme(scheme).Build()
+		return &LocalModelNodeReconciler{
+			APIReader: reader,
+			Clientset: clientset,
+			Log:       ctrl.Log.WithName("enhance-download-test"),
+		}
+	}
+
+	// downloadJob mirrors the Job launchJob builds before enhanceDownloadJob runs,
+	// trimmed to what the hook needs: a container with args and volume mounts plus
+	// caller-set template metadata that must survive the label merge.
+	downloadJob := func(templateLabels, templateAnnotations map[string]string) *batchv1.Job {
+		return &batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{
+				GenerateName: "model-iris-gpu-",
+				Namespace:    cacheNamespace,
+				Labels:       map[string]string{"model": "iris", "node": "worker-1"},
+			},
+			Spec: batchv1.JobSpec{
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{Labels: templateLabels, Annotations: templateAnnotations},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{{
+							Name: jobs.DownloadContainerName,
+							Args: []string{sourceModelUri, MountPath},
+							VolumeMounts: []corev1.VolumeMount{{
+								Name:      constants.PvcSourceMountName,
+								MountPath: MountPath,
+								SubPath:   filepath.Join("models", storageKey),
+							}},
+						}},
+					},
+				},
+			},
+		}
+	}
+
+	// The literal label maps below are the selector values of the overlay's
+	// kserve-localmodel-download NetworkPolicy: asserting them here keeps the Go
+	// constants equal to the manifest literals, which kserve-module's render test
+	// pins independently (it cannot import this module's constants).
+	t.Run("merges the node download label without replacing template metadata", func(t *testing.T) {
+		job := downloadJob(
+			map[string]string{"model": "iris", "node": "worker-1"},
+			map[string]string{"note": "caller-owned"},
+		)
+		if err := newReconciler(t).enhanceDownloadJob(context.Background(), job, storageKey); err != nil {
+			t.Fatal(err)
+		}
+
+		wantLabels := map[string]string{
+			"model":                                 "iris",
+			"node":                                  "worker-1",
+			"serving.kserve.io/localmodel-download": "node",
+		}
+		if !reflect.DeepEqual(job.Spec.Template.Labels, wantLabels) {
+			t.Fatalf("pod template labels = %#v, want the download label merged with the caller's", job.Spec.Template.Labels)
+		}
+		if job.Spec.Template.Annotations["note"] != "caller-owned" {
+			t.Fatalf("template annotations were not preserved: %#v", job.Spec.Template.Annotations)
+		}
+		if len(job.Labels) != 2 || job.Labels["model"] != "iris" || job.Labels["node"] != "worker-1" {
+			t.Fatalf("Job object labels must stay untouched: %#v", job.Labels)
+		}
+	})
+
+	t.Run("stamps the label when the template has no labels", func(t *testing.T) {
+		job := downloadJob(nil, nil)
+		if err := newReconciler(t).enhanceDownloadJob(context.Background(), job, storageKey); err != nil {
+			t.Fatal(err)
+		}
+		wantLabels := map[string]string{"serving.kserve.io/localmodel-download": "node"}
+		if !reflect.DeepEqual(job.Spec.Template.Labels, wantLabels) {
+			t.Fatalf("pod template labels = %#v, want exactly the download label", job.Spec.Template.Labels)
+		}
+	})
+
+	t.Run("policy selector matches only per-node download pods", func(t *testing.T) {
+		selector := downloadPolicySelector(t)
+
+		job := downloadJob(nil, nil)
+		if err := newReconciler(t).enhanceDownloadJob(context.Background(), job, storageKey); err != nil {
+			t.Fatal(err)
+		}
+		if !selector.Matches(labels.Set(job.Spec.Template.Labels)) {
+			t.Fatalf("stamped download pod labels must match the policy selector: %#v", job.Spec.Template.Labels)
+		}
+
+		for _, tt := range []struct {
+			name      string
+			podLabels map[string]string
+		}{
+			{
+				// launchPermissionFixJob puts these on the Job object and leaves the pod
+				// template unlabeled (platform_odh.go).
+				name:      "permission fix job",
+				podLabels: map[string]string{"fix-permissions": "true", "node": "worker-1"},
+			},
+			{
+				// kserve-localmodelnode-agent DaemonSet pod template
+				// (charts/kserve-localmodel-resources/files/resources.yaml).
+				name: "node agent pod",
+				podLabels: map[string]string{
+					"app.kubernetes.io/name":  "kserve-localmodelnode-agent",
+					"control-plane":           "kserve-localmodelnode-agent",
+					"controller-tools.k8s.io": "1.0",
+				},
+			},
+			{
+				// Shared-PVC import Job pod templates carry the shared-pvc download role
+				// plus the cache identity (reconcilers/sharedpvc_platform_odh.go); the
+				// node policy selects only the node role.
+				name: "shared pvc import job",
+				podLabels: map[string]string{
+					constants.DownloadJobLabelKey: constants.DownloadJobLabelValueSharedPVC,
+					constants.LocalModelLabel:     "iris",
+				},
+			},
+			{
+				// InferenceService predictor pods carry app and component labels
+				// (pkg/controller/v1beta1/inferenceservice/components/predictor.go).
+				name: "serving pod",
+				podLabels: map[string]string{
+					"serving.kserve.io/inferenceservice": "iris",
+					"component":                          "predictor",
+					"app":                                "iris-predictor-default",
+				},
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				if selector.Matches(labels.Set(tt.podLabels)) {
+					t.Fatalf("download policy selector must not match %s labels %v", tt.name, tt.podLabels)
+				}
+			})
+		}
+	})
 }
 
 var _ = Describe("LocalModelNode OCP platform hooks", func() {
