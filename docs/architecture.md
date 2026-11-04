@@ -104,6 +104,23 @@ rules (`tracing_network_policy_odh.go`); its selector need not match the stored-
 Permissions from selecting policies are additive. Overlapping selectors across services remain a
 deferred limitation (see `docs/odh/llmisvc-networkpolicy-design.md`).
 
+#### Standalone PVC evictors
+
+Standalone `pvc.ref` evictors have a separate Deployment-owned deny-all policy,
+not an entry in the seven-component inventory. The generic
+`postReconcilePVCEvictors()` hook runs immediately after shared-evictor
+reconciliation (even on partial failure), before router/monitoring reconciliation.
+Its distro implementation copies validated stored selectors, sets both policy
+types with no rules, and watches policies for repair. No Pod labels/templates change.
+
+The Deployment UID owns each policy because services can share an evictor.
+Existing evictor cleanup deletes unreferenced Deployments; Kubernetes GC removes
+their policies. Per-service policy finalization never prunes shared evictor policies.
+Default/strict and tracing changes do not alter this baseline. The policy kill
+switch suppresses creation/repair, not retroactive deletion; monitoring disablement
+does not suppress it. See [standalone evictor policies](odh/standalone-evictor-networkpolicies.md)
+for custom-network exceptions, selector constraints, and enforcement limits.
+
 #### Replacement, failures, and migration
 
 - Establish the complete desired ingress set before pruning stale ingress names.

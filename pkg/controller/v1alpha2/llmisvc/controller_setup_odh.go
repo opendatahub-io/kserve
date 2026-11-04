@@ -48,6 +48,8 @@ import (
 
 func (r *LLMISVCReconciler) extendControllerSetup(mgr manager.Manager, b *builder.Builder) error {
 	b.Owns(&netv1.NetworkPolicy{}, builder.WithPredicates(childResourcesPredicate))
+	b.Watches(&netv1.NetworkPolicy{}, r.enqueueOnPVCEvictorResourceChange(),
+		builder.WithPredicates(pvcEvictorNetworkPolicyPredicate()))
 	if err := setupTracingServiceIndexes(context.Background(), mgr.GetFieldIndexer()); err != nil {
 		return err
 	}
