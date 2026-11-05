@@ -11,13 +11,13 @@ spec:
     - Ingress
     - Egress
   ingress:
-    # OpenShift's host-network group is the intended source for API-server
-    # webhook calls and kubelet probes; confirm the source on target clusters.
+    # Allow API-server webhooks and kubelet probes from host-network sources.
+    # Omit the peer podSelector: OVN needs the special namespace address set,
+    # not an empty pod address set for the synthetic host-network namespace.
     - from:
         - namespaceSelector:
             matchLabels:
               policy-group.network.openshift.io/host-network: ""
-          podSelector: {}
       ports:
         - protocol: TCP
           port: 9443
