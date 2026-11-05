@@ -2666,16 +2666,81 @@ func TestSetManagedAuthProxyTLSArgsPreservesUnmanagedArgs(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, setManagedAuthProxyTLSArgs(deployment, desiredAuthProxyTLSArgs(distrotls.WorkloadTLSArgs{
+	desiredArgs, err := desiredAuthProxyTLSArgs(distrotls.WorkloadTLSArgs{
 		MinVersion: "VersionTLS13",
 		CurveIDs:   "23,29",
-	})))
+	})
+	require.NoError(t, err)
+	require.NoError(t, setManagedAuthProxyTLSArgs(deployment, desiredArgs))
 	assert.Equal(t, []string{
 		"--upstream=http://localhost:8080",
 		"--audit-future-option=keep-me",
 		"--tls-min-version=VersionTLS13",
 		"--tls-curve-preferences=23,29",
 	}, deployment.Spec.Template.Spec.Containers[0].Args)
+}
+
+func TestDesiredAuthProxyTLSArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		desired  distrotls.WorkloadTLSArgs
+		wantArgs []string
+		wantErr  bool
+	}{
+		{
+			name: "TLS 1.2 AES-256-only cipher list is rejected",
+			desired: distrotls.WorkloadTLSArgs{
+				MinVersion:   "VersionTLS12",
+				CipherSuites: "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+			},
+			wantErr: true,
+		},
+		{
+			name: "TLS 1.2 AES-128-GCM cipher list is accepted",
+			desired: distrotls.WorkloadTLSArgs{
+				MinVersion:   "VersionTLS12",
+				CipherSuites: "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+			},
+			wantArgs: []string{
+				"--tls-min-version=VersionTLS12",
+				"--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+			},
+		},
+		{
+			name: "empty cipher list is accepted",
+			desired: distrotls.WorkloadTLSArgs{
+				MinVersion: "VersionTLS12",
+			},
+			wantArgs: []string{"--tls-min-version=VersionTLS12"},
+		},
+		{
+			name: "TLS 1.3 is accepted",
+			desired: distrotls.WorkloadTLSArgs{
+				MinVersion:   "VersionTLS13",
+				CipherSuites: "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+			},
+			wantArgs: []string{
+				"--tls-min-version=VersionTLS13",
+				"--tls-cipher-suites=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := desiredAuthProxyTLSArgs(tt.desired)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "auth proxy cannot serve HTTP/2")
+				assert.Contains(t, err.Error(), "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256")
+				assert.Contains(t, err.Error(), "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256")
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantArgs, got)
+		})
+	}
 }
 
 func TestCreateRawDeploymentODHPreservesAnnotationlessConfiguredProxy(t *testing.T) {
