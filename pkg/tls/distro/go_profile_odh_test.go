@@ -54,6 +54,7 @@ func TestInjectGoTLSArgs(t *testing.T) {
 		TLSProfileSpec: configv1.TLSProfileSpec{
 			MinTLSVersion: configv1.VersionTLS12,
 			Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256", "ECDHE-RSA-AES256-GCM-SHA384"},
+			Groups:        []configv1.TLSGroup{configv1.TLSGroupSecP256r1, configv1.TLSGroupX25519},
 		},
 	}}
 	modern := &configv1.TLSSecurityProfile{Type: configv1.TLSProfileModernType}
@@ -65,17 +66,21 @@ func TestInjectGoTLSArgs(t *testing.T) {
 		wantError bool
 	}{
 		{
-			name:   "strict custom TLS 1.2 profile projects version and cipher suites",
+			name:   "strict custom TLS 1.2 profile projects version, cipher suites and curves",
 			reader: goProfileReader(t, configv1.TLSAdherencePolicyStrictAllComponents, customTLS12),
 			wantArgs: []string{
 				"--tls-min-version", "VersionTLS12",
 				"--tls-cipher-suites", "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+				"--tls-curve-preferences", "23,29",
 			},
 		},
 		{
-			name:     "strict Modern profile omits cipher suites because TLS 1.3 manages them internally",
-			reader:   goProfileReader(t, configv1.TLSAdherencePolicyStrictAllComponents, modern),
-			wantArgs: []string{"--tls-min-version", "VersionTLS13"},
+			name:   "strict Modern profile omits cipher suites because TLS 1.3 manages them internally",
+			reader: goProfileReader(t, configv1.TLSAdherencePolicyStrictAllComponents, modern),
+			wantArgs: []string{
+				"--tls-min-version", "VersionTLS13",
+				"--tls-curve-preferences", "4588,29,23,24",
+			},
 		},
 		{
 			name:     "legacy adherence keeps workload defaults",
@@ -88,9 +93,12 @@ func TestInjectGoTLSArgs(t *testing.T) {
 			wantArgs: nil,
 		},
 		{
-			name:     "unknown adherence is treated as strict",
-			reader:   goProfileReader(t, configv1.TLSAdherencePolicy("UnknownAdherence"), modern),
-			wantArgs: []string{"--tls-min-version", "VersionTLS13"},
+			name:   "unknown adherence is treated as strict",
+			reader: goProfileReader(t, configv1.TLSAdherencePolicy("UnknownAdherence"), modern),
+			wantArgs: []string{
+				"--tls-min-version", "VersionTLS13",
+				"--tls-curve-preferences", "4588,29,23,24",
+			},
 		},
 		{
 			name:   "nil APIServer profile resolves to the Intermediate profile",
@@ -98,6 +106,7 @@ func TestInjectGoTLSArgs(t *testing.T) {
 			wantArgs: []string{
 				"--tls-min-version", "VersionTLS12",
 				"--tls-cipher-suites", "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+				"--tls-curve-preferences", "4588,29,23,24",
 			},
 		},
 	}

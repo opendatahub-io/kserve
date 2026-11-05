@@ -30,7 +30,9 @@ import (
 // InjectPythonTLSProfile: the workload does not resolve or watch the cluster
 // profile itself; its owner reconciles and passes the resolved values.
 // Cipher suites are omitted for TLS 1.3 profiles because crypto/tls manages
-// TLS 1.3 cipher selection internally. Workloads keep their serving defaults
+// TLS 1.3 cipher selection internally. Curve preferences are projected as
+// decimal crypto/tls CurveID values when the profile specifies groups.
+// Workloads keep their serving defaults
 // when adherence is NoOpinion or LegacyAdheringComponentsOnly, or when the
 // APIServer object is unavailable (including non-OpenShift clusters). Read
 // errors fail the reconciliation so a missing RBAC grant is visible.
@@ -48,6 +50,9 @@ func InjectGoTLSArgs(ctx context.Context, reader client.Reader, container *corev
 	container.Args = append(container.Args, "--tls-min-version", workloadTLS.MinVersion)
 	if workloadTLS.CipherSuites != "" {
 		container.Args = append(container.Args, "--tls-cipher-suites", workloadTLS.CipherSuites)
+	}
+	if workloadTLS.CurveIDs != "" {
+		container.Args = append(container.Args, "--tls-curve-preferences", workloadTLS.CurveIDs)
 	}
 	return nil
 }

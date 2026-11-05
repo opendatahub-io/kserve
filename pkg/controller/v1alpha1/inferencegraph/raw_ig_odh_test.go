@@ -21,6 +21,7 @@ package inferencegraph
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -288,10 +289,47 @@ func TestCustomizeRouterPodSpecProjectsClusterTLSProfile(t *testing.T) {
 	router := podSpec.Containers[0]
 	require.Equal(t, "--enable-tls", router.Args[0])
 	// The profile args follow the graph JSON argument.
-	require.Equal(t, "--tls-min-version", router.Args[len(router.Args)-2])
-	require.Equal(t, "VersionTLS13", router.Args[len(router.Args)-1])
+	minIdx := slices.Index(router.Args, "--tls-min-version")
+	require.NotEqual(t, -1, minIdx)
+	require.Equal(t, "VersionTLS13", router.Args[minIdx+1])
+	curveIdx := slices.Index(router.Args, "--tls-curve-preferences")
+	require.NotEqual(t, -1, curveIdx)
+	require.Equal(t, "4588,29,23,24", router.Args[curveIdx+1])
 	// TLS 1.3 manages cipher selection internally, so no cipher flag is added.
 	require.NotContains(t, router.Args, "--tls-cipher-suites")
+}
+
+func TestCustomizeRouterPodSpecRespectsAdherenceGate(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+
+	tests := []struct {
+		name      string
+		adherence configv1.TLSAdherencePolicy
+	}{
+		{"NoOpinion", configv1.TLSAdherencePolicyNoOpinion},
+		{"Legacy", configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1.APIServerSpec{
+					TLSAdherence:       tt.adherence,
+					TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileModernType},
+				},
+			}).Build()
+
+			podSpec := createInferenceGraphPodSpec(odhTestGraph(nil, ""), &odhTestRouterConfig)
+			require.NoError(t, customizeRouterPodSpec(context.Background(), reader, odhTestGraph(nil, ""), podSpec))
+
+			router := podSpec.Containers[0]
+			require.Equal(t, "--enable-tls", router.Args[0])
+			require.NotContains(t, router.Args, "--tls-min-version")
+			require.NotContains(t, router.Args, "--tls-cipher-suites")
+			require.NotContains(t, router.Args, "--tls-curve-preferences")
+		})
+	}
 }
 
 func TestCustomizeRouterPodSpecRollsPodTemplateOnProfileChange(t *testing.T) {

@@ -486,8 +486,12 @@ func readyHandler(w http.ResponseWriter, req *http.Request) {
 // the router's HTTPS listener. Empty flags keep the Go serving defaults. The
 // router serves HTTP/1.1 only, so ALPN is restricted to http/1.1; advertising
 // h2 would let clients negotiate a protocol this server does not serve.
-func routerTLSConfig(tlsMinVersion, tlsCipherSuites string) (*tls.Config, error) {
+func routerTLSConfig(tlsMinVersion, tlsCipherSuites, tlsCurvePreferences string) (*tls.Config, error) {
 	if err := kservetls.Validate(tlsMinVersion, tlsCipherSuites); err != nil {
+		return nil, err
+	}
+	curvePreferences, err := parseCurvePreferences(tlsCurvePreferences)
+	if err != nil {
 		return nil, err
 	}
 	opts, err := kservetls.Resolve(tlsMinVersion, tlsCipherSuites)
@@ -500,16 +504,43 @@ func routerTLSConfig(tlsMinVersion, tlsCipherSuites string) (*tls.Config, error)
 	for _, opt := range opts {
 		opt(tlsConfig)
 	}
+	if len(curvePreferences) > 0 {
+		tlsConfig.CurvePreferences = curvePreferences
+	}
 	tlsConfig.NextProtos = []string{"http/1.1"}
 	return tlsConfig, nil
+}
+
+// parseCurvePreferences parses the decimal crypto/tls CurveID list projected
+// from the cluster TLS profile. Empty input keeps the Go defaults.
+func parseCurvePreferences(value string) ([]tls.CurveID, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	parts := strings.Split(value, ",")
+	curves := make([]tls.CurveID, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			return nil, goerrors.New("TLS curve preferences list contains an empty entry")
+		}
+		id, err := strconv.ParseUint(part, 10, 16)
+		if err != nil || id == 0 {
+			return nil, fmt.Errorf("invalid TLS curve preference %q: expected a nonzero decimal curve ID", part)
+		}
+		curves = append(curves, tls.CurveID(id))
+	}
+	return curves, nil
 }
 
 // newRouterServer builds the router's HTTP server from the parsed flags. The
 // TLS flags are validated even when TLS is disabled: garbage values fail fast
 // instead of silently serving defaults. The server below carries a TLSConfig
-// populated from validated --tls-min-version and --tls-cipher-suites flags
-// (routerTLSConfig), not a profile override: empty flags keep the Go serving
-// defaults, and resolved values come from the caller-projected cluster policy.
+// populated from validated --tls-min-version, --tls-cipher-suites and
+// --tls-curve-preferences flags (routerTLSConfig), not a profile override:
+// empty flags keep the Go serving defaults, and resolved values come from the
+// caller-projected cluster policy.
 func newRouterServer() (*http.Server, error) {
 	server := &http.Server{ // nosemgrep: go-http-server-tls-override
 		Addr:         ":" + strconv.Itoa(constants.RouterPort),
@@ -518,7 +549,7 @@ func newRouterServer() (*http.Server, error) {
 		WriteTimeout: time.Duration(*routerTimeouts.ServerWrite) * time.Second, // set the maximum duration before timing out writes of the response
 		IdleTimeout:  time.Duration(*routerTimeouts.ServerIdle) * time.Second,  // set the maximum amount of time to wait for the next request when keep-alives are enabled
 	}
-	tlsConfig, err := routerTLSConfig(*tlsMinVersionFlag, *tlsCipherSuitesFlag)
+	tlsConfig, err := routerTLSConfig(*tlsMinVersionFlag, *tlsCipherSuitesFlag, *tlsCurvePreferencesFlag)
 	if err != nil {
 		return nil, err
 	}
@@ -535,19 +566,20 @@ func newRouterServer() (*http.Server, error) {
 }
 
 var (
-	enableTlsFlag                                       = flag.Bool("enable-tls", false, "enable TLS for the router")
-	tlsMinVersionFlag                                   = flag.String("tls-min-version", "", "minimum TLS version for the router's HTTPS listener (e.g. VersionTLS12); empty keeps the Go default")
-	tlsCipherSuitesFlag                                 = flag.String("tls-cipher-suites", "", "comma-separated cipher suites for the router's HTTPS listener (crypto/tls constant names); empty keeps the Go default. Cipher suites cannot be configured with TLS 1.3")
-	enableAuthFlag                                      = flag.Bool("enable-auth", false, "protect the inference graph with authorization")
-	graphName                                           = flag.String("inferencegraph-name", "", "the name of the associated inference graph Kubernetes resource")
-	jsonGraph                                           = flag.String("graph-json", "", "serialized json graph def")
-	inferenceGraph         *v1alpha1.InferenceGraphSpec = nil
-	compiledHeaderPatterns []*regexp.Regexp
-	isShuttingDown                                               = false
-	drainSleepDuration                                           = 30 * time.Second
-	routerTimeouts         *v1alpha1.InfereceGraphRouterTimeouts = nil
-	log                                                          = logf.Log.WithName("InferenceGraphRouter")
-	signalChan                                                   = make(chan os.Signal, 1)
+	enableTlsFlag                                        = flag.Bool("enable-tls", false, "enable TLS for the router")
+	tlsMinVersionFlag                                    = flag.String("tls-min-version", "", "minimum TLS version for the router's HTTPS listener (e.g. VersionTLS12); empty keeps the Go default")
+	tlsCipherSuitesFlag                                  = flag.String("tls-cipher-suites", "", "comma-separated cipher suites for the router's HTTPS listener (crypto/tls constant names); empty keeps the Go default. Cipher suites cannot be configured with TLS 1.3")
+	tlsCurvePreferencesFlag                              = flag.String("tls-curve-preferences", "", "comma-separated decimal TLS curve IDs for the router's HTTPS listener (crypto/tls CurveID values, e.g. 4588,29); empty keeps the Go default")
+	enableAuthFlag                                       = flag.Bool("enable-auth", false, "protect the inference graph with authorization")
+	graphName                                            = flag.String("inferencegraph-name", "", "the name of the associated inference graph Kubernetes resource")
+	jsonGraph                                            = flag.String("graph-json", "", "serialized json graph def")
+	inferenceGraph          *v1alpha1.InferenceGraphSpec = nil
+	compiledHeaderPatterns  []*regexp.Regexp
+	isShuttingDown                                                = false
+	drainSleepDuration                                            = 30 * time.Second
+	routerTimeouts          *v1alpha1.InfereceGraphRouterTimeouts = nil
+	log                                                           = logf.Log.WithName("InferenceGraphRouter")
+	signalChan                                                    = make(chan os.Signal, 1)
 )
 
 // findBearerToken parses the standard HTTP Authorization header to find and return
