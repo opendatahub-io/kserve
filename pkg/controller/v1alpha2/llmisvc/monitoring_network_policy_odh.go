@@ -20,23 +20,14 @@ package llmisvc
 
 import (
 	"context"
-	"errors"
-	"fmt"
 
-	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/utils/env"
-	"knative.dev/pkg/kmeta"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
-	"github.com/kserve/kserve/pkg/utils"
 )
 
 const (
@@ -106,29 +97,53 @@ func ingressNamespace(config *Config) string {
 	return constants.KServeNamespace
 }
 
-func monitoringNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
-	return kmeta.ChildName(llmSvc.GetName(), "-prometheus-scraping")
-}
-
-// gatewayPeerNamespaces is the managed Gateway namespace plus any
-// spec.router.gateway.refs namespaces that are not this service's namespace.
-// Same-namespace Gateways are already allowed by the intra-namespace rule.
+// gatewayPeerNamespaces returns the namespaces that can contain the Gateway
+// serving this LLMISVC. Gateway API references do not carry a portable source
+// Pod selector, so these namespace-only peers are a temporary, documented
+// exception. Keep the list limited to configured Gateway namespaces; policy
+// builders decide which destination ports are allowed.
 func gatewayPeerNamespaces(llmSvc *v1alpha2.LLMInferenceService, ingressNs string) []string {
 	if ingressNs == "" {
 		ingressNs = constants.KServeNamespace
 	}
-	seen := map[string]struct{}{ingressNs: {}}
-	out := []string{ingressNs}
-	if llmSvc == nil || llmSvc.Spec.Router == nil || !llmSvc.Spec.Router.Gateway.HasRefs() {
-		return out
+	if llmSvc == nil || llmSvc.Spec.Router == nil {
+		// A service without router configuration has no Gateway route. Do not
+		// admit the cluster Gateway namespace just because the controller has a
+		// configured default Gateway.
+		return nil
 	}
-	svcNs := llmSvc.GetNamespace()
+	// Inspect route parents before falling back to the managed Gateway. A
+	// non-nil but empty Gateway stanza is commonly used with an inline or
+	// referenced HTTPRoute and must not silently reintroduce the default
+	// namespace when the route names a different parent.
+	if llmSvc.Spec.Router.Route != nil && llmSvc.Spec.Router.Route.HTTP != nil {
+		if parents := routeParentNamespaces(llmSvc); len(parents) > 0 {
+			return parents
+		}
+		if llmSvc.Spec.Router.Route.HTTP.HasRefs() {
+			// Referenced HTTPRoutes are resolved by the reconciler, which can
+			// inspect their parentRefs. Do not guess the managed namespace.
+			return nil
+		}
+	}
+	if llmSvc.Spec.Router.Gateway == nil {
+		return nil
+	}
+	// An absent gateway ref means the managed global Gateway is the route
+	// parent. Once refs are present, only those referenced namespaces are
+	// callers; admitting the managed namespace as well would grant access to a
+	// Gateway that the service does not use.
+	if !llmSvc.Spec.Router.Gateway.HasRefs() {
+		return []string{ingressNs}
+	}
+	seen := map[string]struct{}{}
+	out := []string{}
 	for _, ref := range llmSvc.Spec.Router.Gateway.Refs {
 		ns := string(ref.Namespace)
 		if ns == "" {
-			ns = svcNs
+			ns = llmSvc.GetNamespace()
 		}
-		if ns == "" || ns == svcNs {
+		if ns == "" {
 			continue
 		}
 		if _, ok := seen[ns]; ok {
@@ -138,6 +153,30 @@ func gatewayPeerNamespaces(llmSvc *v1alpha2.LLMInferenceService, ingressNs strin
 		out = append(out, ns)
 	}
 	return out
+}
+
+// routeParentNamespaces returns explicit parent namespaces from an inline
+// HTTPRoute specification. An omitted namespace means the LLMISVC namespace
+// according to Gateway API parentRef semantics.
+func routeParentNamespaces(llmSvc *v1alpha2.LLMInferenceService) []string {
+	if llmSvc == nil || llmSvc.Spec.Router == nil || llmSvc.Spec.Router.Route == nil ||
+		llmSvc.Spec.Router.Route.HTTP == nil || !llmSvc.Spec.Router.Route.HTTP.HasSpec() {
+		return nil
+	}
+	namespaces := make([]string, 0, len(llmSvc.Spec.Router.Route.HTTP.Spec.ParentRefs))
+	for _, ref := range llmSvc.Spec.Router.Route.HTTP.Spec.ParentRefs {
+		if ref.Kind != nil && string(*ref.Kind) != "Gateway" {
+			continue
+		}
+		ns := llmSvc.GetNamespace()
+		if ref.Namespace != nil && string(*ref.Namespace) != "" {
+			ns = string(*ref.Namespace)
+		}
+		if ns != "" {
+			namespaces = append(namespaces, ns)
+		}
+	}
+	return uniqueNamespaces(namespaces...)
 }
 
 func namespaceSelectorPeer(ns string) netv1.NetworkPolicyPeer {
@@ -150,167 +189,11 @@ func namespaceSelectorPeer(ns string) netv1.NetworkPolicyPeer {
 	}
 }
 
-// reconcileNetworkPolicies reconciles the distro-specific per-service network
-// policies. It runs before the monitoring-disabled guard so tracing policy
-// reconciliation remains independent of monitoring resource reconciliation.
 func (r *LLMISVCReconciler) reconcileNetworkPolicies(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService, config *Config) error {
-	logger := log.FromContext(ctx).WithName("reconcileNetworkPolicies")
-
-	if err := r.reconcileTracingNetworkPolicy(ctx, llmSvc); err != nil {
-		var notOwnedErr *tracingNetworkPolicyNotOwnedError
-		if errors.As(err, &notOwnedErr) {
-			r.Eventf(llmSvc, corev1.EventTypeWarning, tracingNetworkPolicyNotOwnedReason,
-				"Tracing NetworkPolicy ownership conflict; leaving it unchanged and continuing monitoring reconciliation: %v",
-				notOwnedErr)
-		} else {
-			return fmt.Errorf("failed to reconcile tracing network policy: %w", err)
-		}
-	}
-	if monitoringDisabled {
-		return nil
-	}
-
-	if utils.GetForceStopRuntime(llmSvc) {
-		return r.deleteOwnedMonitoringNetworkPolicy(ctx, llmSvc)
-	}
-
-	if config == nil || !config.FeatureGates.MonitoringIngressNetworkPolicy {
-		return r.deleteOwnedMonitoringNetworkPolicy(ctx, llmSvc)
-	}
-
-	logger.Info("Reconciling monitoring NetworkPolicy for Prometheus scraping")
-
-	expected := expectedMonitoringNetworkPolicy(llmSvc, ingressNamespace(config), config)
-	if err := Reconcile(ctx, r, llmSvc, &netv1.NetworkPolicy{}, expected, semanticNetworkPolicyIsEqual); err != nil {
-		return fmt.Errorf("failed to reconcile monitoring network policy %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-	}
-
-	return nil
-}
-
-// deleteOwnedMonitoringNetworkPolicy removes the per-service monitoring policy
-// when the gate is off or the runtime is force-stopped. A same-name policy not
-// controlled by this LLMInferenceService is left unchanged and surfaced as a warning.
-func (r *LLMISVCReconciler) deleteOwnedMonitoringNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
-	expected := expectedMonitoringNetworkPolicy(llmSvc, "", nil)
-	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, llmSvc, expected); err != nil {
-		if isTracingNetworkPolicyOwnershipConflict(err, expected, llmSvc) {
-			r.Eventf(llmSvc, corev1.EventTypeWarning, monitoringNetworkPolicyNotOwnedReason,
-				"Monitoring NetworkPolicy %s/%s is not controlled by this LLMInferenceService; leaving it unchanged",
-				expected.GetNamespace(), expected.GetName())
-			return nil
-		}
-		return fmt.Errorf("failed to delete monitoring network policy: %w", err)
-	}
-	return nil
-}
-
-func (r *LLMISVCReconciler) cleanupMonitoringNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
-	expected := expectedMonitoringNetworkPolicy(llmSvc, "", nil)
-	existing := &netv1.NetworkPolicy{}
-	if err := r.Get(ctx, client.ObjectKeyFromObject(expected), existing); err != nil {
-		if apierrors.IsNotFound(err) {
-			return nil
-		}
-		return fmt.Errorf("failed to get monitoring network policy %s/%s: %w", expected.GetNamespace(), expected.GetName(), err)
-	}
-	if !metav1.IsControlledBy(existing, llmSvc) {
-		return nil
-	}
-	// Owner is nil so Delete actually removes the object during finalize.
-	// envtest has no GC, and Delete skips work when the owner is deleting.
-	if err := Delete[*v1alpha2.LLMInferenceService](ctx, r, nil, expected); err != nil {
-		return fmt.Errorf("failed to delete monitoring network policy: %w", err)
-	}
-	return nil
-}
-
-// expectedMonitoringNetworkPolicy returns a per-service NetworkPolicy that allows:
-//  1. Prometheus in Platform Monitoring, User Workload Monitoring, and the
-//     RHOAI/DSCI workload monitoring namespace (from config, MONITORING_NAMESPACE
-//     env, or redhat-ods-monitoring) to scrape metrics on ports 8000 & 9090
-//  2. The managed Gateway and any cross-namespace spec.router.gateway.refs to reach vLLM (8000)
-//     and EPP ext_proc (9002)
-//  3. All pods within the namespace to communicate on any port (intra-namespace service-to-service)
-func expectedMonitoringNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, ingressNs string, config *Config) *netv1.NetworkPolicy {
-	vllmPort := intstr.FromInt32(8000)
-	eppExtProcPort := intstr.FromInt32(9002)
-	metricsPort := intstr.FromInt32(9090)
-	tcp := corev1.ProtocolTCP
-
-	peerNs := gatewayPeerNamespaces(llmSvc, ingressNs)
-	gatewayPeers := make([]netv1.NetworkPolicyPeer, 0, len(peerNs))
-	for _, ns := range peerNs {
-		gatewayPeers = append(gatewayPeers, namespaceSelectorPeer(ns))
-	}
-
-	promNs := prometheusPeerNamespaces(config)
-	prometheusPeers := make([]netv1.NetworkPolicyPeer, 0, len(promNs))
-	for _, ns := range promNs {
-		prometheusPeers = append(prometheusPeers, namespaceSelectorPeer(ns))
-	}
-
-	return &netv1.NetworkPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      monitoringNetworkPolicyName(llmSvc),
-			Namespace: llmSvc.GetNamespace(),
-			Labels: map[string]string{
-				constants.KubernetesComponentLabelKey: "llm-monitoring",
-				constants.KubernetesPartOfLabelKey:    constants.LLMInferenceServicePartOfValue,
-				constants.KubernetesAppNameLabelKey:   llmSvc.GetName(),
-			},
-			OwnerReferences: []metav1.OwnerReference{
-				*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
-			},
-		},
-		Spec: netv1.NetworkPolicySpec{
-			PodSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{
-					constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
-					constants.KubernetesAppNameLabelKey: llmSvc.GetName(),
-				},
-			},
-			PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
-			Ingress: []netv1.NetworkPolicyIngressRule{
-				// Allow Prometheus scraping from Platform, UWM, RHOAI monitoring, and any extra MONITORING_NAMESPACE
-				{
-					From: prometheusPeers,
-					Ports: []netv1.NetworkPolicyPort{
-						{
-							Protocol: &tcp,
-							Port:     &vllmPort,
-						},
-						{
-							Protocol: &tcp,
-							Port:     &metricsPort,
-						},
-					},
-				},
-				// Allow managed Gateway and cross-namespace custom gateway.refs
-				{
-					From: gatewayPeers,
-					Ports: []netv1.NetworkPolicyPort{
-						{
-							Protocol: &tcp,
-							Port:     &vllmPort,
-						},
-						{
-							Protocol: &tcp,
-							Port:     &eppExtProcPort,
-						},
-					},
-				},
-				// Allow all pods within the namespace to communicate on any port
-				{
-					From: []netv1.NetworkPolicyPeer{
-						{
-							PodSelector: &metav1.LabelSelector{},
-						},
-					},
-				},
-			},
-		},
-	}
+	// Baseline policies are independent of Prometheus resource reconciliation,
+	// so LLMISVC_MONITORING_DISABLED only removes monitoring peers; it must not
+	// disable workload policy coverage.
+	return reconcileLLMISVCNetworkPolicies(ctx, r, llmSvc, config)
 }
 
 func semanticNetworkPolicyIsEqual(expected *netv1.NetworkPolicy, current *netv1.NetworkPolicy) bool {

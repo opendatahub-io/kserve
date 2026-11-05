@@ -70,12 +70,19 @@ metadata:
   name: kserve-controller-manager-service
   namespace: opendatahub
 ---
-# Remove NetworkPolicy
+# Remove NetworkPolicies
 $patch: delete
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: kserve-controller-manager
+  namespace: opendatahub
+---
+$patch: delete
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: llmisvc-controller-manager
   namespace: opendatahub
 ---
 # Remove kserve webhook service (llmisvc has its own)
