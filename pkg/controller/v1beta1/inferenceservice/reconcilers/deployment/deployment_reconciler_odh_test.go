@@ -691,6 +691,7 @@ type mockClientForAuthProxyDetection struct {
 	deploymentPatches       int
 	inferenceServiceGets    int
 	patchedInferenceService *v1beta1.InferenceService
+	apiServer               *configv1.APIServer
 }
 
 func (m *mockClientForAuthProxyDetection) Get(ctx context.Context, key kclient.ObjectKey, obj kclient.Object, opts ...kclient.GetOption) error {
@@ -708,6 +709,10 @@ func (m *mockClientForAuthProxyDetection) Get(ctx context.Context, key kclient.O
 			Name:      key.Name,
 			Namespace: key.Namespace,
 			UID:       "test-uid-12345",
+		}
+	case *configv1.APIServer:
+		if m.apiServer != nil {
+			*o = *m.apiServer.DeepCopy()
 		}
 	}
 	return nil
@@ -3372,6 +3377,94 @@ func TestCustomizeDeploymentsInferenceGraphMountsServingCertWithoutProxy(t *test
 			}
 			assert.Equal(t, []string{tlsVolumeName, constants.OauthProxySARCMName}, volumeNames)
 			assert.Zero(t, client.inferenceServiceGets, "no SAR ConfigMap is created for an InferenceGraph")
+		})
+	}
+}
+
+func TestReconcileFailsClosedOnAuthProxyIncompatibleTLSProfile(t *testing.T) {
+	// An AES-256-only TLS 1.2 profile cannot serve HTTP/2, which kube-rbac-proxy
+	// requires; reconciliation must fail with a clear error instead of rolling
+	// out a proxy container that crashloops at startup.
+	aes256OnlyAPIServer := &configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{
+				Type: configv1.TLSProfileCustomType,
+				Custom: &configv1.CustomTLSProfile{TLSProfileSpec: configv1.TLSProfileSpec{
+					MinTLSVersion: configv1.VersionTLS12,
+					Ciphers:       []string{"ECDHE-RSA-AES256-GCM-SHA384"},
+				}},
+			},
+			TLSAdherence: configv1.TLSAdherencePolicyStrictAllComponents,
+		},
+	}
+
+	newProxyClient := &mockClientForAuthProxyDetection{deploymentNotFound: true, apiServer: aes256OnlyAPIServer}
+	updateProxyClient := &mockClientForAuthProxyDetection{apiServer: aes256OnlyAPIServer, existingDeployment: &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-predictor-predictor", Namespace: "test-ns"},
+		Spec: appsv1.DeploymentSpec{Template: corev1.PodTemplateSpec{
+			ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
+				constants.ODHKserveAuthProxyTLSManagedAnnotation: "true",
+			}},
+			Spec: corev1.PodSpec{Containers: []corev1.Container{
+				{Name: constants.InferenceServiceContainerName},
+				{Name: constants.KubeRbacContainerName, Image: "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3",
+					Args: []string{"--upstream=http://localhost:8888", "--tls-min-version=VersionTLS12"}},
+			}},
+		}},
+	}}
+
+	for _, tt := range []struct {
+		name   string
+		client *mockClientForAuthProxyDetection
+	}{
+		{name: "new proxy deployment is not produced", client: newProxyClient},
+		{name: "managed proxy update is not produced", client: updateProxyClient},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			clientset := fake.NewSimpleClientset(&corev1.ConfigMap{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      constants.InferenceServiceConfigMapName,
+					Namespace: constants.KServeNamespace,
+				},
+				Data: map[string]string{oauthProxyISVCConfigKey: oauthProxyConfig},
+			})
+			componentMeta := metav1.ObjectMeta{
+				Name:      "test-predictor",
+				Namespace: "test-ns",
+				Annotations: map[string]string{
+					constants.ODHKserveRawAuth: "true",
+				},
+				Labels: map[string]string{
+					constants.InferenceServicePodLabelKey: "test-isvc",
+				},
+			}
+			podSpec := &corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Name:  constants.InferenceServiceContainerName,
+						Image: "test-image",
+						Ports: []corev1.ContainerPort{{ContainerPort: 8888}},
+					},
+				},
+			}
+			ctx := isvcutils.WithInferenceServiceReconcile(t.Context())
+
+			reconciler, err := NewDeploymentReconciler(
+				ctx,
+				tt.client,
+				clientset,
+				nil,
+				componentMeta,
+				metav1.ObjectMeta{},
+				&v1beta1.ComponentExtensionSpec{},
+				podSpec,
+				nil,
+				nil,
+			)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "cannot serve HTTP/2")
+			assert.Nil(t, reconciler)
 		})
 	}
 }

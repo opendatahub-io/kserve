@@ -20,9 +20,12 @@ package distro
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	kservetls "github.com/kserve/kserve/pkg/tls"
 )
 
 // InjectGoTLSArgs projects the effective cluster TLS policy into a Go TLS
@@ -46,6 +49,14 @@ func InjectGoTLSArgs(ctx context.Context, reader client.Reader, container *corev
 	}
 	if !honored {
 		return nil
+	}
+	// The workload validates the projected arguments at startup and exits on
+	// rejection, which would roll out a crashlooping pod. Validate here with
+	// the same rules the Go workloads apply so an incompatible profile (for
+	// example the Old profile's TLS 1.0 minimum or its insecure cipher names)
+	// fails the reconciliation with a clear error instead.
+	if err := kservetls.Validate(workloadTLS.MinVersion, workloadTLS.CipherSuites); err != nil {
+		return fmt.Errorf("cluster TLS profile cannot be served by Go workloads: %w", err)
 	}
 	container.Args = append(container.Args, "--tls-min-version", workloadTLS.MinVersion)
 	if workloadTLS.CipherSuites != "" {

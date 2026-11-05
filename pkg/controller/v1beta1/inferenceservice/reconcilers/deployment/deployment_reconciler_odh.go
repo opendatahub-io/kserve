@@ -474,13 +474,14 @@ func generateOauthProxyContainer(ctx context.Context, client kclient.Client, cli
 	if err != nil {
 		return nil, err
 	}
-	args = append(args, "--tls-min-version="+workloadTLS.MinVersion)
-	if workloadTLS.CipherSuites != "" {
-		args = append(args, "--tls-cipher-suites="+workloadTLS.CipherSuites)
+	// desiredAuthProxyTLSArgs applies the same validation as the managed-proxy
+	// update path, so an incompatible cluster profile is rejected here instead
+	// of rendering a proxy container that fails at startup.
+	desiredTLSArgs, err := desiredAuthProxyTLSArgs(workloadTLS)
+	if err != nil {
+		return nil, err
 	}
-	if workloadTLS.CurveIDs != "" {
-		args = append(args, "--tls-curve-preferences="+workloadTLS.CurveIDs)
-	}
+	args = append(args, desiredTLSArgs...)
 	if oauthUpstreamTimeout != "" {
 		if _, err = strconv.ParseInt(oauthUpstreamTimeout, 10, 64); err != nil {
 			return nil, fmt.Errorf("invalid oauthProxy config upstreamTimeoutSeconds value %q: %w", oauthUpstreamTimeout, err)

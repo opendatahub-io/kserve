@@ -58,6 +58,13 @@ func TestInjectGoTLSArgs(t *testing.T) {
 		},
 	}}
 	modern := &configv1.TLSSecurityProfile{Type: configv1.TLSProfileModernType}
+	oldProfile := &configv1.TLSSecurityProfile{Type: configv1.TLSProfileOldType}
+	aes256Only := &configv1.TLSSecurityProfile{Type: configv1.TLSProfileCustomType, Custom: &configv1.CustomTLSProfile{
+		TLSProfileSpec: configv1.TLSProfileSpec{
+			MinTLSVersion: configv1.VersionTLS12,
+			Ciphers:       []string{"ECDHE-RSA-AES256-GCM-SHA384"},
+		},
+	}}
 
 	tests := []struct {
 		name      string
@@ -80,6 +87,19 @@ func TestInjectGoTLSArgs(t *testing.T) {
 			wantArgs: []string{
 				"--tls-min-version", "VersionTLS13",
 				"--tls-curve-preferences", "4588,29,23,24",
+			},
+		},
+		{
+			name:      "strict Old profile is rejected before rollout because Go workloads cannot serve it",
+			reader:    goProfileReader(t, configv1.TLSAdherencePolicyStrictAllComponents, oldProfile),
+			wantError: true,
+		},
+		{
+			name:   "strict custom AES-256-only profile projects because the router serves HTTP/1.1 only",
+			reader: goProfileReader(t, configv1.TLSAdherencePolicyStrictAllComponents, aes256Only),
+			wantArgs: []string{
+				"--tls-min-version", "VersionTLS12",
+				"--tls-cipher-suites", "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
 			},
 		},
 		{

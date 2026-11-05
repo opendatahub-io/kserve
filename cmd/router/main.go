@@ -529,7 +529,18 @@ func parseCurvePreferences(value string) ([]tls.CurveID, error) {
 		if err != nil || id == 0 {
 			return nil, fmt.Errorf("invalid TLS curve preference %q: expected a nonzero decimal curve ID", part)
 		}
-		curves = append(curves, tls.CurveID(id))
+		curve := tls.CurveID(id)
+		switch curve {
+		case tls.CurveP256, tls.CurveP384, tls.CurveP521,
+			tls.X25519, tls.X25519MLKEM768,
+			tls.SecP256r1MLKEM768, tls.SecP384r1MLKEM1024:
+			curves = append(curves, curve)
+		default:
+			// Go silently drops curve IDs it does not implement; a list that
+			// is entirely unsupported would leave the listener with no usable
+			// key exchange while the router still starts, so reject here.
+			return nil, fmt.Errorf("unsupported TLS curve preference %q", part)
+		}
 	}
 	return curves, nil
 }

@@ -58,7 +58,9 @@ func TestRouterTLSConfigAppliesCurvePreferences(t *testing.T) {
 }
 
 func TestRouterTLSConfigRejectsInvalidCurvePreferences(t *testing.T) {
-	for _, value := range []string{"23,abc", "23,,29", "0", "-1"} {
+	// 12345 is a nonzero decimal ID Go does not implement; the parser must
+	// reject it instead of letting Go silently drop it from the curve list.
+	for _, value := range []string{"23,abc", "23,,29", "0", "-1", "12345"} {
 		_, err := routerTLSConfig("VersionTLS13", "", value)
 		require.Error(t, err, value)
 	}
