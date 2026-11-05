@@ -167,8 +167,10 @@ func injectServerTracingIntoPodSpec(t *v1alpha2.TracingSpec, namespace, llmisvcN
 	}
 	for i := range podSpec.Containers {
 		if podSpec.Containers[i].Name == "main" {
-			return injectServerTracing(t, namespace, llmisvcName, roleSuffix, &podSpec.Containers[i]) || mutated
+			mutated = injectServerTracing(t, namespace, llmisvcName, roleSuffix, &podSpec.Containers[i]) || mutated
+			break
 		}
 	}
+	configureTracingTLS(t, podSpec)
 	return mutated
 }
