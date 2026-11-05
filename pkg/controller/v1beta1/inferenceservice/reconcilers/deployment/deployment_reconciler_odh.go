@@ -274,7 +274,11 @@ func (r *DeploymentReconciler) customizeAuthProxy(ctx context.Context,
 					if err != nil {
 						return false, err
 					}
-					if err := setManagedAuthProxyTLSArgs(headDeployment, desiredAuthProxyTLSArgs(workloadTLS)); err != nil {
+					desiredTLSArgs, err := desiredAuthProxyTLSArgs(workloadTLS)
+					if err != nil {
+						return false, err
+					}
+					if err := setManagedAuthProxyTLSArgs(headDeployment, desiredTLSArgs); err != nil {
 						return false, err
 					}
 					authProxyReused = true
@@ -954,7 +958,10 @@ func platformAuthProxyTLSNeedsUpdate(ctx context.Context, reader kclient.Reader,
 	if err != nil {
 		return false, err
 	}
-	want := desiredAuthProxyTLSArgs(desired)
+	want, err := desiredAuthProxyTLSArgs(desired)
+	if err != nil {
+		return false, err
+	}
 	for _, container := range existing.Spec.Template.Spec.Containers {
 		if container.Name == proxyType {
 			return !sameArgs(managedAuthProxyTLSArgs(container.Args), want), nil
@@ -963,7 +970,26 @@ func platformAuthProxyTLSNeedsUpdate(ctx context.Context, reader kclient.Reader,
 	return false, nil
 }
 
-func desiredAuthProxyTLSArgs(desired distrotls.WorkloadTLSArgs) []string {
+func desiredAuthProxyTLSArgs(desired distrotls.WorkloadTLSArgs) ([]string, error) {
+	const (
+		ecdheRSAAES128GCM   = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256"
+		ecdheECDSAAES128GCM = "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256"
+	)
+	if desired.MinVersion != "VersionTLS13" && desired.CipherSuites != "" {
+		hasHTTP2Cipher := false
+		for _, cipherSuite := range strings.Split(desired.CipherSuites, ",") {
+			cipherSuite = strings.TrimSpace(cipherSuite)
+			if cipherSuite == ecdheRSAAES128GCM || cipherSuite == ecdheECDSAAES128GCM {
+				hasHTTP2Cipher = true
+				break
+			}
+		}
+		if !hasHTTP2Cipher {
+			return nil, fmt.Errorf("auth proxy cannot serve HTTP/2 with TLS minimum version %q and cipher list %q: include at least one of %s or %s",
+				desired.MinVersion, desired.CipherSuites, ecdheRSAAES128GCM, ecdheECDSAAES128GCM)
+		}
+	}
+
 	args := []string{"--tls-min-version=" + desired.MinVersion}
 	if desired.CipherSuites != "" {
 		args = append(args, "--tls-cipher-suites="+desired.CipherSuites)
@@ -971,7 +997,7 @@ func desiredAuthProxyTLSArgs(desired distrotls.WorkloadTLSArgs) []string {
 	if desired.CurveIDs != "" {
 		args = append(args, "--tls-curve-preferences="+desired.CurveIDs)
 	}
-	return args
+	return args, nil
 }
 
 func setManagedAuthProxyTLSArgs(deployment *appsv1.Deployment, desired []string) error {
