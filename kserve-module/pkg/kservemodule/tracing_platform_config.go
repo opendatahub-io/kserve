@@ -20,7 +20,7 @@ const (
 	monitoringAPIVersion         = "v1alpha1"
 	monitoringKind               = "Monitoring"
 	defaultTracesSampleRatio     = "0.1"
-	platformCollectorServiceName = "data-science-collector-collector"
+	platformCollectorServiceName = "data-science-collector-collector-headless"
 	platformCollectorPort        = 4317
 	upstreamTracingEndpoint      = "http://otel-collector:4317"
 	tracingPresetSuffix          = "kserve-config-llm-tracing"
@@ -73,8 +73,8 @@ func (r *KserveModuleReconciler) resolveTracingPlatformConfig(ctx context.Contex
 	return &tracingPlatformConfig{
 		Enabled:     true,
 		SampleRatio: ratio,
-		// The platform collector exposes the OTLP/gRPC endpoint on its fixed service port.
-		Endpoint: fmt.Sprintf("http://%s.%s.svc:%d", platformCollectorServiceName, r.getMonitoringNamespace(), platformCollectorPort),
+		// The service-ca certificate is issued for the headless Service's fully-qualified DNS name.
+		Endpoint: fmt.Sprintf("https://%s.%s.svc.cluster.local:%d", platformCollectorServiceName, r.getMonitoringNamespace(), platformCollectorPort),
 	}, nil
 }
 
