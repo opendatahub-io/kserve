@@ -267,14 +267,23 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 }
 
 func isTransientAPIServerError(err error) bool {
-	var netErr net.Error
-	return apierrors.IsServiceUnavailable(err) ||
+	// Explicitly transient API statuses first.
+	if apierrors.IsServiceUnavailable(err) ||
 		apierrors.IsTimeout(err) ||
 		apierrors.IsServerTimeout(err) ||
 		apierrors.IsTooManyRequests(err) ||
 		apierrors.IsInternalError(err) ||
-		errors.Is(err, context.DeadlineExceeded) ||
-		utilnet.IsConnectionRefused(err) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// Reject other API-status errors before checking transport predicates.
+	var statusErr *apierrors.StatusError
+	if errors.As(err, &statusErr) {
+		return false
+	}
+	// Transport-level errors for non-API-status failures.
+	var netErr net.Error
+	return utilnet.IsConnectionRefused(err) ||
 		utilnet.IsConnectionReset(err) ||
 		utilnet.IsProbableEOF(err) ||
 		utilnet.IsHTTP2ConnectionLost(err) ||
