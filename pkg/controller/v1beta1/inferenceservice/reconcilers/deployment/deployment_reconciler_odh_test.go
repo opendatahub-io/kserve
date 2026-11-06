@@ -3408,8 +3408,10 @@ func TestReconcileFailsClosedOnAuthProxyIncompatibleTLSProfile(t *testing.T) {
 			}},
 			Spec: corev1.PodSpec{Containers: []corev1.Container{
 				{Name: constants.InferenceServiceContainerName},
-				{Name: constants.KubeRbacContainerName, Image: "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3",
-					Args: []string{"--upstream=http://localhost:8888", "--tls-min-version=VersionTLS12"}},
+				{
+					Name: constants.KubeRbacContainerName, Image: "quay.io/opendatahub/odh-kube-auth-proxy@sha256:dcb09fbabd8811f0956ef612a0c9ddd5236804b9bd6548a0647d2b531c9d01b3",
+					Args: []string{"--upstream=http://localhost:8888", "--tls-min-version=VersionTLS12"},
+				},
 			}},
 		}},
 	}}

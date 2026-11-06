@@ -390,7 +390,12 @@ var _ = Describe("RawDeployment audit logging", func() {
 			if wantAnnotation != nil {
 				Expect(persistedAuditValue).To(Equal(*wantAnnotation))
 			}
-			Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
+			// The reconciler can update the InferenceService between the Get
+			// above and this write, so the update is retried on conflict
+			// instead of failing the test on a resource-version race.
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
+			}, timeout, interval).Should(Succeed())
 
 			Eventually(func(g Gomega) {
 				hpa := &autoscalingv2.HorizontalPodAutoscaler{}
