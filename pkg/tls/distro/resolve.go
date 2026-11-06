@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -149,7 +151,7 @@ func Resolve(ctx context.Context, cfg *rest.Config, tlsMinVersion, tlsCipherSuit
 	scheme := runtime.NewScheme()
 	if err := configv1.Install(scheme); err != nil {
 		log.Info("Unable to install OpenShift config scheme, using hardened defaults", "error", err)
-		return intermediateResult(false, false), nil
+		return intermediateResult(false), nil
 	}
 
 	// Bound the bootstrap client's requests, including REST mapper discovery,
@@ -173,6 +175,7 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 	}
 	var permanentErr error
 	var fetched bool
+	var objectMissing bool
 	retryErr := wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
 		if err := k8sClient.Get(ctx, client.ObjectKey{Name: apiServerName}, apiServer); err != nil {
 			switch {
@@ -181,6 +184,9 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 				return true, nil
 			case apierrors.IsNotFound(err):
 				log.Info("APIServer resource not found, using hardened defaults")
+				// Bootstrap race: the object can be created later, so the API
+				// is marked available and the watcher registers.
+				objectMissing = true
 				return true, nil
 			case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err):
 				hint := "ensure ClusterRole grants get/list/watch on config.openshift.io/apiservers"
@@ -189,11 +195,7 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 					"error", err)
 				permanentErr = fmt.Errorf("reading APIServer TLS profile: %w; %s", err, hint)
 				return false, permanentErr
-			case apierrors.IsServiceUnavailable(err),
-				apierrors.IsTimeout(err),
-				apierrors.IsServerTimeout(err),
-				apierrors.IsTooManyRequests(err),
-				errors.Is(err, context.DeadlineExceeded):
+			case isTransientAPIServerError(err):
 				log.Info("Transient API error reading TLS profile, retrying", "error", err)
 				return false, nil
 			default:
@@ -209,10 +211,15 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 	}
 	if retryErr != nil {
 		log.Info("Failed to fetch TLS profile after retries, using Intermediate fallback", "error", retryErr)
-		return intermediateResult(false, true), nil
+		return intermediateResult(true), nil
 	}
 	if !fetched {
-		return intermediateResult(false, false), nil
+		if objectMissing {
+			// NotFound on an OpenShift cluster: preserve the defaults but keep
+			// the API watchable so creation of the APIServer is caught.
+			return intermediateResult(true), nil
+		}
+		return intermediateResult(false), nil
 	}
 
 	settings := settingsFromAPIServer(apiServer)
@@ -259,6 +266,21 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 	}, nil
 }
 
+func isTransientAPIServerError(err error) bool {
+	var netErr net.Error
+	return apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsTimeout(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) ||
+		apierrors.IsInternalError(err) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		utilnet.IsConnectionRefused(err) ||
+		utilnet.IsConnectionReset(err) ||
+		utilnet.IsProbableEOF(err) ||
+		utilnet.IsHTTP2ConnectionLost(err) ||
+		(errors.As(err, &netErr) && netErr.Timeout())
+}
+
 func finalizeClusterTLSOpts(minVersion uint16, ciphers []uint16) (uint16, []uint16) {
 	if minVersion >= tls.VersionTLS13 && len(ciphers) > 0 {
 		log.Info("Ignoring cipher suites for TLS 1.3 cluster profile; Go manages TLS 1.3 ciphers internally")
@@ -267,10 +289,10 @@ func finalizeClusterTLSOpts(minVersion uint16, ciphers []uint16) (uint16, []uint
 	return minVersion, ciphers
 }
 
-func intermediateResult(fetched, apiAvailable bool) Result {
+func intermediateResult(apiAvailable bool) Result {
 	return Result{
 		TLSOpts:        tlsOptsFrom(tls.VersionTLS12, intermediateCiphers),
-		ProfileFetched: fetched,
+		ProfileFetched: false,
 		APIAvailable:   apiAvailable,
 		InitialSettings: Settings{
 			ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType],
