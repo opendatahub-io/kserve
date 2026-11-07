@@ -21,6 +21,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net"
+	"net/url"
 	"strings"
 	"syscall"
 	"testing"
@@ -47,6 +48,8 @@ func TestIsTransientAPIServerError(t *testing.T) {
 	}{
 		{name: "internal error", err: apierrors.NewInternalError(errors.New("etcd leader election")), transient: true},
 		{name: "connection refused", err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}, transient: true},
+		{name: "broken pipe", err: &net.OpError{Op: "write", Err: syscall.EPIPE}, transient: true},
+		{name: "wrapped broken pipe", err: &url.Error{Op: "Get", URL: "https://api.example.invalid", Err: &net.OpError{Op: "write", Err: syscall.EPIPE}}, transient: true},
 		{name: "forbidden", err: apierrors.NewForbidden(gr, "cluster", nil), transient: false},
 		{name: "bad request", err: apierrors.NewBadRequest("invalid request"), transient: false},
 		{name: "invalid", err: apierrors.NewInvalid(schema.GroupKind{Group: gr.Group, Kind: "APIServer"}, "cluster", nil), transient: false},

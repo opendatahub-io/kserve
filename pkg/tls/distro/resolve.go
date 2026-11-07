@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"syscall"
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
@@ -285,9 +286,18 @@ func isTransientAPIServerError(err error) bool {
 	var netErr net.Error
 	return utilnet.IsConnectionRefused(err) ||
 		utilnet.IsConnectionReset(err) ||
+		isBrokenPipe(err) ||
 		utilnet.IsProbableEOF(err) ||
 		utilnet.IsHTTP2ConnectionLost(err) ||
 		(errors.As(err, &netErr) && netErr.Timeout())
+}
+
+// isBrokenPipe reports whether the error wraps EPIPE, which occurs when a
+// keep-alive connection is closed between requests; a retry on a fresh
+// connection succeeds.
+func isBrokenPipe(err error) bool {
+	var errno syscall.Errno
+	return errors.As(err, &errno) && errno == syscall.EPIPE
 }
 
 func finalizeClusterTLSOpts(minVersion uint16, ciphers []uint16) (uint16, []uint16) {
