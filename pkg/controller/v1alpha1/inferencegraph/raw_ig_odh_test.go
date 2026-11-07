@@ -294,7 +294,10 @@ func TestCustomizeRouterPodSpecProjectsClusterTLSProfile(t *testing.T) {
 	require.Equal(t, "VersionTLS13", router.Args[minIdx+1])
 	curveIdx := slices.Index(router.Args, "--tls-curve-preferences")
 	require.NotEqual(t, -1, curveIdx)
-	require.Equal(t, "4588,29,23,24", router.Args[curveIdx+1])
+	// The router sidecar is built as a strict-FIPS binary, so the projection
+	// filters the profile groups to the FIPS-approved set: Modern's
+	// X25519MLKEM768 and X25519 drop out, leaving P-256 and P-384.
+	require.Equal(t, "23,24", router.Args[curveIdx+1])
 	// TLS 1.3 manages cipher selection internally, so no cipher flag is added.
 	require.NotContains(t, router.Args, "--tls-cipher-suites")
 }
