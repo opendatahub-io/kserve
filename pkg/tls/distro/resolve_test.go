@@ -19,11 +19,15 @@ package distro
 import (
 	"context"
 	"crypto/tls"
+	"errors"
+	"net"
 	"strings"
+	"syscall"
 	"testing"
 
 	configv1 "github.com/openshift/api/config/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -32,6 +36,27 @@ import (
 type fakeAPIServerClient struct {
 	err error
 	obj *configv1.APIServer
+}
+
+func TestIsTransientAPIServerError(t *testing.T) {
+	gr := schema.GroupResource{Group: "config.openshift.io", Resource: "apiservers"}
+	for _, tc := range []struct {
+		name      string
+		err       error
+		transient bool
+	}{
+		{name: "internal error", err: apierrors.NewInternalError(errors.New("etcd leader election")), transient: true},
+		{name: "connection refused", err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}, transient: true},
+		{name: "forbidden", err: apierrors.NewForbidden(gr, "cluster", nil), transient: false},
+		{name: "bad request", err: apierrors.NewBadRequest("invalid request"), transient: false},
+		{name: "invalid", err: apierrors.NewInvalid(schema.GroupKind{Group: gr.Group, Kind: "APIServer"}, "cluster", nil), transient: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isTransientAPIServerError(tc.err); got != tc.transient {
+				t.Fatalf("isTransientAPIServerError(%v) = %t, want %t", tc.err, got, tc.transient)
+			}
+		})
+	}
 }
 
 func (f *fakeAPIServerClient) Get(_ context.Context, _ client.ObjectKey, obj client.Object, _ ...client.GetOption) error {
@@ -438,4 +463,28 @@ func assertIntermediateTLS(t *testing.T, result Result) {
 
 func newTestTLSConfig() *tls.Config {
 	return &tls.Config{MinVersion: tls.VersionTLS12}
+}
+
+func TestResolveClusterProfile_NotFoundKeepsAPIWatchable(t *testing.T) {
+	// A NotFound on the APIServer object (bootstrap race) must preserve the
+	// defaults while keeping the API watchable, so the profile watcher
+	// registers and its AddFunc catches the object's creation. NoMatchError
+	// (non-OpenShift cluster) keeps the API unwatchable.
+	notFound := &fakeAPIServerClient{}
+	result, err := resolveClusterProfile(context.Background(), notFound)
+	if err != nil {
+		t.Fatalf("resolveClusterProfile() error = %v", err)
+	}
+	if !result.APIAvailable {
+		t.Fatal("NotFound must keep the API watchable (APIAvailable = true)")
+	}
+
+	noMatch := &fakeAPIServerClient{err: &meta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "config.openshift.io", Kind: "APIServer"}}}
+	result, err = resolveClusterProfile(context.Background(), noMatch)
+	if err != nil {
+		t.Fatalf("resolveClusterProfile() error = %v", err)
+	}
+	if result.APIAvailable {
+		t.Fatal("NoMatchError (non-OpenShift) must keep the API unwatchable")
+	}
 }

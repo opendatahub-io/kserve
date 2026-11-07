@@ -19,7 +19,10 @@ limitations under the License.
 package inferencegraph
 
 import (
+	"context"
+
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
@@ -27,4 +30,6 @@ import (
 // customizeRouterPodSpec is a hook for platform-specific customization of the router pod spec
 // in raw deployment mode. Distribution-specific builds (compiled with -tags distro) can provide
 // their own implementation; the default does nothing. Implementations must tolerate a nil podSpec.
-func customizeRouterPodSpec(_ *v1alpha1.InferenceGraph, _ *corev1.PodSpec) {}
+func customizeRouterPodSpec(_ context.Context, _ client.Reader, _ *v1alpha1.InferenceGraph, _ *corev1.PodSpec) error {
+	return nil
+}
