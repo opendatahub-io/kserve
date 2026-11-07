@@ -40,6 +40,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/retry"
 	"k8s.io/utils/ptr"
 	"knative.dev/pkg/apis"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
@@ -381,16 +382,14 @@ var _ = Describe("RawDeployment audit logging", func() {
 			latestConfigMap.Data[v1beta1.OpenShiftConfigName] = auditLoggingOpenShiftConfig(changedGlobalProfile)
 			Expect(k8sClient.Update(ctx, latestConfigMap)).To(Succeed())
 
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, persisted)).To(Succeed())
-			oldIsvc := persisted.DeepCopy()
-			persisted.Spec.Predictor.MaxReplicas = 4
-			Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
+			persisted = updateAuditInferenceService(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, func(persisted *v1beta1.InferenceService) {
+				persisted.Spec.Predictor.MaxReplicas = 4
+			})
 			persistedAuditValue, persistedAuditPresent = persisted.Annotations[constants.ODHKserveAuditLoggingProfile]
 			Expect(persistedAuditPresent).To(Equal(wantAnnotation != nil))
 			if wantAnnotation != nil {
 				Expect(persistedAuditValue).To(Equal(*wantAnnotation))
 			}
-			Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
 
 			Eventually(func(g Gomega) {
 				hpa := &autoscalingv2.HorizontalPodAutoscaler{}
@@ -476,10 +475,9 @@ var _ = Describe("RawDeployment audit logging", func() {
 		By("enabling authentication without changing the retained metadata request")
 		persisted := &v1beta1.InferenceService{}
 		Expect(k8sClient.Get(ctx, isvcKey, persisted)).To(Succeed())
-		oldIsvc := persisted.DeepCopy()
-		persisted.Annotations[constants.ODHKserveRawAuth] = "true"
-		Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
-		Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
+		updateAuditInferenceService(ctx, isvcKey, func(persisted *v1beta1.InferenceService) {
+			persisted.Annotations[constants.ODHKserveRawAuth] = "true"
+		})
 		Eventually(func(g Gomega) {
 			current := &v1beta1.InferenceService{}
 			g.Expect(k8sClient.Get(ctx, isvcKey, current)).To(Succeed())
@@ -490,11 +488,9 @@ var _ = Describe("RawDeployment audit logging", func() {
 		}, timeout, interval).Should(Succeed())
 
 		By("disabling authentication while retaining the request")
-		Expect(k8sClient.Get(ctx, isvcKey, persisted)).To(Succeed())
-		oldIsvc = persisted.DeepCopy()
-		persisted.Annotations[constants.ODHKserveRawAuth] = "false"
-		Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
-		Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
+		updateAuditInferenceService(ctx, isvcKey, func(persisted *v1beta1.InferenceService) {
+			persisted.Annotations[constants.ODHKserveRawAuth] = "false"
+		})
 		Eventually(func(g Gomega) {
 			current := &v1beta1.InferenceService{}
 			g.Expect(k8sClient.Get(ctx, isvcKey, current)).To(Succeed())
@@ -505,24 +501,20 @@ var _ = Describe("RawDeployment audit logging", func() {
 		}, timeout, interval).Should(Succeed())
 
 		By("re-enabling authentication and then explicitly removing the audit annotation")
-		Expect(k8sClient.Get(ctx, isvcKey, persisted)).To(Succeed())
-		oldIsvc = persisted.DeepCopy()
-		persisted.Annotations[constants.ODHKserveRawAuth] = "true"
-		Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
-		Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
+		updateAuditInferenceService(ctx, isvcKey, func(persisted *v1beta1.InferenceService) {
+			persisted.Annotations[constants.ODHKserveRawAuth] = "true"
+		})
 		Eventually(func(g Gomega) {
 			current := &v1beta1.InferenceService{}
 			g.Expect(k8sClient.Get(ctx, isvcKey, current)).To(Succeed())
 			expectAuditLoggingCondition(g, current, corev1.ConditionTrue, "AuditLoggingEnabled")
 		}, timeout, interval).Should(Succeed())
 
-		Expect(k8sClient.Get(ctx, isvcKey, persisted)).To(Succeed())
-		oldIsvc = persisted.DeepCopy()
-		delete(persisted.Annotations, constants.ODHKserveAuditLoggingProfile)
-		Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
+		persisted = updateAuditInferenceService(ctx, isvcKey, func(persisted *v1beta1.InferenceService) {
+			delete(persisted.Annotations, constants.ODHKserveAuditLoggingProfile)
+		})
 		_, annotationPresent := persisted.Annotations[constants.ODHKserveAuditLoggingProfile]
 		Expect(annotationPresent).To(BeFalse())
-		Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
 		Eventually(func(g Gomega) {
 			current := &v1beta1.InferenceService{}
 			g.Expect(k8sClient.Get(ctx, isvcKey, current)).To(Succeed())
@@ -603,20 +595,22 @@ var _ = Describe("RawDeployment audit logging", func() {
 		originalTemplate := deployment.Spec.Template.DeepCopy()
 
 		persisted := &v1beta1.InferenceService{}
-		Expect(k8sClient.Get(ctx, isvcKey, persisted)).To(Succeed())
-		persisted.Status.SetCondition(v1beta1.PredictorReady, &apis.Condition{Type: v1beta1.PredictorReady, Status: corev1.ConditionTrue})
-		persisted.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{Type: v1beta1.IngressReady, Status: corev1.ConditionTrue})
-		Expect(k8sClient.Status().Update(ctx, persisted)).To(Succeed())
+		Expect(retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+			Expect(k8sClient.Get(ctx, isvcKey, persisted)).To(Succeed())
+			persisted.Status.SetCondition(v1beta1.PredictorReady, &apis.Condition{Type: v1beta1.PredictorReady, Status: corev1.ConditionTrue})
+			persisted.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{Type: v1beta1.IngressReady, Status: corev1.ConditionTrue})
+			return k8sClient.Status().Update(ctx, persisted)
+		})).To(Succeed())
 		Eventually(func(g Gomega) {
 			current := &v1beta1.InferenceService{}
 			g.Expect(k8sClient.Get(ctx, isvcKey, current)).To(Succeed())
 			g.Expect(current.Status.IsReady()).To(BeTrue())
 		}, timeout, interval).Should(Succeed())
 
-		Expect(k8sClient.Get(ctx, isvcKey, persisted)).To(Succeed())
-		persisted.Annotations[constants.DisableAutoUpdateAnnotationKey] = "true"
-		persisted.Annotations[constants.ODHKserveRawAuth] = "false"
-		Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
+		updateAuditInferenceService(ctx, isvcKey, func(persisted *v1beta1.InferenceService) {
+			persisted.Annotations[constants.DisableAutoUpdateAnnotationKey] = "true"
+			persisted.Annotations[constants.ODHKserveRawAuth] = "false"
+		})
 
 		Eventually(func(g Gomega) {
 			current := &v1beta1.InferenceService{}
@@ -633,6 +627,25 @@ var _ = Describe("RawDeployment audit logging", func() {
 		}, timeout, interval).Should(Succeed())
 	})
 })
+
+// updateAuditInferenceService re-fetches the InferenceService at the latest
+// resource version, applies the webhook admission mutation and persists it,
+// retrying on conflicts with concurrent status writes from the controller
+// under test. It returns the object that was persisted.
+func updateAuditInferenceService(ctx context.Context, key types.NamespacedName, mutate func(persisted *v1beta1.InferenceService)) *v1beta1.InferenceService {
+	GinkgoHelper()
+	persisted := &v1beta1.InferenceService{}
+	Expect(retry.RetryOnConflict(retry.DefaultBackoff, func() error {
+		Expect(k8sClient.Get(ctx, key, persisted)).To(Succeed())
+		oldIsvc := persisted.DeepCopy()
+		mutate(persisted)
+		// admitAuditLoggingInferenceService builds its own admission context.
+		//nolint:contextcheck
+		Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
+		return k8sClient.Update(ctx, persisted)
+	})).To(Succeed())
+	return persisted
+}
 
 func expectAuditLoggingCondition(g Gomega, isvc *v1beta1.InferenceService, status corev1.ConditionStatus, reason string) *apis.Condition {
 	condition := isvc.Status.GetCondition(auditLoggingConfiguredCondition)
