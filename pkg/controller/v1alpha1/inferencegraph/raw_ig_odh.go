@@ -19,24 +19,35 @@ limitations under the License.
 package inferencegraph
 
 import (
+	"context"
+
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
+	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
-// customizeRouterPodSpec serves the router over TLS, trusts the OpenShift service CA and,
-// when auth is enabled on the graph, runs the router with the auth-verifier ServiceAccount.
-// The TLS arg and CA bundle entries are prepended and the auth args appended: reordering
-// args, env, volume mounts or volumes changes the pod template and rolls router pods.
-func customizeRouterPodSpec(graph *v1alpha1.InferenceGraph, podSpec *corev1.PodSpec) {
+// customizeRouterPodSpec serves the router over TLS with the effective cluster
+// TLS policy, trusts the OpenShift service CA and, when auth is enabled on the
+// graph, runs the router with the auth-verifier ServiceAccount. The TLS arg,
+// profile args and CA bundle entries are prepended and the auth args appended:
+// reordering args, env, volume mounts or volumes changes the pod template and
+// rolls router pods.
+func customizeRouterPodSpec(ctx context.Context, reader client.Reader, graph *v1alpha1.InferenceGraph, podSpec *corev1.PodSpec) error {
 	if podSpec == nil || len(podSpec.Containers) == 0 {
-		return
+		return nil
 	}
 
 	router := &podSpec.Containers[0]
 	router.Args = append([]string{"--enable-tls"}, router.Args...)
+	// Fail closed: a router serving against an unresolvable profile policy is
+	// worse than failing this reconciliation and surfacing the error.
+	if err := distrotls.InjectGoTLSArgs(ctx, reader, router); err != nil {
+		return err
+	}
 	addServiceCaBundle(podSpec)
 	podSpec.ServiceAccountName = "default"
 
@@ -66,6 +77,7 @@ func customizeRouterPodSpec(graph *v1alpha1.InferenceGraph, podSpec *corev1.PodS
 	if router.ReadinessProbe != nil && router.ReadinessProbe.HTTPGet != nil {
 		router.ReadinessProbe.HTTPGet.Scheme = corev1.URISchemeHTTPS
 	}
+	return nil
 }
 
 // addServiceCaBundle mounts the OpenShift service CA bundle into the router container and points

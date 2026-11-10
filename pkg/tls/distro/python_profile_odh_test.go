@@ -153,7 +153,7 @@ func TestInjectTLSSecurityProfileProvider(t *testing.T) {
 	require.Empty(t, podSpec.Containers[3].Env)
 }
 
-func TestInjectTLSSecurityProfileProviderSkipsUnavailableAPIServer(t *testing.T) {
+func TestInjectTLSSecurityProfileProviderAPIServerAvailability(t *testing.T) {
 	scheme := runtime.NewScheme()
 	require.NoError(t, configv1.AddToScheme(scheme))
 	missing := fakeclient.NewClientBuilder().WithScheme(scheme).Build()
@@ -167,7 +167,7 @@ func TestInjectTLSSecurityProfileProviderSkipsUnavailableAPIServer(t *testing.T)
 		{name: "nil reader"},
 		{name: "missing APIServer", reader: missing},
 		{name: "unregistered APIServer", reader: getErrorReader{err: noMatch}},
-		{name: "forbidden APIServer", reader: getErrorReader{err: forbidden}},
+		{name: "forbidden APIServer", reader: getErrorReader{err: forbidden}, wantError: true},
 		{
 			name:      "unexpected APIServer error",
 			reader:    getErrorReader{err: apierrors.NewServiceUnavailable("APIServer read failed")},
@@ -191,6 +191,37 @@ func TestInjectTLSSecurityProfileProviderSkipsUnavailableAPIServer(t *testing.T)
 			} else {
 				require.NoError(t, err)
 			}
+			require.Equal(t, map[string]string{
+				constants.TransformerTLSCertEnvVar: "/tls/tls.crt",
+				constants.TransformerTLSKeyEnvVar:  "/tls/tls.key",
+			}, envValues(podSpec.Containers[0]))
+		})
+	}
+}
+
+func TestInjectTLSSecurityProfileProviderKeepsDefaultsWithoutAdherence(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	for name, adherence := range map[string]configv1.TLSAdherencePolicy{
+		"no opinion": configv1.TLSAdherencePolicyNoOpinion,
+		"legacy":     configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly,
+	} {
+		t.Run(name, func(t *testing.T) {
+			reader := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+				Spec: configv1.APIServerSpec{
+					TLSAdherence:       adherence,
+					TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileModernType},
+				},
+			}).Build()
+			podSpec := &corev1.PodSpec{Containers: []corev1.Container{{
+				Name: constants.InferenceServiceContainerName,
+				Env: []corev1.EnvVar{
+					{Name: constants.TransformerTLSCertEnvVar, Value: "/tls/tls.crt"},
+					{Name: constants.TransformerTLSKeyEnvVar, Value: "/tls/tls.key"},
+				},
+			}}}
+			require.NoError(t, InjectPythonTLSProfile(t.Context(), reader, podSpec))
 			require.Equal(t, map[string]string{
 				constants.TransformerTLSCertEnvVar: "/tls/tls.crt",
 				constants.TransformerTLSKeyEnvVar:  "/tls/tls.key",

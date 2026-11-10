@@ -381,16 +381,21 @@ var _ = Describe("RawDeployment audit logging", func() {
 			latestConfigMap.Data[v1beta1.OpenShiftConfigName] = auditLoggingOpenShiftConfig(changedGlobalProfile)
 			Expect(k8sClient.Update(ctx, latestConfigMap)).To(Succeed())
 
-			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, persisted)).To(Succeed())
-			oldIsvc := persisted.DeepCopy()
-			persisted.Spec.Predictor.MaxReplicas = 4
-			Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
+			// The reconciler can update the InferenceService concurrently, so
+			// the read-mutate-admit-write sequence retries on resource-version
+			// conflict, fetching a fresh object on every attempt.
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: isvc.Name, Namespace: isvc.Namespace}, persisted)).To(Succeed())
+				oldIsvc := persisted.DeepCopy()
+				persisted.Spec.Predictor.MaxReplicas = 4
+				g.Expect(admitAuditLoggingInferenceService(admissionv1.Update, oldIsvc, persisted)).To(Succeed())
+				g.Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
+			}, timeout, interval).Should(Succeed())
 			persistedAuditValue, persistedAuditPresent = persisted.Annotations[constants.ODHKserveAuditLoggingProfile]
 			Expect(persistedAuditPresent).To(Equal(wantAnnotation != nil))
 			if wantAnnotation != nil {
 				Expect(persistedAuditValue).To(Equal(*wantAnnotation))
 			}
-			Expect(k8sClient.Update(ctx, persisted)).To(Succeed())
 
 			Eventually(func(g Gomega) {
 				hpa := &autoscalingv2.HorizontalPodAutoscaler{}

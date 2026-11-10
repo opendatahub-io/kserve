@@ -127,7 +127,7 @@ func TestCurveIDsFromNames(t *testing.T) {
 		configv1.TLSGroupSecP256r1MLKEM768,
 		configv1.TLSGroupSecP384r1MLKEM1024,
 	}
-	if got := CurveIDsFromNames(groups); got != "23,29,4588,4587,4589" {
+	if got := CurveIDsFromNames(groups, false); got != "23,29,4588,4587,4589" {
 		t.Fatalf("CurveIDsFromNames() = %q, want %q", got, "23,29,4588,4587,4589")
 	}
 }
@@ -241,8 +241,8 @@ func TestResolveWorkloadArgsStrictGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.MinVersion != "VersionTLS13" || got.CurveIDs != "23,29,4588" {
-		t.Fatalf("ResolveWorkloadArgs() = %+v, want TLS 1.3 with supported groups 23,29,4588", got)
+	if got.MinVersion != "VersionTLS13" || got.CurveIDs != "23" {
+		t.Fatalf("ResolveWorkloadArgs() = %+v, want TLS 1.3 with supported FIPS group 23", got)
 	}
 }
 
