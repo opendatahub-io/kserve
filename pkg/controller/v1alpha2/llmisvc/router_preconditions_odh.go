@@ -22,9 +22,12 @@ import (
 	"context"
 	"fmt"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/utils/env"
+	"knative.dev/pkg/kmeta"
 	"sigs.k8s.io/controller-runtime/pkg/log"
+	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/utils"
@@ -61,14 +64,12 @@ func (r *LLMISVCReconciler) ensureGatewayPreconditions(ctx context.Context, llmS
 		return fmt.Errorf("failed to check AuthPolicy CRD availability: %w", err)
 	}
 	if !ok && llmSvc.IsAuthEnabled() {
-		cfg, err := r.loadConfig(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		route, err := r.expectedHTTPRoute(ctx, llmSvc, cfg)
-		if err != nil {
-			return fmt.Errorf("failed to build expected HTTPRoute: %w", err)
-		}
+		// Built by name rather than rendered: a route that cannot render must not stay
+		// up unauthenticated.
+		route := &gwapiv1.HTTPRoute{ObjectMeta: metav1.ObjectMeta{
+			Name:      kmeta.ChildName(llmSvc.GetName(), "-kserve-route"),
+			Namespace: llmSvc.GetNamespace(),
+		}}
 		if err := Delete(ctx, r, llmSvc, route); err != nil {
 			return fmt.Errorf("AuthPolicy CRD is not available, please install Red Hat Connectivity Link: %w", err)
 		}
