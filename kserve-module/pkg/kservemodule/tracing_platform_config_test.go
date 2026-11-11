@@ -41,35 +41,35 @@ func TestResolveTracingPlatformConfig(t *testing.T) {
 		}}, expected: &tracingPlatformConfig{}},
 		{name: "traces empty", monitoring: monitoringResource(map[string]any{}), expected: &tracingPlatformConfig{
 			Enabled: true, SampleRatio: defaultTracesSampleRatio,
-			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+			Endpoint: "https://data-science-collector-collector-headless.redhat-ods-monitoring.svc.cluster.local:4317",
 		}},
 		{name: "explicit sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "0.5"}), expected: &tracingPlatformConfig{
 			Enabled: true, SampleRatio: "0.5",
-			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+			Endpoint: "https://data-science-collector-collector-headless.redhat-ods-monitoring.svc.cluster.local:4317",
 		}},
 		{name: "invalid sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "not-a-number"}), expected: &tracingPlatformConfig{
 			Enabled: true, SampleRatio: defaultTracesSampleRatio,
-			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+			Endpoint: "https://data-science-collector-collector-headless.redhat-ods-monitoring.svc.cluster.local:4317",
 		}},
 		{name: "NaN sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "NaN"}), expected: &tracingPlatformConfig{
 			Enabled: true, SampleRatio: defaultTracesSampleRatio,
-			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+			Endpoint: "https://data-science-collector-collector-headless.redhat-ods-monitoring.svc.cluster.local:4317",
 		}},
 		{name: "+Inf sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "+Inf"}), expected: &tracingPlatformConfig{
 			Enabled: true, SampleRatio: defaultTracesSampleRatio,
-			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+			Endpoint: "https://data-science-collector-collector-headless.redhat-ods-monitoring.svc.cluster.local:4317",
 		}},
 		{name: "out-of-range sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "2"}), expected: &tracingPlatformConfig{
 			Enabled: true, SampleRatio: defaultTracesSampleRatio,
-			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+			Endpoint: "https://data-science-collector-collector-headless.redhat-ods-monitoring.svc.cluster.local:4317",
 		}},
 		{name: "zero sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "0"}), expected: &tracingPlatformConfig{
 			Enabled: true, SampleRatio: "0",
-			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+			Endpoint: "https://data-science-collector-collector-headless.redhat-ods-monitoring.svc.cluster.local:4317",
 		}},
 		{name: "one sample ratio", monitoring: monitoringResource(map[string]any{"sampleRatio": "1"}), expected: &tracingPlatformConfig{
 			Enabled: true, SampleRatio: "1",
-			Endpoint: "http://data-science-collector-collector.redhat-ods-monitoring.svc:4317",
+			Endpoint: "https://data-science-collector-collector-headless.redhat-ods-monitoring.svc.cluster.local:4317",
 		}},
 	}
 
@@ -98,7 +98,7 @@ func TestResolveTracingPlatformConfig_DefaultMonitoringNamespace(t *testing.T) {
 
 	config, err := r.resolveTracingPlatformConfig(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
-	g.Expect(config.Endpoint).To(Equal("http://data-science-collector-collector.opendatahub.svc:4317"))
+	g.Expect(config.Endpoint).To(Equal("https://data-science-collector-collector-headless.opendatahub.svc.cluster.local:4317"))
 }
 
 func TestResolveTracingPlatformConfig_PropagatesAPIError(t *testing.T) {
