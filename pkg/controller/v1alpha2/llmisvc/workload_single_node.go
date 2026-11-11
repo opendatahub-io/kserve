@@ -300,6 +300,7 @@ func (r *LLMISVCReconciler) expectedPrefillMainDeployment(ctx context.Context, l
 			MatchLabels: deploymentSelectorLabels(pod.IdentityLabels, llmSvc.Spec.Prefill.Labels),
 		}
 		applyDeploymentRolloutStrategy(d, llmSvc.Spec.Prefill)
+		applyPlatformDeploymentStrategy(llmSvc, d)
 	}
 
 	propagateDeploymentObjectMetadata(llmSvc, d)
