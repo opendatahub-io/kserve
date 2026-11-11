@@ -90,6 +90,26 @@ const ODHKServeCustomCABundleConfigMapName = "odh-kserve-custom-ca-bundle"
 // ODH Connections API
 const ODHS3Endpoint = "AWS_S3_ENDPOINT"
 
+// ModelCache download Job pod labels selecting the pods covered by the ODH egress
+// NetworkPolicies: the static `kserve-localmodel-download` policy shipped in the
+// odh-modelcache overlay (config/overlays/odh-modelcache/network-policies.yaml) for
+// per-node downloads, and the per-cache `<cache-name>-import-egress` policy for
+// shared-PVC imports (localmodel/reconcilers/sharedpvc_platform_odh.go). The overlay
+// manifest owns the static policy's lifecycle: no controller creates, watches, or
+// cleans it, so the label values here and the policy selectors must stay in sync with
+// that manifest.
+const (
+	// DownloadJobLabelKey is the label key stamped on download Job pod templates
+	// so the ODH egress NetworkPolicies can select them.
+	DownloadJobLabelKey = "serving.kserve.io/localmodel-download"
+	// DownloadJobLabelValueNode marks per-node download Jobs launched by the
+	// localmodelnode agent; only these pods match the overlay policy.
+	DownloadJobLabelValueNode = "node"
+	// DownloadJobLabelValueSharedPVC marks shared-PVC import Jobs created by the
+	// localmodel manager.
+	DownloadJobLabelValueSharedPVC = "shared-pvc"
+)
+
 // TLS infrastructure for service-ca bundle mounting and transformer-to-predictor communication (OpenShift-specific)
 const (
 	ServiceCaBundleVolumeName = "openshift-service-ca-bundle"

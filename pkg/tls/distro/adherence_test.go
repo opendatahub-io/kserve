@@ -44,6 +44,27 @@ func TestShouldHonorClusterTLSProfile(t *testing.T) {
 	}
 }
 
+func TestIsKnownTLSAdherence(t *testing.T) {
+	tests := []struct {
+		name      string
+		adherence configv1.TLSAdherencePolicy
+		want      bool
+	}{
+		{"StrictAllComponents", configv1.TLSAdherencePolicyStrictAllComponents, true},
+		{"NoOpinion", configv1.TLSAdherencePolicyNoOpinion, true},
+		{"LegacyAdheringComponentsOnly", configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly, true},
+		{"FuturePolicy", configv1.TLSAdherencePolicy("FuturePolicy"), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isKnownTLSAdherence(tt.adherence); got != tt.want {
+				t.Fatalf("isKnownTLSAdherence(%q) = %v, want %v", tt.adherence, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSettingsEqual(t *testing.T) {
 	intermediate := *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]
 	modern := *configv1.TLSProfiles[configv1.TLSProfileModernType]

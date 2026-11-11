@@ -7,6 +7,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -185,6 +186,52 @@ func TestModelCacheCutoverDoesNotMutateRenderedNamespaces(t *testing.T) {
 	}
 	if got := rendered[0].GetNamespace(); got != modelCacheNamespace {
 		t.Fatalf("cutover changed rendered resource namespace to %q", got)
+	}
+}
+
+func TestModelCacheCutoverPreservesKServeLeaderElectionRole(t *testing.T) {
+	ctx := context.Background()
+	labels := map[string]string{odhLabels.PlatformPartOf: KserveComponentName}
+	sharedRole := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{
+		Name: "kserve-leader-election-role", Namespace: "test-ns", UID: types.UID("kserve-role"), Labels: labels,
+	}}
+	oldRole := &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{
+		Name: "old-modelcache-role", Namespace: "test-ns", Labels: labels,
+	}}
+	scheme := runtime.NewScheme()
+	for _, add := range []func(*runtime.Scheme) error{corev1.AddToScheme, appsv1.AddToScheme, batchv1.AddToScheme, rbacv1.AddToScheme} {
+		if err := add(scheme); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "test-ns"}}, sharedRole, oldRole,
+	).Build()
+	r := &KserveModuleReconciler{Client: cli, Scheme: scheme, applicationsNamespace: "test-ns"}
+	rendered := make([]unstructured.Unstructured, 0, 2)
+	for _, name := range []string{sharedRole.Name, oldRole.Name} {
+		res := unstructured.Unstructured{}
+		res.SetAPIVersion("rbac.authorization.k8s.io/v1")
+		res.SetKind("Role")
+		res.SetName(name)
+		rendered = append(rendered, res)
+	}
+
+	if err := r.prepareModelCacheCutover(ctx, rendered); err == nil {
+		t.Fatal("expected to wait for old ModelCache Role deletion")
+	}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(oldRole), &rbacv1.Role{}); !apierrors.IsNotFound(err) {
+		t.Fatalf("old ModelCache Role was not deleted: %v", err)
+	}
+	if err := r.prepareModelCacheCutover(ctx, rendered); err != nil {
+		t.Fatalf("cutover did not converge after old Role deletion: %v", err)
+	}
+	actual := &rbacv1.Role{}
+	if err := r.Get(ctx, client.ObjectKeyFromObject(sharedRole), actual); err != nil {
+		t.Fatalf("main controller leader-election Role was deleted: %v", err)
+	}
+	if actual.UID != sharedRole.UID {
+		t.Fatalf("main controller leader-election Role changed UID from %q to %q", sharedRole.UID, actual.UID)
 	}
 }
 

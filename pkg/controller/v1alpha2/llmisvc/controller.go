@@ -363,6 +363,7 @@ func (r *LLMISVCReconciler) reconcile(ctx context.Context, llmSvc *v1alpha2.LLMI
 	if err := r.reconcilePVCEvictors(ctx, llmSvc, config); err != nil {
 		pvcEvictorErr = fmt.Errorf("failed to reconcile PVC evictors: %w", err)
 	}
+	pvcEvictorErr = r.postReconcilePVCEvictors(ctx, llmSvc, pvcEvictorErr)
 
 	if err := r.reconcileRouter(ctx, llmSvc, config); err != nil {
 		return fmt.Errorf("failed to reconcile networking: %w", err)

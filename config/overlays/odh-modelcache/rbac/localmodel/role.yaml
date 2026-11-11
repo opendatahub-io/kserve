@@ -17,6 +17,16 @@ rules:
   verbs:
   - create
 - apiGroups:
+  - networking.k8s.io
+  resources:
+  - networkpolicies
+  verbs:
+  - create
+  - get
+  - list
+  - update
+  - watch
+- apiGroups:
   - serving.kserve.io
   resources:
   - localmodelcaches/finalizers

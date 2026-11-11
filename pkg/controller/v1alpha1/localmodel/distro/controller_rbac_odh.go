@@ -22,5 +22,9 @@ package distro
 
 //+kubebuilder:rbac:groups=authentication.k8s.io,resources=tokenreviews,verbs=create
 //+kubebuilder:rbac:groups=authorization.k8s.io,resources=subjectaccessreviews,verbs=create
+// The cache-owned import egress NetworkPolicy (see reconcilers/sharedpvc_platform_odh.go)
+// is ensured with get/create/update and watched for delete/drift self-healing. No patch
+// or delete: teardown is owner-reference garbage collection with the cache.
+//+kubebuilder:rbac:groups=networking.k8s.io,resources=networkpolicies,verbs=get;list;watch;create;update
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelcaches/finalizers,verbs=update
 //+kubebuilder:rbac:groups=serving.kserve.io,resources=localmodelnamespacecaches/finalizers,verbs=update

@@ -108,11 +108,11 @@ type FeatureGates struct {
 	// carry the default and keep their workloads unless they set the annotation.
 	DisaggregatedSet bool `json:"disaggregatedSet,omitempty"`
 
-	// MonitoringIngressNetworkPolicy enables per-LLMInferenceService ingress
-	// NetworkPolicies that restrict Prometheus and gateway traffic while allowing
-	// same-namespace access. Off by default for seamless upgrades from releases
-	// that did not create these policies.
-	MonitoringIngressNetworkPolicy bool `json:"monitoringIngressNetworkPolicy,omitempty"`
+	// StrictNetworkPolicy enables the restrictive (least-privilege) per-
+	// LLMInferenceService NetworkPolicies that isolate workload, scheduler and
+	// tokenizer Pods. Off by default: a single per-service allow-all NetworkPolicy
+	// is created instead, so upgrades match the pre-policy behavior.
+	StrictNetworkPolicy bool `json:"strictNetworkPolicy,omitempty"`
 }
 
 // LLMISVCConfig holds LLMInferenceService controller settings read from the "llmisvc"

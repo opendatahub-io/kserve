@@ -20,18 +20,18 @@ package llmisvc_test
 
 import (
 	"context"
-	"os"
+	"reflect"
+	"slices"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	corev1 "k8s.io/api/core/v1"
+	appsv1 "k8s.io/api/apps/v1"
 	netv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/utils/ptr"
 	"knative.dev/pkg/kmeta"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
@@ -40,478 +40,704 @@ import (
 	. "github.com/kserve/kserve/pkg/controller/v1alpha2/llmisvc/fixture"
 )
 
-var _ = Describe("LLMInferenceService Monitoring NetworkPolicy", func() {
-	Context("NetworkPolicy Reconciliation", func() {
+var _ = Describe("LLMInferenceService NetworkPolicies", func() {
+	Context("default mode (strict gate off)", func() {
 		BeforeEach(func(ctx SpecContext) {
-			EnableMonitoringIngressNetworkPolicy(ctx, envTest.Client)
-		})
-
-		It("should not create the NetworkPolicy when the monitoring ingress gate is off", func(ctx SpecContext) {
 			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
-				cfg.FeatureGates.MonitoringIngressNetworkPolicy = false
+				cfg.FeatureGates.StrictNetworkPolicy = false
 			})
-
-			svcName := "test-llm-netpol-gate-off"
-			testNs := NewTestNamespace(ctx, envTest)
-			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-			)
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer testNs.DeleteAndWait(ctx, llmSvc)
-
-			Consistently(func(g Gomega, ctx context.Context) {
-				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
-					Namespace: testNs.Name,
-				}, &netv1.NetworkPolicy{})
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-			}).WithContext(ctx).Should(Succeed())
 		})
 
-		It("should remove its NetworkPolicy when the monitoring ingress gate is turned off", func(ctx SpecContext) {
-			svcName := "test-llm-netpol-gate-turned-off"
+		It("creates per-component ingress-only policies without broad egress", func(ctx SpecContext) {
 			testNs := NewTestNamespace(ctx, envTest)
-			llmSvc := LLMInferenceService(svcName,
+			llmSvc := LLMInferenceService("test-llm-netpol-allow-all",
 				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 				WithModelURI("hf://facebook/opt-125m"),
 			)
+
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 			defer testNs.DeleteAndWait(ctx, llmSvc)
 
-			waitForMonitoringNetworkPolicy(ctx, testNs.Name, svcName)
+			// The default mode selects every stored component through its own
+			// policy; the main Deployment's Pods must keep full ingress coverage.
+			defaultMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"))
+			Expect(metav1.IsControlledBy(defaultMain, llmSvc)).To(BeTrue(), "per-component policy must be owned by the service")
+			main := &appsv1.Deployment{}
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name:      kmeta.ChildName(llmSvc.Name, "-kserve"),
+				Namespace: testNs.Name,
+			}, main)).To(Succeed())
+			Expect(defaultMain.Spec.PodSelector).To(Equal(*main.Spec.Selector), "policy must select the stored main Deployment's Pods")
+			Expect(defaultMain.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeIngress))
+			Expect(defaultMain.Spec.Ingress).To(Equal([]netv1.NetworkPolicyIngressRule{{}}))
+			Expect(defaultMain.Spec.Egress).To(BeEmpty(), "default-mode policies must not create egress rules")
+
+			// Default mode keeps an explicit per-component allow-all egress grant:
+			// in a namespace with default-deny egress, an absent egress policy is
+			// not an allow-all grant.
+			egressMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main"))
+			Expect(metav1.IsControlledBy(egressMain, llmSvc)).To(BeTrue(), "egress grant must be owned by the service")
+			Expect(egressMain.Spec.PodSelector).To(Equal(*main.Spec.Selector), "egress grant must select the stored main Deployment's Pods")
+			Expect(egressMain.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress))
+			Expect(egressMain.Spec.Ingress).To(BeEmpty(), "the egress grant must not create ingress rules")
+			Expect(egressMain.Spec.Egress).To(Equal([]netv1.NetworkPolicyEgressRule{{}}), "the egress grant must be an explicit allow-all rule")
+			for _, suffix := range managedAllowAllEgressPolicySuffixes() {
+				if suffix == "-networkpolicy-egress-main" {
+					continue
+				}
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "egress policy %s must not exist without a stored component", name)
+			}
+
+			// No broad egress grant is created in default mode.
+			for _, suffix := range []string{"-networkpolicy-egress", "-networkpolicy-allow-all"} {
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "broad egress policy %s must not exist in default mode", name)
+			}
+			for _, suffix := range append(managedIngressPolicySuffixes("strict"), "-networkpolicy-egress") {
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "strict policy %s must not exist in default mode", name)
+			}
+			for _, suffix := range []string{"-networkpolicy-workload", "-networkpolicy-scheduler", "-networkpolicy-tokenizer"} {
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "pre-selector strict policy %s must not exist in default mode", name)
+			}
+		})
+
+		It("replaces strict policies with the default-mode policies when the gate is disabled", func(ctx SpecContext) {
+			EnableStrictNetworkPolicy(ctx, envTest.Client)
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService("test-llm-netpol-toggle",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
+			// The egress grant is mode-independent: capture it and require it to
+			// survive the toggle without churn.
+			egressMain := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main"))
 
 			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
-				cfg.FeatureGates.MonitoringIngressNetworkPolicy = false
+				cfg.FeatureGates.StrictNetworkPolicy = false
 			})
 
 			Eventually(func(g Gomega, ctx context.Context) {
 				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
+					Name:      kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"),
 					Namespace: testNs.Name,
 				}, &netv1.NetworkPolicy{})
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
+				g.Expect(err).NotTo(HaveOccurred())
 			}).WithContext(ctx).Should(Succeed())
+
+			for _, suffix := range append(managedIngressPolicySuffixes("strict"), "-networkpolicy-egress") {
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				Eventually(func(g Gomega, ctx context.Context) {
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "strict policy %s must be removed after the gate is disabled", name)
+				}).WithContext(ctx).Should(Succeed())
+			}
+
+			// The per-component egress grant survived the toggle unchanged.
+			survivedEgress := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-main"))
+			Expect(survivedEgress.UID).To(Equal(egressMain.UID), "the gate toggle must not churn the egress grant")
+			Expect(survivedEgress.ResourceVersion).To(Equal(egressMain.ResourceVersion), "the gate toggle must not rewrite the egress grant")
+			Expect(survivedEgress.Spec).To(Equal(egressMain.Spec), "the gate toggle must not change the egress grant spec")
+		})
+	})
+
+	Context("strict mode (strict gate on)", func() {
+		BeforeEach(func(ctx SpecContext) {
+			EnableStrictNetworkPolicy(ctx, envTest.Client)
 		})
 
-		It("should leave a same-name NetworkPolicy it does not own alone when the gate is off", func(ctx SpecContext) {
-			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
-				cfg.FeatureGates.MonitoringIngressNetworkPolicy = false
-			})
-
-			svcName := "test-llm-netpol-gate-off-foreign"
+		It("creates per-component policies selecting stored component selectors without blanket same-namespace ingress", func(ctx SpecContext) {
 			testNs := NewTestNamespace(ctx, envTest)
-			userNP := &netv1.NetworkPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
-					Namespace: testNs.Name,
-				},
-				Spec: netv1.NetworkPolicySpec{
-					PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{"app": "user-owned"}},
-					PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
-				},
-			}
-			Expect(envTest.Create(ctx, userNP)).To(Succeed())
-
-			llmSvc := LLMInferenceService(svcName,
+			llmSvc := LLMInferenceService("test-llm-netpol",
 				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 				WithModelURI("hf://facebook/opt-125m"),
+				WithSchedulerCommand("epp"),
+				WithManagedTokenizer(),
 			)
+
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 			defer testNs.DeleteAndWait(ctx, llmSvc)
 
-			Eventually(func(g Gomega, ctx context.Context) {
-				event := findEvent(ctx, envTest.Client, llmSvc, "MonitoringNetworkPolicyNotOwned")
-				g.Expect(event).NotTo(BeNil())
-				g.Expect(event.Type).To(Equal(corev1.EventTypeWarning))
-			}).WithContext(ctx).Should(Succeed())
-
-			preserved := &netv1.NetworkPolicy{}
-			Expect(envTest.Get(ctx, types.NamespacedName{Name: userNP.Name, Namespace: testNs.Name}, preserved)).To(Succeed())
-			Expect(preserved.UID).To(Equal(userNP.UID))
-			Expect(preserved.OwnerReferences).To(BeEmpty())
-		})
-
-		It("should create a per-service NetworkPolicy allowing Prometheus scraping when llmisvc is created", func(ctx SpecContext) {
-			// given
-			GinkgoT().Setenv("MONITORING_NAMESPACE", "test-monitoring-ns")
-
-			svcName := "test-llm-netpol"
-			testNs := NewTestNamespace(ctx, envTest)
-
-			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-			)
-
-			// when
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer func() {
-				testNs.DeleteAndWait(ctx, llmSvc)
-			}()
-
-			// then - verify NetworkPolicy is created with correct spec
-			np := waitForMonitoringNetworkPolicy(ctx, testNs.Name, svcName)
-
-			Expect(np.Labels).To(HaveKeyWithValue(constants.KubernetesComponentLabelKey, "llm-monitoring"))
-			Expect(np.Labels).To(HaveKeyWithValue(constants.KubernetesPartOfLabelKey, constants.LLMInferenceServicePartOfValue))
-			Expect(np.Labels).To(HaveKeyWithValue(constants.KubernetesAppNameLabelKey, svcName))
-			Expect(np.OwnerReferences).To(HaveLen(1))
-			Expect(np.OwnerReferences[0].Name).To(Equal(svcName))
-			Expect(np.OwnerReferences[0].Controller).To(Equal(ptr.To(true)))
-
-			Expect(np.Spec.PodSelector.MatchLabels).To(HaveKeyWithValue(
-				constants.KubernetesPartOfLabelKey, constants.LLMInferenceServicePartOfValue))
-			Expect(np.Spec.PodSelector.MatchLabels).To(HaveKeyWithValue(
-				constants.KubernetesAppNameLabelKey, svcName))
-
-			Expect(np.Spec.Ingress).To(HaveLen(3))
-
-			prometheusRule := np.Spec.Ingress[0]
-			Expect(prometheusPeerNamespacesFromRule(prometheusRule)).To(ConsistOf(
-				"test-monitoring-ns",
-				"openshift-monitoring",
-				"openshift-user-workload-monitoring",
-			))
-			Expect(prometheusRule.Ports).To(HaveLen(2))
-			Expect(prometheusRule.Ports).To(ContainElements(
-				netv1.NetworkPolicyPort{
-					Protocol: ptr.To(corev1.ProtocolTCP),
-					Port:     ptr.To(intstr.FromInt32(8000)),
-				},
-				netv1.NetworkPolicyPort{
-					Protocol: ptr.To(corev1.ProtocolTCP),
-					Port:     ptr.To(intstr.FromInt32(9090)),
-				},
-			))
-
-			// Rule 2: API Gateway from ingress namespace to reach vLLM and EPP ext_proc
-			gatewayRule := np.Spec.Ingress[1]
-			Expect(gatewayRule.From).To(HaveLen(1))
-			Expect(gatewayRule.From[0].NamespaceSelector.MatchLabels).To(
-				HaveKeyWithValue("kubernetes.io/metadata.name", "kserve"))
-			Expect(gatewayRule.Ports).To(HaveLen(2))
-			Expect(gatewayRule.Ports).To(ContainElements(
-				netv1.NetworkPolicyPort{
-					Protocol: ptr.To(corev1.ProtocolTCP),
-					Port:     ptr.To(intstr.FromInt32(8000)),
-				},
-				netv1.NetworkPolicyPort{
-					Protocol: ptr.To(corev1.ProtocolTCP),
-					Port:     ptr.To(intstr.FromInt32(9002)),
-				},
-			))
-
-			// Rule 3: All pods within the namespace can communicate on any port
-			intraNamespaceRule := np.Spec.Ingress[2]
-			Expect(intraNamespaceRule.From).To(HaveLen(1))
-			Expect(intraNamespaceRule.From[0].PodSelector.MatchLabels).To(BeEmpty())
-			Expect(intraNamespaceRule.Ports).To(BeNil())
-		})
-
-		It("should continue monitoring reconciliation when the tracing policy has another owner", func(ctx SpecContext) {
-			testNs := NewTestNamespace(ctx, envTest)
-			llmName := "test-llm-netpol-tracing-owner-conflict"
-			foreignOwner := &v1alpha2.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "foreign-owner",
-					Namespace: testNs.Name,
-					UID:       types.UID("foreign-owner-uid"),
-				},
+			workload := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
+			Expect(metav1.IsControlledBy(workload, llmSvc)).To(BeTrue(), "workload policy must be owned by the service")
+			main := &appsv1.Deployment{}
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name:      kmeta.ChildName(llmSvc.Name, "-kserve"),
+				Namespace: testNs.Name,
+			}, main)).To(Succeed())
+			Expect(workload.Spec.PodSelector).To(Equal(*main.Spec.Selector), "workload policy must select the stored main Deployment's Pods")
+			Expect(workload.Spec.Ingress).NotTo(BeEmpty())
+			monitoringAllowed := false
+			for _, rule := range workload.Spec.Ingress {
+				for _, peer := range rule.From {
+					if peer.NamespaceSelector != nil && peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] == "openshift-monitoring" {
+						monitoringAllowed = true
+					}
+				}
 			}
-			foreignOwnerRef := *metav1.NewControllerRef(foreignOwner, v1alpha2.LLMInferenceServiceGVK)
-			tracingNP := &netv1.NetworkPolicy{
+			Expect(monitoringAllowed).To(BeTrue(), "strict isolation must preserve monitoring peers")
+
+			for _, rule := range workload.Spec.Ingress {
+				Expect(rule.From).NotTo(BeEmpty(), "every ingress rule must identify its source")
+				Expect(rule.Ports).NotTo(BeEmpty(), "every ingress rule must identify destination ports")
+			}
+
+			scheduler := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-scheduler"))
+			schedulerDeployment := &appsv1.Deployment{}
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name:      kmeta.ChildName(llmSvc.Name, "-kserve-router-scheduler"),
+				Namespace: testNs.Name,
+			}, schedulerDeployment)).To(Succeed())
+			Expect(scheduler.Spec.PodSelector).To(Equal(*schedulerDeployment.Spec.Selector), "scheduler policy must select the stored scheduler Deployment's Pods")
+
+			tokenizer := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-tokenizer"))
+			tokenizerDeployment := &appsv1.Deployment{}
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name:      kmeta.ChildName(llmSvc.Name, "-tokenizer"),
+				Namespace: testNs.Name,
+			}, tokenizerDeployment)).To(Succeed())
+			Expect(tokenizer.Spec.PodSelector).To(Equal(*tokenizerDeployment.Spec.Selector), "tokenizer policy must select the stored tokenizer Deployment's Pods")
+			Expect(tokenizer.Spec.Ingress).To(HaveLen(1), "tokenizer must only admit its scheduler")
+			Expect(tokenizer.Spec.Ingress[0].From).To(HaveLen(1))
+			Expect(tokenizer.Spec.Ingress[0].From[0].PodSelector).NotTo(BeNil())
+			Expect(*tokenizer.Spec.Ingress[0].From[0].PodSelector).To(Equal(*schedulerDeployment.Spec.Selector), "tokenizer source must be the stored scheduler selector")
+
+			// Egress is mode-independent: the retired legacy broad names stay
+			// absent while every stored component keeps its explicit per-component
+			// allow-all egress grant.
+			for _, suffix := range []string{"-networkpolicy-egress", "-networkpolicy-allow-all"} {
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "legacy broad egress policy %s must not exist in strict mode", name)
+			}
+			for _, component := range []struct {
+				key      string
+				selector *metav1.LabelSelector
+			}{
+				{"main", main.Spec.Selector},
+				{"scheduler", schedulerDeployment.Spec.Selector},
+				{"tokenizer", tokenizerDeployment.Spec.Selector},
+			} {
+				grant := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress-"+component.key))
+				Expect(metav1.IsControlledBy(grant, llmSvc)).To(BeTrue(), "egress grant must be owned by the service")
+				Expect(grant.Spec.PodSelector).To(Equal(*component.selector), "egress grant must select the stored %s Deployment's Pods", component.key)
+				Expect(grant.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress))
+				Expect(grant.Spec.Ingress).To(BeEmpty(), "the egress grant must not create ingress rules")
+				Expect(grant.Spec.Egress).To(Equal([]netv1.NetworkPolicyEgressRule{{}}), "the egress grant must be an explicit allow-all rule")
+			}
+			for _, suffix := range managedAllowAllEgressPolicySuffixes() {
+				switch suffix {
+				case "-networkpolicy-egress-main", "-networkpolicy-egress-scheduler", "-networkpolicy-egress-tokenizer":
+					continue
+				}
+				name := kmeta.ChildName(llmSvc.Name, suffix)
+				err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+				Expect(apierrors.IsNotFound(err)).To(BeTrue(), "egress policy %s must not exist without a stored component", name)
+			}
+
+			legacy := &netv1.NetworkPolicy{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      kmeta.ChildName(llmName, "-otlp-egress"),
+					Name:      kmeta.ChildName(llmSvc.Name, "-prometheus-scraping"),
 					Namespace: testNs.Name,
 					OwnerReferences: []metav1.OwnerReference{
-						foreignOwnerRef,
+						*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK),
 					},
 				},
+				Spec: netv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{},
+					PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
+					Ingress:     []netv1.NetworkPolicyIngressRule{{}},
+				},
 			}
-			Expect(envTest.Create(ctx, tracingNP)).To(Succeed())
-
-			llmSvc := LLMInferenceService(llmName,
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-				WithAnnotations(map[string]string{constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true"}),
-			)
-			llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer testNs.DeleteAndWait(ctx, llmSvc)
-
-			waitForMonitoringNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+			Expect(envTest.Create(ctx, legacy)).To(Succeed())
 			Eventually(func(g Gomega, ctx context.Context) {
-				event := findEvent(ctx, envTest.Client, llmSvc, "TracingNetworkPolicyNotOwned")
-				g.Expect(event).NotTo(BeNil())
-				g.Expect(event.Type).To(Equal(corev1.EventTypeWarning))
+				legacy := &netv1.NetworkPolicy{}
+				err := envTest.Get(ctx, types.NamespacedName{
+					Name:      kmeta.ChildName(llmSvc.Name, "-prometheus-scraping"),
+					Namespace: testNs.Name,
+				}, legacy)
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 			}).WithContext(ctx).Should(Succeed())
-
-			preserved := &netv1.NetworkPolicy{}
-			Expect(envTest.Get(ctx, types.NamespacedName{Name: tracingNP.Name, Namespace: testNs.Name}, preserved)).To(Succeed())
-			Expect(preserved.OwnerReferences).To(Equal([]metav1.OwnerReference{foreignOwnerRef}))
 		})
 
-		It("should continue monitoring reconciliation when opt-in is removed and the tracing policy has another owner", func(ctx SpecContext) {
+		It("uses only explicitly referenced Gateway namespaces", func(ctx SpecContext) {
 			testNs := NewTestNamespace(ctx, envTest)
-			llmName := "test-llm-netpol-tracing-owner-conflict-cleanup"
-			foreignOwner := &v1alpha2.LLMInferenceService{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      "foreign-owner",
-					Namespace: testNs.Name,
-					UID:       types.UID("foreign-owner-uid"),
-				},
-			}
-			foreignOwnerRef := *metav1.NewControllerRef(foreignOwner, v1alpha2.LLMInferenceServiceGVK)
-			tracingNP := &netv1.NetworkPolicy{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:            kmeta.ChildName(llmName, "-otlp-egress"),
-					Namespace:       testNs.Name,
-					OwnerReferences: []metav1.OwnerReference{foreignOwnerRef},
-				},
-			}
-			Expect(envTest.Create(ctx, tracingNP)).To(Succeed())
-
-			llmSvc := LLMInferenceService(llmName,
+			llmSvc := LLMInferenceService("test-llm-netpol-gateway",
 				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
 				WithModelURI("hf://facebook/opt-125m"),
-				WithAnnotations(map[string]string{constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true"}),
+				WithGatewayRefs(LLMGatewayRef("custom-gateway", testNs.Name)),
 			)
-			llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
+			customGateway := Gateway("custom-gateway",
+				InNamespace[*gwapiv1.Gateway](testNs.Name),
+				WithListener(gwapiv1.HTTPProtocolType),
+			)
+
+			Expect(envTest.Create(ctx, customGateway)).To(Succeed())
+			ensureGatewayReady(ctx, envTest.Client, customGateway)
 			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
 			defer testNs.DeleteAndWait(ctx, llmSvc)
-			monitoringNP := waitForMonitoringNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
-			var initialWarningCount int32
+
+			workload := waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
+			gatewayRules := make([]netv1.NetworkPolicyIngressRule, 0)
+			for _, rule := range workload.Spec.Ingress {
+				for _, peer := range rule.From {
+					if peer.NamespaceSelector != nil && peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"] == testNs.Name {
+						gatewayRules = append(gatewayRules, rule)
+						break
+					}
+				}
+			}
+			Expect(gatewayRules).To(HaveLen(1))
+			Expect(gatewayRules[0].Ports).To(HaveLen(1))
+			Expect(gatewayRules[0].Ports[0].Port).NotTo(BeNil())
+			Expect(gatewayRules[0].Ports[0].Port.IntValue()).To(Equal(8000))
+			Expect(gatewayRules[0].From).To(HaveLen(1))
+			Expect(gatewayRules[0].From[0].NamespaceSelector.MatchLabels).To(HaveKeyWithValue(
+				"kubernetes.io/metadata.name", testNs.Name))
+		})
+
+		It("removes all owned policies when the service is deleted", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService("test-llm-netpol-cleanup",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
+			Expect(envTest.Delete(ctx, llmSvc)).To(Succeed())
+
+			policySuffixes := slices.Concat(
+				managedIngressPolicySuffixes("strict"),
+				managedIngressPolicySuffixes("default"),
+				managedAllowAllEgressPolicySuffixes(),
+				[]string{"-networkpolicy-egress", "-networkpolicy-allow-all"})
 			Eventually(func(g Gomega, ctx context.Context) {
-				event := findEvent(ctx, envTest.Client, llmSvc, "TracingNetworkPolicyNotOwned")
-				g.Expect(event).NotTo(BeNil())
-				initialWarningCount = event.Count
+				// The suffix lists must be mapped through kmeta.ChildName:
+				// checking a raw suffix as an object name would match nothing.
+				for _, suffix := range policySuffixes {
+					name := kmeta.ChildName(llmSvc.Name, suffix)
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), name)
+				}
+			}).WithContext(ctx).Should(Succeed())
+		})
+
+		It("completes finalization with an ownerless legacy policy and preserves it", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService("test-llm-netpol-ownerless-legacy-cleanup",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+
+			legacy := &netv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      kmeta.ChildName(llmSvc.Name, "-prometheus-scraping"),
+					Namespace: testNs.Name,
+					Labels:    map[string]string{"test-owner": "foreign"},
+				},
+				Spec: netv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{},
+					PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
+					Ingress:     []netv1.NetworkPolicyIngressRule{{}},
+				},
+			}
+			DeferCleanup(func(ctx SpecContext) {
+				if err := envTest.Delete(ctx, legacy); err != nil && !apierrors.IsNotFound(err) {
+					Expect(err).NotTo(HaveOccurred())
+				}
+				testNs.DeleteAndWait(ctx, llmSvc)
+			})
+
+			ownedPolicyNames := []string{
+				kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"),
+			}
+			for _, name := range ownedPolicyNames {
+				waitForNetworkPolicy(ctx, testNs.Name, name)
+			}
+			Expect(envTest.Create(ctx, legacy)).To(Succeed())
+			legacyBefore := &netv1.NetworkPolicy{}
+			Expect(envTest.Get(ctx, types.NamespacedName{Name: legacy.Name, Namespace: legacy.Namespace}, legacyBefore)).To(Succeed())
+			Expect(legacyBefore.OwnerReferences).To(BeEmpty(), "legacy policy is intentionally ownerless")
+
+			// This must complete through the service finalizer despite the
+			// ownerless same-name policy. Envtest has no garbage collector, so
+			// the owned policies are verified after explicit controller cleanup.
+			testNs.DeleteAndWait(ctx, llmSvc)
+			Eventually(func(g Gomega, ctx context.Context) {
+				err := envTest.Get(ctx, types.NamespacedName{Name: llmSvc.Name, Namespace: testNs.Name}, &v1alpha2.LLMInferenceService{})
+				g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "service finalization must complete")
 			}).WithContext(ctx).Should(Succeed())
 
-			// Removing the opt-in takes the tracing policy through the cleanup path.
+			allManagedPolicySuffixes := slices.Concat(
+				managedIngressPolicySuffixes("strict"),
+				managedIngressPolicySuffixes("default"),
+				managedAllowAllEgressPolicySuffixes(),
+				[]string{"-networkpolicy-allow-all", "-otlp-egress"})
+			Eventually(func(g Gomega, ctx context.Context) {
+				// The suffix lists must be mapped through kmeta.ChildName:
+				// checking a raw suffix as an object name would match nothing.
+				for _, suffix := range allManagedPolicySuffixes {
+					name := kmeta.ChildName(llmSvc.Name, suffix)
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "owned policy %s must be removed", name)
+				}
+			}).WithContext(ctx).Should(Succeed())
+
+			Eventually(func(g Gomega, ctx context.Context) {
+				legacyAfter := &netv1.NetworkPolicy{}
+				g.Expect(envTest.Get(ctx, types.NamespacedName{Name: legacy.Name, Namespace: legacy.Namespace}, legacyAfter)).To(Succeed())
+				g.Expect(reflect.DeepEqual(legacyAfter, legacyBefore)).To(BeTrue(), "ownerless foreign policy must remain unchanged")
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
+	Context("upgrade from pre-feature workloads and ingress mode toggles", func() {
+		BeforeEach(func(ctx SpecContext) {
+			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+				cfg.FeatureGates.StrictNetworkPolicy = false
+			})
+		})
+
+		getWorkloads := func(ctx SpecContext, namespace, serviceName string) (main, prefill *appsv1.Deployment) {
+			GinkgoHelper()
+			main = &appsv1.Deployment{}
+			prefill = &appsv1.Deployment{}
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name: kmeta.ChildName(serviceName, "-kserve"), Namespace: namespace,
+			}, main)).To(Succeed())
+			Expect(envTest.Get(ctx, types.NamespacedName{
+				Name: kmeta.ChildName(serviceName, "-kserve-prefill"), Namespace: namespace,
+			}, prefill)).To(Succeed())
+			return main, prefill
+		}
+
+		waitForWorkloads := func(ctx SpecContext, namespace, serviceName string) (main, prefill *appsv1.Deployment) {
+			GinkgoHelper()
+			Eventually(func(g Gomega, ctx context.Context) {
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name: kmeta.ChildName(serviceName, "-kserve"), Namespace: namespace,
+				}, &appsv1.Deployment{})).To(Succeed())
+				g.Expect(envTest.Get(ctx, types.NamespacedName{
+					Name: kmeta.ChildName(serviceName, "-kserve-prefill"), Namespace: namespace,
+				}, &appsv1.Deployment{})).To(Succeed())
+			}).WithContext(ctx).Should(Succeed())
+			return getWorkloads(ctx, namespace, serviceName)
+		}
+
+		assertWorkloadsUnchanged := func(ctx SpecContext, namespace, serviceName, stage string, beforeMain, beforePrefill *appsv1.Deployment) {
+			GinkgoHelper()
+			main, prefill := getWorkloads(ctx, namespace, serviceName)
+			Expect(main.Spec.Selector).To(Equal(beforeMain.Spec.Selector), "%s: the immutable main Deployment selector must be preserved", stage)
+			Expect(main.Spec.Template).To(Equal(beforeMain.Spec.Template), "%s: the main Pod template must not change", stage)
+			Expect(prefill.Spec.Selector).To(Equal(beforePrefill.Spec.Selector), "%s: the immutable prefill Deployment selector must be preserved", stage)
+			Expect(prefill.Spec.Template).To(Equal(beforePrefill.Spec.Template), "%s: the prefill Pod template must not change", stage)
+		}
+
+		assertPoliciesAbsent := func(ctx SpecContext, namespace string, names []string) {
+			GinkgoHelper()
+			Eventually(func(g Gomega, ctx context.Context) {
+				for _, name := range names {
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "%s must be removed", name)
+				}
+			}).WithContext(ctx).Should(Succeed())
+		}
+
+		childNames := func(serviceName string, suffixes []string) []string {
+			names := make([]string, 0, len(suffixes))
+			for _, suffix := range suffixes {
+				names = append(names, kmeta.ChildName(serviceName, suffix))
+			}
+			return names
+		}
+
+		It("migrates branch-created policies without rolling out pre-feature workloads", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService("test-llm-netpol-upgrade",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithTemplate(SimpleWorkerPodSpec()),
+				WithPrefill(SimpleWorkerPodSpec()),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			// The pre-feature upgrade baseline: workloads stored without the
+			// NetworkPolicy identity labels the branch build stamped onto Pod
+			// templates and immutable selectors.
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"))
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-prefill"))
+			main, prefill := waitForWorkloads(ctx, testNs.Name, llmSvc.Name)
+			for _, deployment := range []*appsv1.Deployment{main, prefill} {
+				Expect(deployment.Spec.Template.Labels).NotTo(HaveKey("serving.kserve.io/llmisvc-network-policy-id"))
+				Expect(deployment.Spec.Template.Labels).NotTo(HaveKey("serving.kserve.io/llmisvc-network-policy-role"))
+				Expect(deployment.Spec.Selector.MatchLabels).NotTo(HaveKey("serving.kserve.io/llmisvc-network-policy-id"))
+			}
+			// The current P/D presets opt the workload into revision hashing;
+			// the revision value must survive the whole upgrade and every mode
+			// toggle without a rollout.
+			revision := main.Spec.Template.Labels[constants.LLMInferenceServiceRevisionLabelKey]
+			Expect(revision).NotTo(BeEmpty(), "the default P/D presets pin a workload revision")
+			Expect(prefill.Spec.Template.Labels[constants.LLMInferenceServiceRevisionLabelKey]).To(Equal(revision))
+
+			// Seed the NetworkPolicies the branch build left behind: the combined
+			// allow-all policy, the general egress policy, and the legacy
+			// monitoring policy, the first two selecting Pods through the removed
+			// identity label. These are test-only fixtures for the removed shapes,
+			// like the unit-suite legacy helpers.
+			branchPolicy := func(suffix string, policyTypes []netv1.PolicyType) *netv1.NetworkPolicy {
+				return &netv1.NetworkPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:            kmeta.ChildName(llmSvc.Name, suffix),
+						Namespace:       testNs.Name,
+						OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK)},
+					},
+					Spec: netv1.NetworkPolicySpec{
+						PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
+							"serving.kserve.io/llmisvc-network-policy-id": "branch-fixture",
+						}},
+						PolicyTypes: policyTypes,
+						Ingress:     []netv1.NetworkPolicyIngressRule{{}},
+						Egress:      []netv1.NetworkPolicyEgressRule{{}},
+					},
+				}
+			}
+			legacyMonitoring := &netv1.NetworkPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:            kmeta.ChildName(llmSvc.Name, "-prometheus-scraping"),
+					Namespace:       testNs.Name,
+					OwnerReferences: []metav1.OwnerReference{*metav1.NewControllerRef(llmSvc, v1alpha2.LLMInferenceServiceGVK)},
+				},
+				Spec: netv1.NetworkPolicySpec{
+					PodSelector: metav1.LabelSelector{},
+					PolicyTypes: []netv1.PolicyType{netv1.PolicyTypeIngress},
+					Ingress:     []netv1.NetworkPolicyIngressRule{{}},
+				},
+			}
+			Expect(envTest.Create(ctx, branchPolicy("-networkpolicy-allow-all",
+				[]netv1.PolicyType{netv1.PolicyTypeIngress, netv1.PolicyTypeEgress}))).To(Succeed())
+			Expect(envTest.Create(ctx, branchPolicy("-networkpolicy-egress",
+				[]netv1.PolicyType{netv1.PolicyTypeEgress}))).To(Succeed())
+			Expect(envTest.Create(ctx, legacyMonitoring)).To(Succeed())
+
+			// A metadata-only touch re-reconciles the upgraded service.
 			Expect(updateLLMInferenceServiceWithRetry(ctx, testNs.Name, llmSvc.Name, func(updated *v1alpha2.LLMInferenceService) {
-				delete(updated.Annotations, constants.EnableTracingEgressNetworkPolicyAnnotationKey)
+				if updated.Annotations == nil {
+					updated.Annotations = map[string]string{}
+				}
+				updated.Annotations["upgrade-test.kserve.io/touch"] = "1"
 			})).To(Succeed())
 
-			// Deleting the monitoring policy forces another reconciliation while the
-			// foreign tracing policy is still present.
-			Expect(envTest.Delete(ctx, monitoringNP)).To(Succeed())
-			Eventually(func(g Gomega, ctx context.Context) {
-				recreated := &netv1.NetworkPolicy{}
-				g.Expect(envTest.Get(ctx, types.NamespacedName{Name: monitoringNP.Name, Namespace: testNs.Name}, recreated)).To(Succeed())
-				g.Expect(recreated.UID).NotTo(Equal(monitoringNP.UID))
-			}).WithContext(ctx).Should(Succeed())
+			// The upgraded controller removes the branch policies once the
+			// per-component replacement exists, without touching the workloads.
+			assertPoliciesAbsent(ctx, testNs.Name, []string{
+				kmeta.ChildName(llmSvc.Name, "-networkpolicy-allow-all"),
+				kmeta.ChildName(llmSvc.Name, "-networkpolicy-egress"),
+				kmeta.ChildName(llmSvc.Name, "-prometheus-scraping"),
+			})
+			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after the policy migration", main, prefill)
 
-			Eventually(func(g Gomega, ctx context.Context) {
-				event := findEvent(ctx, envTest.Client, llmSvc, "TracingNetworkPolicyNotOwned")
-				g.Expect(event).NotTo(BeNil())
-				g.Expect(event.Type).To(Equal(corev1.EventTypeWarning))
-				g.Expect(event.Count).To(BeNumerically(">", initialWarningCount))
-			}).WithContext(ctx).Should(Succeed())
+			// The mode toggles must not churn the per-component egress grants:
+			// capture their identity after the migration and require it after
+			// every toggle.
+			allowAllEgressNames := childNames(llmSvc.Name, managedAllowAllEgressPolicySuffixes())
+			egressGrantUIDs := func() map[string]types.UID {
+				GinkgoHelper()
+				grants := map[string]types.UID{}
+				policies := &netv1.NetworkPolicyList{}
+				Expect(envTest.List(ctx, policies, client.InNamespace(testNs.Name))).To(Succeed())
+				for i := range policies.Items {
+					if slices.Contains(allowAllEgressNames, policies.Items[i].Name) {
+						grants[policies.Items[i].Name] = policies.Items[i].UID
+					}
+				}
+				return grants
+			}
+			grantsAfterMigration := egressGrantUIDs()
+			Expect(grantsAfterMigration).To(HaveLen(2), "each stored workload keeps exactly one allow-all egress grant")
 
-			preserved := &netv1.NetworkPolicy{}
-			Expect(envTest.Get(ctx, types.NamespacedName{Name: tracingNP.Name, Namespace: testNs.Name}, preserved)).To(Succeed())
-			Expect(preserved.OwnerReferences).To(Equal([]metav1.OwnerReference{foreignOwnerRef}))
+			// Toggling the ingress mode changes only the policies.
+			EnableStrictNetworkPolicy(ctx, envTest.Client)
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
+			assertPoliciesAbsent(ctx, testNs.Name, childNames(llmSvc.Name, slices.Concat(
+				managedIngressPolicySuffixes("default"),
+				[]string{"-networkpolicy-allow-all", "-networkpolicy-egress"})))
+			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after enabling strict mode", main, prefill)
+			Expect(egressGrantUIDs()).To(Equal(grantsAfterMigration), "enabling strict mode must not churn the egress grants")
+
+			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+				cfg.FeatureGates.StrictNetworkPolicy = false
+			})
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"))
+			assertPoliciesAbsent(ctx, testNs.Name, childNames(llmSvc.Name, slices.Concat(
+				managedIngressPolicySuffixes("strict"),
+				[]string{"-networkpolicy-allow-all", "-networkpolicy-egress"})))
+			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after disabling strict mode", main, prefill)
+			Expect(egressGrantUIDs()).To(Equal(grantsAfterMigration), "disabling strict mode must not churn the egress grants")
+
+			// After the successful migration every generated policy is either an
+			// ingress-only per-component policy with no egress rules or an
+			// egress-only per-component allow-all grant with exactly one
+			// unrestricted egress rule — one grant per stored workload.
+			Consistently(func(g Gomega, ctx context.Context) {
+				policies := &netv1.NetworkPolicyList{}
+				g.Expect(envTest.List(ctx, policies, client.InNamespace(testNs.Name))).To(Succeed())
+				g.Expect(policies.Items).NotTo(BeEmpty())
+				egressGrants := 0
+				for i := range policies.Items {
+					policy := &policies.Items[i]
+					if slices.Contains(allowAllEgressNames, policy.Name) {
+						egressGrants++
+						g.Expect(policy.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeEgress), "%s must be egress-only", policy.Name)
+						g.Expect(policy.Spec.Ingress).To(BeEmpty(), "%s must not create ingress rules", policy.Name)
+						g.Expect(policy.Spec.Egress).To(HaveLen(1), "%s must carry exactly one allow-all egress rule", policy.Name)
+						g.Expect(policy.Spec.Egress[0].To).To(BeEmpty(), "%s must not restrict egress destinations", policy.Name)
+						g.Expect(policy.Spec.Egress[0].Ports).To(BeEmpty(), "%s must not restrict egress ports", policy.Name)
+						continue
+					}
+					g.Expect(policy.Spec.PolicyTypes).To(ConsistOf(netv1.PolicyTypeIngress), "%s must be ingress-only", policy.Name)
+					g.Expect(policy.Spec.Egress).To(BeEmpty(), "%s must not create egress rules", policy.Name)
+				}
+				g.Expect(egressGrants).To(Equal(2), "each of the two stored workloads keeps exactly one allow-all egress grant")
+			}).WithContext(ctx).Should(Succeed())
 		})
 
-		It("should include RHOAI monitoring without dropping OpenShift defaults when MONITORING_NAMESPACE is unset", func(ctx SpecContext) {
-			// given - operator skips injecting the env var when monitoring is unset
-			if old, had := os.LookupEnv("MONITORING_NAMESPACE"); had {
-				Expect(os.Unsetenv("MONITORING_NAMESPACE")).To(Succeed())
-				DeferCleanup(func() { Expect(os.Setenv("MONITORING_NAMESPACE", old)).To(Succeed()) })
+		It("keeps an existing-tracing service's workloads stable across mode toggles", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			llmSvc := LLMInferenceService("test-llm-netpol-tracing-upgrade",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithTemplate(SimpleWorkerPodSpec()),
+				WithPrefill(SimpleWorkerPodSpec()),
+				WithAnnotations(map[string]string{constants.EnableTracingEgressNetworkPolicyAnnotationKey: "true"}),
+			)
+			llmSvc.Spec.Tracing = &v1alpha2.TracingSpec{}
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"))
+			tracing := waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+			// The tracing policy keeps selecting through the pre-existing
+			// application labels in both ingress modes.
+			Expect(tracing.Spec.PodSelector.MatchLabels).To(Equal(map[string]string{
+				constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
+				constants.KubernetesAppNameLabelKey: llmSvc.Name,
+			}))
+			// Opted-in tracing removes every owned unrestricted egress grant.
+			Eventually(func(g Gomega, ctx context.Context) {
+				for _, suffix := range managedAllowAllEgressPolicySuffixes() {
+					name := kmeta.ChildName(llmSvc.Name, suffix)
+					err := envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: testNs.Name}, &netv1.NetworkPolicy{})
+					g.Expect(apierrors.IsNotFound(err)).To(BeTrue(), "unrestricted egress grant %s must not exist while tracing is opted in", name)
+				}
+			}).WithContext(ctx).Should(Succeed())
+			main, prefill := waitForWorkloads(ctx, testNs.Name, llmSvc.Name)
+
+			EnableStrictNetworkPolicy(ctx, envTest.Client)
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
+			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after enabling strict mode", main, prefill)
+			strictTracing := waitForTracingNetworkPolicy(ctx, testNs.Name, llmSvc.Name)
+			Expect(strictTracing.Spec).To(Equal(tracing.Spec), "the tracing policy must not change with the ingress mode")
+
+			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+				cfg.FeatureGates.StrictNetworkPolicy = false
+			})
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"))
+			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after disabling strict mode", main, prefill)
+		})
+
+		It("does not roll out a service pinned to presets without the revision placeholder", func(ctx SpecContext) {
+			testNs := NewTestNamespace(ctx, envTest)
+			// Namespace-local copies of the P/D template presets, pinned to the
+			// pre-revision shape: no serving.kserve.io/llmisvc-revision
+			// placeholder in their spec labels.
+			pinnedDecode := LLMInferenceServiceConfig("kserve-config-llm-decode-template",
+				InNamespace[*v1alpha2.LLMInferenceServiceConfig](testNs.Name),
+				WithConfigWorkloadTemplate(SimpleWorkerPodSpec()),
+			)
+			pinnedPrefill := LLMInferenceServiceConfig("kserve-config-llm-prefill-template",
+				InNamespace[*v1alpha2.LLMInferenceServiceConfig](testNs.Name),
+			)
+			pinnedPrefill.Spec.Prefill = &v1alpha2.WorkloadSpec{Template: SimpleWorkerPodSpec()}
+			Expect(envTest.Create(ctx, pinnedDecode)).To(Succeed())
+			Expect(envTest.Create(ctx, pinnedPrefill)).To(Succeed())
+
+			llmSvc := LLMInferenceService("test-llm-netpol-pinned",
+				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
+				WithModelURI("hf://facebook/opt-125m"),
+				WithTemplate(SimpleWorkerPodSpec()),
+				WithPrefill(SimpleWorkerPodSpec()),
+			)
+			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
+			defer testNs.DeleteAndWait(ctx, llmSvc)
+
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"))
+			main, prefill := waitForWorkloads(ctx, testNs.Name, llmSvc.Name)
+			for _, deployment := range []*appsv1.Deployment{main, prefill} {
+				Expect(deployment.Spec.Template.Labels).NotTo(HaveKey(constants.LLMInferenceServiceRevisionLabelKey),
+					"a service pinned to presets without the revision placeholder must not gain a revision label on upgrade")
 			}
 
-			svcName := "test-llm-netpol-default-ns"
-			testNs := NewTestNamespace(ctx, envTest)
+			EnableStrictNetworkPolicy(ctx, envTest.Client)
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-strict-main"))
+			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after enabling strict mode", main, prefill)
 
-			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-			)
-
-			// when
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer func() {
-				testNs.DeleteAndWait(ctx, llmSvc)
-			}()
-
-			// then - the ingress rule targets the default namespaces
-			np := waitForMonitoringNetworkPolicy(ctx, testNs.Name, svcName)
-			Expect(np.Spec.Ingress).To(HaveLen(3))
-			Expect(prometheusPeerNamespacesFromRule(np.Spec.Ingress[0])).To(ConsistOf(
-				"openshift-monitoring",
-				"openshift-user-workload-monitoring",
-				"redhat-ods-monitoring",
-			))
-		})
-
-		It("should allow a cross-namespace custom gateway.ref without dropping the managed Gateway", func(ctx SpecContext) {
-			svcName := "test-llm-netpol-custom-gw"
-			testNs := NewTestNamespace(ctx, envTest)
-			gwNs := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: kmeta.ChildName(testNs.Name, "-gw")}}
-			Expect(envTest.Create(ctx, gwNs)).To(Succeed())
-			defer func() {
-				_ = envTest.Delete(ctx, gwNs)
-			}()
-
-			customGateway := Gateway("my-custom-gateway",
-				InNamespace[*gwapiv1.Gateway](gwNs.Name),
-				WithListener(gwapiv1.HTTPProtocolType),
-				WithAddresses("203.0.113.42"),
-			)
-			Expect(envTest.Create(ctx, customGateway)).To(Succeed())
-			defer func() {
-				_ = envTest.Delete(ctx, customGateway)
-			}()
-
-			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-				WithManagedRoute(),
-				WithGatewayRefs(LLMGatewayRef("my-custom-gateway", gwNs.Name)),
-			)
-
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer func() {
-				testNs.DeleteAndWait(ctx, llmSvc)
-			}()
-
-			np := waitForMonitoringNetworkPolicy(ctx, testNs.Name, svcName)
-			gatewayRule := np.Spec.Ingress[1]
-			Expect(gatewayPeerNamespaces(gatewayRule)).To(ConsistOf("kserve", gwNs.Name))
-			Expect(np.Spec.Ingress[2].From[0].PodSelector.MatchLabels).To(BeEmpty())
-		})
-
-		It("should not create the NetworkPolicy when the service is force-stopped", func(ctx SpecContext) {
-			// given - a service force-stopped from creation via the stop annotation
-			svcName := "test-llm-netpol-stopped"
-			testNs := NewTestNamespace(ctx, envTest)
-
-			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-				WithAnnotations(map[string]string{constants.StopAnnotationKey: "true"}),
-			)
-
-			// when
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-			defer func() {
-				testNs.DeleteAndWait(ctx, llmSvc)
-			}()
-
-			// then - NetworkPolicy is never created while the service is stopped
-			Consistently(func(g Gomega, ctx context.Context) {
-				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
-					Namespace: testNs.Name,
-				}, &netv1.NetworkPolicy{})
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-			}).WithContext(ctx).Should(Succeed(), "NetworkPolicy should not be created for a force-stopped service")
-		})
-
-		It("should keep the other service NetworkPolicy when one of multiple llmisvcs is deleted", func(ctx SpecContext) {
-			// given
-			svcName := "test-llm-netpol-skip"
-			testNs := NewTestNamespace(ctx, envTest)
-
-			llmSvc1 := LLMInferenceService(svcName+"-1",
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-			)
-			llmSvc2 := LLMInferenceService(svcName+"-2",
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-			)
-
-			// when - create both services
-			Expect(envTest.Create(ctx, llmSvc1)).To(Succeed())
-			Expect(envTest.Create(ctx, llmSvc2)).To(Succeed())
-
-			waitForMonitoringNetworkPolicy(ctx, testNs.Name, llmSvc1.Name)
-			waitForMonitoringNetworkPolicy(ctx, testNs.Name, llmSvc2.Name)
-
-			// when - delete only the first service
-			Expect(envTest.Delete(ctx, llmSvc1)).To(Succeed())
-
-			// then - first service policy is removed, second remains
-			Eventually(func(g Gomega, ctx context.Context) {
-				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      kmeta.ChildName(llmSvc1.Name, "-prometheus-scraping"),
-					Namespace: testNs.Name,
-				}, &netv1.NetworkPolicy{})
-				g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
-			}).WithContext(ctx).Should(Succeed())
-
-			Consistently(func(g Gomega, ctx context.Context) {
-				g.Expect(envTest.Get(ctx, types.NamespacedName{
-					Name:      kmeta.ChildName(llmSvc2.Name, "-prometheus-scraping"),
-					Namespace: testNs.Name,
-				}, &netv1.NetworkPolicy{})).To(Succeed())
-			}).WithContext(ctx).Should(Succeed())
-
-			testNs.DeleteAndWait(ctx, llmSvc2)
-		})
-
-		It("should cleanup NetworkPolicy when the last llmisvc is deleted", func(ctx SpecContext) {
-			// given
-			svcName := "test-llm-netpol-last"
-			testNs := NewTestNamespace(ctx, envTest)
-
-			llmSvc := LLMInferenceService(svcName,
-				InNamespace[*v1alpha2.LLMInferenceService](testNs.Name),
-				WithModelURI("hf://facebook/opt-125m"),
-			)
-
-			// when - create service
-			Expect(envTest.Create(ctx, llmSvc)).To(Succeed())
-
-			waitForMonitoringNetworkPolicy(ctx, testNs.Name, svcName)
-
-			// when - delete the last (and only) service
-			testNs.DeleteAndWait(ctx, llmSvc)
-
-			// then - NetworkPolicy should be deleted
-			Eventually(func(ctx context.Context) bool {
-				np := &netv1.NetworkPolicy{}
-				err := envTest.Get(ctx, types.NamespacedName{
-					Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
-					Namespace: testNs.Name,
-				}, np)
-				return err != nil && apierrors.IsNotFound(err)
-			}).WithContext(ctx).Should(BeTrue(), "monitoring NetworkPolicy should be deleted")
+			PatchLLMISVCConfig(ctx, envTest.Client, func(cfg *llmisvc.LLMISVCConfig) {
+				cfg.FeatureGates.StrictNetworkPolicy = false
+			})
+			waitForNetworkPolicy(ctx, testNs.Name, kmeta.ChildName(llmSvc.Name, "-networkpolicy-default-main"))
+			assertWorkloadsUnchanged(ctx, testNs.Name, llmSvc.Name, "after disabling strict mode", main, prefill)
+			for _, deployment := range []*appsv1.Deployment{main, prefill} {
+				Expect(deployment.Spec.Template.Labels).NotTo(HaveKey(constants.LLMInferenceServiceRevisionLabelKey),
+					"mode toggles must not introduce a revision label")
+			}
 		})
 	})
 })
 
-func waitForMonitoringNetworkPolicy(ctx context.Context, nsName, svcName string) *netv1.NetworkPolicy {
-	np := &netv1.NetworkPolicy{}
+func waitForNetworkPolicy(ctx context.Context, namespace, name string) *netv1.NetworkPolicy {
+	policy := &netv1.NetworkPolicy{}
 	Eventually(func(_ Gomega, ctx context.Context) error {
-		return envTest.Get(ctx, types.NamespacedName{
-			Name:      kmeta.ChildName(svcName, "-prometheus-scraping"),
-			Namespace: nsName,
-		}, np)
+		return envTest.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, policy)
 	}).WithContext(ctx).Should(Succeed())
-
-	return np
+	return policy
 }
 
-func prometheusPeerNamespacesFromRule(rule netv1.NetworkPolicyIngressRule) []string {
-	return namespaceSelectorPeerNamespaces(rule)
-}
-
-func gatewayPeerNamespaces(rule netv1.NetworkPolicyIngressRule) []string {
-	return namespaceSelectorPeerNamespaces(rule)
-}
-
-func namespaceSelectorPeerNamespaces(rule netv1.NetworkPolicyIngressRule) []string {
-	nss := make([]string, 0, len(rule.From))
-	for _, from := range rule.From {
-		if from.NamespaceSelector == nil {
-			continue
-		}
-		if ns, ok := from.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"]; ok {
-			nss = append(nss, ns)
-		}
+// managedIngressPolicySuffixes lists the per-component policy name suffixes of
+// one ingress mode, mirroring the controller's bounded component-key set from
+// outside the package.
+func managedIngressPolicySuffixes(mode string) []string {
+	components := []string{"main", "prefill", "scheduler", "tokenizer", "main-mn", "prefill-mn", "pd"}
+	suffixes := make([]string, 0, len(components))
+	for _, component := range components {
+		suffixes = append(suffixes, "-networkpolicy-"+mode+"-"+component)
 	}
-	return nss
+	return suffixes
+}
+
+// managedAllowAllEgressPolicySuffixes lists the per-component allow-all
+// egress policy name suffixes, mirroring the controller's bounded
+// component-key set from outside the package. The retired legacy general
+// egress suffix "-networkpolicy-egress" carries no component key and is
+// deliberately not part of this set.
+func managedAllowAllEgressPolicySuffixes() []string {
+	components := []string{"main", "prefill", "scheduler", "tokenizer", "main-mn", "prefill-mn", "pd"}
+	suffixes := make([]string, 0, len(components))
+	for _, component := range components {
+		suffixes = append(suffixes, "-networkpolicy-egress-"+component)
+	}
+	return suffixes
 }
