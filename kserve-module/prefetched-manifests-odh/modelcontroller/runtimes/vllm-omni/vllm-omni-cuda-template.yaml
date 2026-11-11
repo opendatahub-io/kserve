@@ -1,0 +1,91 @@
+apiVersion: template.openshift.io/v1
+kind: Template
+metadata:
+  labels:
+    opendatahub.io/dashboard: 'true'
+    opendatahub.io/ootb: 'true'
+  annotations:
+    description: vLLM-Omni ServingRuntime with CUDA support for multimodal inference (audio, vision, diffusion) on NVIDIA GPUs
+    openshift.io/display-name: vLLM-Omni NVIDIA GPU ServingRuntime for KServe - Tech Preview
+    openshift.io/provider-display-name: Red Hat, Inc.
+    tags: rhods,rhoai,kserve,servingruntime
+    template.openshift.io/documentation-url: https://github.com/vllm-project/vllm-omni
+    template.openshift.io/long-description: This template defines resources needed to deploy vLLM-Omni NVIDIA GPU ServingRuntime with KServe in Red Hat OpenShift AI for multimodal inference including omni, diffusion, and TTS models (Tech Preview)
+    opendatahub.io/modelServingSupport: '["single"]'
+    opendatahub.io/apiProtocol: 'REST'
+    opendatahub.io/model-type: '["generative"]'
+    opendatahub.io/support-status: "unsupported"
+  name: vllm-omni-cuda-runtime-template
+objects:
+  - apiVersion: serving.kserve.io/v1alpha1
+    kind: ServingRuntime
+    metadata:
+      name: vllm-omni-cuda-runtime
+      annotations:
+        openshift.io/display-name: vLLM-Omni NVIDIA GPU ServingRuntime for KServe - Tech Preview
+        opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+        opendatahub.io/runtime-version: 'v0.26.0'
+        opendatahub.io/support-status: "unsupported"
+      labels:
+        opendatahub.io/dashboard: 'true'
+    spec:
+      annotations:
+        opendatahub.io/kserve-runtime: 'vllm-omni'
+        prometheus.io/port: '8080'
+        prometheus.io/path: '/metrics'
+        monitoring.opendatahub.io/scrape: 'true'
+      multiModel: false
+      supportedModelFormats:
+        - autoSelect: false
+          name: vLLM
+      containers:
+        - name: kserve-container
+          image: $(vllm-omni-cuda-image)
+          command:
+            - vllm
+            - serve
+          args:
+            - "--port=8080"
+            - "--model=/mnt/models"
+            - "--omni"
+            - "--log-stats"
+            - "--served-model-name={{.Name}}"
+          env:
+            - name: HF_HOME
+              value: /tmp/hf_home
+          ports:
+            - containerPort: 8080
+              protocol: TCP
+          volumeMounts:
+            - name: shm
+              mountPath: /dev/shm
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            failureThreshold: 40
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            periodSeconds: 15
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+      volumes:
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 8Gi

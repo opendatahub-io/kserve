@@ -16,8 +16,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux GOFLAGS=-mod=readonly go build -a -o manager ./cmd/kserve-module
 
-# Collect kserve + odh-model-controller manifests
+# Collect KServe, prefetched ODH Model Controller, and other component manifests
 COPY kserve-module/hack/  hack/
+COPY kserve-module/prefetched-manifests-odh/ prefetched-manifests-odh/
 COPY config/               ../config/
 RUN bash hack/get_kserve_manifests.sh
 

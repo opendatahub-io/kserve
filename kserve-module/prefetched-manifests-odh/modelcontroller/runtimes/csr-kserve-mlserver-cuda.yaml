@@ -1,0 +1,82 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterServingRuntime
+metadata:
+  name: csr-kserve-mlserver-cuda
+  labels:
+    opendatahub.io/managed: "true"
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/ootb: "true"
+  annotations:
+    opendatahub.io/version: "1.0.0"
+    opendatahub.io/template-display-name: "MLServer NVIDIA GPU"
+    opendatahub.io/runtime-version: "1.7.1"
+    opendatahub.io/recommended-accelerators: '["nvidia.com/gpu"]'
+    openshift.io/display-name: MLServer NVIDIA GPU ServingRuntime for KServe
+    serving.kserve.io/server-type: mlserver
+spec:
+  annotations:
+    opendatahub.io/kserve-runtime: "mlserver"
+    prometheus.io/port: "8082"
+    prometheus.io/path: /metrics
+    monitoring.opendatahub.io/scrape: "true"
+  containers:
+    - name: kserve-container
+      image: $(mlserver-cuda-image)
+      env:
+        - name: MLSERVER_MODEL_IMPLEMENTATION
+          value: "{{.Labels.modelClass}}"
+        - name: MLSERVER_HTTP_PORT
+          value: "8080"
+        - name: MLSERVER_MODELS_DIR
+          value: /mnt/models
+        - name: MLSERVER_EMPTY_REGISTRY_READINESS
+          value: "false"
+      startupProbe:
+        initialDelaySeconds: 1
+        periodSeconds: 1
+        failureThreshold: 1
+        exec:
+          command:
+            - /bin/sh
+            - -c
+            - |
+              [ -n "$(ls -A /mnt/models 2>/dev/null)" ]
+      readinessProbe:
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        failureThreshold: 3
+        timeoutSeconds: 5
+        httpGet:
+          path: /v2/health/ready
+          port: 8080
+      livenessProbe:
+        initialDelaySeconds: 20
+        periodSeconds: 10
+        failureThreshold: 10
+        timeoutSeconds: 5
+        httpGet:
+          path: /v2/health/ready
+          port: 8080
+      resources:
+        requests:
+          cpu: "1"
+          memory: 4Gi
+        limits:
+          cpu: "4"
+          memory: 8Gi
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      securityContext:
+        allowPrivilegeEscalation: false
+        capabilities:
+          drop:
+            - ALL
+        privileged: false
+        runAsNonRoot: true
+  protocolVersions:
+    - v2
+  multiModel: false
+  supportedModelFormats:
+    - name: onnx
+      version: "1"
