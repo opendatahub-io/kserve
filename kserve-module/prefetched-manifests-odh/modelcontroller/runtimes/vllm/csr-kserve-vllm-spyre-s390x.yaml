@@ -1,0 +1,64 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterServingRuntime
+metadata:
+  name: csr-kserve-vllm-spyre-s390x
+  labels:
+    opendatahub.io/managed: "true"
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/ootb: "true"
+  annotations:
+    opendatahub.io/version: "1.0.0"
+    opendatahub.io/template-display-name: "vLLM"
+    opendatahub.io/runtime-version: "v0.21.0"
+    opendatahub.io/recommended-accelerators: '["ibm.com/spyre_vf"]'
+    openshift.io/display-name: vLLM Spyre s390x ServingRuntime for KServe
+spec:
+  annotations:
+    opendatahub.io/kserve-runtime: "vllm"
+    prometheus.io/path: "/metrics"
+    prometheus.io/port: "8080"
+  multiModel: false
+  schedulerName: spyre-scheduler
+  supportedModelFormats:
+    - autoSelect: false
+      name: vLLM
+  containers:
+    - name: kserve-container
+      image: $(vllm-spyre-image)
+      command:
+        - /bin/bash
+        - -c
+        - source /etc/profile.d/ibm-aiu-setup.sh && exec python3 -m vllm.entrypoints.openai.api_server "$@"
+        - --
+      args:
+        - "--model=/mnt/models"
+        - "--port=8000"
+        - "--served-model-name={{.Name}}"
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+        - name: FLEX_DEVICE
+          value: VF
+        - name: TOKENIZERS_PARALLELISM
+          value: "false"
+        - name: DTLOG_LEVEL
+          value: error
+        - name: TORCH_SENDNN_LOG
+          value: CRITICAL
+        - name: VLLM_SPYRE_USE_CB
+          value: "1"
+        - name: VLLM_SPYRE_REQUIRE_PRECOMPILED_DECODERS
+          value: "1"
+        - name: TORCH_SENDNN_CACHE_ENABLE
+          value: "1"
+      ports:
+        - containerPort: 8000
+          protocol: TCP
+      volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+  volumes:
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 2Gi

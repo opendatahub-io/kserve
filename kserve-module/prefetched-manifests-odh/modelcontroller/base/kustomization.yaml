@@ -1,0 +1,1072 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../default
+
+namespace: opendatahub
+configMapGenerator:
+  - envs:
+      - params.env
+    name: odh-model-controller-parameters
+generatorOptions:
+  disableNameSuffixHash: true
+
+replacements:
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.guardrails-detector-huggingface-runtime-image
+    targets:
+      - select:
+          kind: Template
+          name: guardrails-detector-huggingface-serving-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.ovms-image
+    targets:
+      - select:
+          kind: Template
+          name: kserve-ovms
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: Template
+          name: ovms
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-ovms
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.autogluon-image
+    targets:
+      - select:
+          kind: Template
+          name: autogluon-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.mlserver-image
+    targets:
+      - select:
+          kind: Template
+          name: mlserver-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-mlserver
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.mlserver-cuda-image
+    targets:
+      - select:
+          kind: Template
+          name: mlserver-cuda-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-mlserver-cuda
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cuda-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cuda-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-multinode-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+          - objects.0.spec.workerSpec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cuda
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-rocm-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-rocm-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rocm
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-gaudi-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-gaudi-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-gaudi
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-pz-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cpu-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-x86-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cpu-x86-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-x86
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-spyre-x86-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-x86
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-spyre-s390x-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-s390x
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image
+    targets:
+      - select:
+          kind: Template
+          name: vllm-spyre-ppc64le-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-ppc64le
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cuda-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cuda-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-cuda-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-multinode-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+          - objects.0.spec.workerSpec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cuda-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cuda-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-cuda-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-multinode-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+          - objects.0.spec.workerSpec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-rocm-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rocm-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-rocm-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-rocm-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rocm-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-rocm-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-gaudi-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-gaudi-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-gaudi-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-gaudi-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-gaudi-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-gaudi-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-x86-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-spyre-x86-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-s390x-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-spyre-s390x-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-ppc64le-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-spyre-ppc64le-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-x86-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-spyre-x86-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-s390x-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-spyre-s390x-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-ppc64le-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-spyre-ppc64le-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-pz-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-cpu-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-pz-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-cpu-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-x86-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-x86-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-cpu-x86-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-x86-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-x86-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-cpu-x86-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-omni-cuda-image
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-omni-cuda
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-omni-cuda-runtime-template
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-omni-cuda-image-fast-1
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-omni-cuda-fast-1
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-omni-cuda-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-omni-cuda-image-fast-2
+    targets:
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-omni-cuda-fast-2
+        fieldPaths:
+          - spec.containers.0.image
+      - select:
+          kind: Template
+          name: vllm-omni-cuda-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.odh-model-controller
+    targets:
+      - select:
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.0.image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.odh-model-serving-api
+    targets:
+      - select:
+          kind: Deployment
+          name: model-serving-api
+        fieldPaths:
+          - spec.template.spec.containers.[name=server].image
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.nim-state
+    targets:
+      - select:
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=NIM_STATE].value
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.kserve-state
+    targets:
+      - select:
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=KSERVE_STATE].value
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.modelregistry-state
+    targets:
+      - select:
+          kind: Deployment
+          name: odh-model-controller
+        fieldPaths:
+          - spec.template.spec.containers.[name=manager].env.[name=MODELREGISTRY_STATE].value
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: metadata.namespace
+    targets:
+      - select:
+          kind: ValidatingWebhookConfiguration
+          name: validating-webhook-configuration
+        fieldPaths:
+          - webhooks.0.clientConfig.service.namespace
+
+  # Keep runtime annotations aligned with the selected runtime images.
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cuda-image-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cuda-runtime-template
+        reject:
+          - name: vllm-cuda-runtime-template-fast-1
+          - name: vllm-cuda-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: Template
+          name: vllm-multinode-runtime-template
+        reject:
+          - name: vllm-multinode-runtime-template-fast-1
+          - name: vllm-multinode-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cuda
+        reject:
+          - name: csr-kserve-vllm-cuda-fast-1
+          - name: csr-kserve-vllm-cuda-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-pz-image-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cpu-runtime-template
+        reject:
+          - name: vllm-cpu-runtime-template-fast-1
+          - name: vllm-cpu-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu
+        reject:
+          - name: csr-kserve-vllm-cpu-fast-1
+          - name: csr-kserve-vllm-cpu-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-x86-image-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cpu-x86-runtime-template
+        reject:
+          - name: vllm-cpu-x86-runtime-template-fast-1
+          - name: vllm-cpu-x86-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-x86
+        reject:
+          - name: csr-kserve-vllm-cpu-x86-fast-1
+          - name: csr-kserve-vllm-cpu-x86-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-gaudi-image-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-gaudi-runtime-template
+        reject:
+          - name: vllm-gaudi-runtime-template-fast-1
+          - name: vllm-gaudi-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-gaudi
+        reject:
+          - name: csr-kserve-vllm-gaudi-fast-1
+          - name: csr-kserve-vllm-gaudi-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-rocm-image-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-rocm-runtime-template
+        reject:
+          - name: vllm-rocm-runtime-template-fast-1
+          - name: vllm-rocm-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rocm
+        reject:
+          - name: csr-kserve-vllm-rocm-fast-1
+          - name: csr-kserve-vllm-rocm-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-spyre-x86-runtime-template
+        reject:
+          - name: vllm-spyre-x86-runtime-template-fast-1
+          - name: vllm-spyre-x86-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-x86
+        reject:
+          - name: csr-kserve-vllm-spyre-x86-fast-1
+          - name: csr-kserve-vllm-spyre-x86-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: Template
+          name: vllm-spyre-s390x-runtime-template
+        reject:
+          - name: vllm-spyre-s390x-runtime-template-fast-1
+          - name: vllm-spyre-s390x-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-s390x
+        reject:
+          - name: csr-kserve-vllm-spyre-s390x-fast-1
+          - name: csr-kserve-vllm-spyre-s390x-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: Template
+          name: vllm-spyre-ppc64le-runtime-template
+        reject:
+          - name: vllm-spyre-ppc64le-runtime-template-fast-1
+          - name: vllm-spyre-ppc64le-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-ppc64le
+        reject:
+          - name: csr-kserve-vllm-spyre-ppc64le-fast-1
+          - name: csr-kserve-vllm-spyre-ppc64le-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-omni-cuda-image-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-omni-cuda-runtime-template
+        reject:
+          - name: vllm-omni-cuda-runtime-template-fast-1
+          - name: vllm-omni-cuda-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+
+  # Fast runtimes track their own upstream versions.
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cuda-image-fast-1-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cuda-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: Template
+          name: vllm-multinode-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cuda-fast-1
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cuda-image-fast-2-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cuda-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: Template
+          name: vllm-multinode-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cuda-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-pz-image-fast-1-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cpu-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-fast-1
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-pz-image-fast-2-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cpu-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-x86-image-fast-1-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cpu-x86-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-x86-fast-1
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-cpu-x86-image-fast-2-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-cpu-x86-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-cpu-x86-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-gaudi-image-fast-1-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-gaudi-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-gaudi-fast-1
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-gaudi-image-fast-2-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-gaudi-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-gaudi-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-rocm-image-fast-1-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-rocm-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rocm-fast-1
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-rocm-image-fast-2-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-rocm-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-rocm-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image-fast-1-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-spyre-x86-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-x86-fast-1
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: Template
+          name: vllm-spyre-s390x-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-s390x-fast-1
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: Template
+          name: vllm-spyre-ppc64le-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-ppc64le-fast-1
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-spyre-image-fast-2-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-spyre-x86-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-x86-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: Template
+          name: vllm-spyre-s390x-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-s390x-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: Template
+          name: vllm-spyre-ppc64le-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+      - select:
+          kind: ClusterServingRuntime
+          name: csr-kserve-vllm-spyre-ppc64le-fast-2
+        fieldPaths:
+          - metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-omni-cuda-image-fast-1-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-omni-cuda-runtime-template-fast-1
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+  - source:
+      kind: ConfigMap
+      version: v1
+      name: odh-model-controller-parameters
+      fieldPath: data.vllm-omni-cuda-image-fast-2-upstream-version
+    targets:
+      - select:
+          kind: Template
+          name: vllm-omni-cuda-runtime-template-fast-2
+        fieldPaths:
+          - objects.0.metadata.annotations.[opendatahub.io/runtime-version]
+
+patches:
+- path: remove-namespace.yaml

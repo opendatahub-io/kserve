@@ -1,0 +1,50 @@
+apiVersion: serving.kserve.io/v1alpha1
+kind: ClusterServingRuntime
+metadata:
+  name: csr-kserve-vllm-gaudi
+  labels:
+    opendatahub.io/managed: "true"
+    opendatahub.io/dashboard: "true"
+    opendatahub.io/ootb: "true"
+  annotations:
+    opendatahub.io/version: "1.0.0"
+    opendatahub.io/template-display-name: "vLLM"
+    opendatahub.io/runtime-version: "v0.21.0"
+    opendatahub.io/recommended-accelerators: '["habana.ai/gaudi"]'
+    openshift.io/display-name: vLLM Intel Gaudi Accelerator ServingRuntime for KServe
+spec:
+  annotations:
+    opendatahub.io/kserve-runtime: "vllm"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+  multiModel: false
+  supportedModelFormats:
+    - autoSelect: false
+      name: vLLM
+  builtInAdapter:
+    modelLoadingTimeoutMillis: 90000
+  containers:
+    - name: kserve-container
+      image: $(vllm-gaudi-image)
+      command:
+        - python
+        - -m
+        - vllm.entrypoints.openai.api_server
+      args:
+        - "--port=8080"
+        - "--model=/mnt/models"
+        - "--served-model-name={{.Name}}"
+      env:
+        - name: HF_HOME
+          value: /tmp/hf_home
+      ports:
+        - containerPort: 8080
+          protocol: TCP
+      volumeMounts:
+        - name: shm
+          mountPath: /dev/shm
+  volumes:
+    - name: shm
+      emptyDir:
+        medium: Memory
+        sizeLimit: 2Gi

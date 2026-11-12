@@ -1,0 +1,18 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odh-model-controller
+  namespace: system
+spec:
+  template:
+    spec:
+      containers:
+      - name: manager
+        volumeMounts:
+        - name: metrics-certs
+          mountPath: /tmp/k8s-metrics-server/metrics-certs
+          readOnly: true
+      volumes:
+      - name: metrics-certs
+        secret:
+          secretName: odh-model-controller-metrics-tls

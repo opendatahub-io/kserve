@@ -5,7 +5,7 @@ PYTEST_ARGS ?=
 
 .PHONY: docker-build-kserve-module docker-push-kserve-module deploy-kserve-module \
 	kustomize-build-kserve-module generate-kserve-module manifests-kserve-module \
-	test-kserve-module setup-envtest-kserve-module precommit-km \
+	test-kserve-module test-manifest-collection-kserve-module setup-envtest-kserve-module precommit-km \
 	e2e-setup-kserve-module e2e-roll-kserve-module e2e-cleanup-kserve-module \
 	e2e-kserve-module e2e-kserve-module-upgrade-ocp \
 	e2e-kserve-module-post-release check-km
@@ -48,6 +48,9 @@ test-kserve-module: envtest
 	KUBEBUILDER_ASSETS="$$($(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path)" \
 	go run github.com/onsi/ginkgo/v2/ginkgo --procs=$(GINKGO_PROCS) --timeout=10m ./pkg/...
 
+test-manifest-collection-kserve-module:
+	bash kserve-module/hack/get_kserve_manifests_test.sh
+
 setup-envtest-kserve-module: envtest
 	@$(ENVTEST) use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN) -p path
 
@@ -72,7 +75,7 @@ e2e-kserve-module-post-release:
 e2e-kserve-module-upgrade-ocp:
 	bash test/scripts/openshift-ci/run-kserve-module-upgrade-e2e.sh
 
-precommit-km: fmt go-lint generate-kserve-module manifests-kserve-module test-kserve-module
+precommit-km: fmt go-lint generate-kserve-module manifests-kserve-module test-kserve-module test-manifest-collection-kserve-module
 	cd kserve-module && go mod tidy && go vet ./... && go build ./...
 
 check-km: precommit-km

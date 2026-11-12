@@ -1,0 +1,25 @@
+# Prometheus Monitor Service (Metrics)
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  labels:
+    control-plane: odh-model-controller
+#    app.kubernetes.io/name: odh-model-controller
+#    app.kubernetes.io/managed-by: kustomize
+  name: odh-model-controller-metrics-monitor
+  namespace: system
+spec:
+  endpoints:
+    - path: /metrics
+      port: https
+      scheme: https
+      bearerTokenFile: /var/run/secrets/kubernetes.io/serviceaccount/token
+      tlsConfig:
+        ca:
+          configMap:
+            name: openshift-service-ca.crt
+            key: service-ca.crt
+        serverName: odh-model-controller-metrics-service.NAMESPACE.svc
+  selector:
+    matchLabels:
+      control-plane: odh-model-controller
