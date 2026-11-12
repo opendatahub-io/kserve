@@ -32,12 +32,14 @@ import (
 
 // customizeService applies ODH-specific customizations to the default service:
 //   - Adds the OpenShift serving certificate annotation for automatic TLS provisioning
-//   - Overrides the service port to 443 for InferenceGraph resources (detected via
-//     constants.InferenceGraphLabel set by the InferenceGraph controller in raw_ig.go)
+//   - Overrides the service port to 443 for an InferenceGraph whose router serves TLS
+//     (detected via constants.InferenceGraphLabel set by the InferenceGraph controller
+//     in raw_ig.go). A router without --enable-tls keeps port 80 and no serving certificate.
 //   - Replaces the default HTTP port with an HTTPS port when auth proxy is enabled
 //
 // podSpec is used to resolve the transformer's actual serving port so the Service
-// TargetPort stays aligned with the pod's listener (see transformerServingPort).
+// TargetPort stays aligned with the pod's listener (see transformerServingPort), and
+// to see whether an InferenceGraph router is serving TLS.
 func customizeService(svc *corev1.Service, componentMeta metav1.ObjectMeta, podSpec *corev1.PodSpec) {
 	// Default unnamed ports to "http" - OpenShift Routes and Service Mesh require named ports.
 	for i := range svc.Spec.Ports {
@@ -46,16 +48,22 @@ func customizeService(svc *corev1.Service, componentMeta metav1.ObjectMeta, podS
 		}
 	}
 
-	// Add OpenShift serving cert annotation for automatic TLS certificate provisioning.
-	if svc.Annotations == nil {
-		svc.Annotations = make(map[string]string)
+	_, isIG := componentMeta.Labels[constants.InferenceGraphLabel]
+	// A pod spec that does not name a container has not been through the router
+	// builder yet. Keep the serving certificate so existing graphs stay on TLS.
+	routerServesTLS := !isIG || constants.InferenceGraphRouterServesTLS(podSpec)
+	if routerServesTLS {
+		// Add OpenShift serving cert annotation for automatic TLS certificate provisioning.
+		if svc.Annotations == nil {
+			svc.Annotations = make(map[string]string)
+		}
+		svc.Annotations[constants.OpenshiftServingCertAnnotation] = componentMeta.Name + constants.ServingCertSecretSuffix
 	}
-	svc.Annotations[constants.OpenshiftServingCertAnnotation] = componentMeta.Name + constants.ServingCertSecretSuffix
 
-	// InferenceGraph services use port 443 for TLS termination.
-	// Auth proxy port override is skipped for InferenceGraph - TLS is handled at the gateway level.
-	if _, isIG := componentMeta.Labels[constants.InferenceGraphLabel]; isIG {
-		if len(svc.Spec.Ports) > 0 {
+	// InferenceGraph services use port 443 while the router serves TLS.
+	// Auth proxy port override is skipped for InferenceGraph.
+	if isIG {
+		if routerServesTLS && len(svc.Spec.Ports) > 0 {
 			svc.Spec.Ports[0].Port = int32(443)
 		}
 		return

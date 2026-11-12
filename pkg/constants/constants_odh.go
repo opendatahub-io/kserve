@@ -16,6 +16,10 @@ limitations under the License.
 
 package constants
 
+import (
+	corev1 "k8s.io/api/core/v1"
+)
+
 // InferenceGraph midstream constants
 const (
 	InferenceGraphAuthCRBName   = "kserve-inferencegraph-auth-verifiers"
@@ -46,7 +50,12 @@ type AuditLoggingProfile string
 
 // Midstream networking constants
 const (
-	ODHKserveRawAuth                                           = "security.opendatahub.io/enable-auth"
+	ODHKserveRawAuth = "security.opendatahub.io/enable-auth"
+	// ODHKserveEnableTLS turns the RawDeployment InferenceGraph router TLS
+	// listener off when the value is "false". "true" forces it on. Any other
+	// value is ignored and inferenceservice-config router.enableTLS applies.
+	// Both the annotation and the config field default to TLS enabled.
+	ODHKserveEnableTLS                                         = "security.opendatahub.io/enable-tls"
 	ODHKserveAuditLoggingProfile                               = "observability.opendatahub.io/audit-logging-profile"
 	AuditLoggingProfileNone                AuditLoggingProfile = "none"
 	AuditLoggingProfileMetadata            AuditLoggingProfile = "metadata"
@@ -124,4 +133,20 @@ const (
 
 func init() {
 	ServiceAnnotationDisallowedList = append(ServiceAnnotationDisallowedList, ODHKserveRawAuth, ODHKserveAuditLoggingProfile)
+}
+
+// InferenceGraphRouterServesTLS reports whether a RawDeployment InferenceGraph
+// router pod serves HTTPS. A spec that does not name a container keeps the
+// historical default of TLS enabled, so callers that have not built the router
+// container yet do not drop the serving certificate.
+func InferenceGraphRouterServesTLS(podSpec *corev1.PodSpec) bool {
+	if podSpec == nil || len(podSpec.Containers) == 0 {
+		return true
+	}
+	for _, arg := range podSpec.Containers[0].Args {
+		if arg == "--enable-tls" {
+			return true
+		}
+	}
+	return false
 }

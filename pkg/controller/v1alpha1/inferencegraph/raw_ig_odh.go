@@ -20,9 +20,15 @@ package inferencegraph
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
@@ -30,23 +36,41 @@ import (
 	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
+// routerTLSConfig is the subset of the inferenceservice-config "router" document
+// that selects the RawDeployment InferenceGraph listener. A nil EnableTLS keeps
+// TLS enabled.
+type routerTLSConfig struct {
+	EnableTLS *bool `json:"enableTLS,omitempty"`
+}
+
 // customizeRouterPodSpec serves the router over TLS with the effective cluster
-// TLS policy, trusts the OpenShift service CA and, when auth is enabled on the
-// graph, runs the router with the auth-verifier ServiceAccount. The TLS arg,
-// profile args and CA bundle entries are prepended and the auth args appended:
-// reordering args, env, volume mounts or volumes changes the pod template and
-// rolls router pods.
+// TLS policy, unless security.opendatahub.io/enable-tls or router.enableTLS
+// disables it. The router still trusts the OpenShift service CA so it can call
+// HTTPS nodes, and when auth is enabled it runs with the auth-verifier
+// ServiceAccount. TLS args, profile args and CA bundle entries are prepended
+// and the auth args appended: reordering args, env, volume mounts or volumes
+// changes the pod template and rolls router pods.
 func customizeRouterPodSpec(ctx context.Context, reader client.Reader, graph *v1alpha1.InferenceGraph, podSpec *corev1.PodSpec) error {
 	if podSpec == nil || len(podSpec.Containers) == 0 {
 		return nil
 	}
 
-	router := &podSpec.Containers[0]
-	router.Args = append([]string{"--enable-tls"}, router.Args...)
-	// Fail closed: a router serving against an unresolvable profile policy is
-	// worse than failing this reconciliation and surfacing the error.
-	if err := distrotls.InjectGoTLSArgs(ctx, reader, router); err != nil {
+	configured, err := readRouterTLSConfig(ctx, reader)
+	if err != nil {
 		return err
+	}
+
+	router := &podSpec.Containers[0]
+	if routerTLSEnabled(graph, configured) {
+		router.Args = append([]string{"--enable-tls"}, router.Args...)
+		// Fail closed: a router serving against an unresolvable profile policy is
+		// worse than failing this reconciliation and surfacing the error.
+		if err := distrotls.InjectGoTLSArgs(ctx, reader, router); err != nil {
+			return err
+		}
+		if router.ReadinessProbe != nil && router.ReadinessProbe.HTTPGet != nil {
+			router.ReadinessProbe.HTTPGet.Scheme = corev1.URISchemeHTTPS
+		}
 	}
 	addServiceCaBundle(podSpec)
 	podSpec.ServiceAccountName = "default"
@@ -73,11 +97,59 @@ func customizeRouterPodSpec(ctx context.Context, reader client.Reader, graph *v1
 		podSpec.ServiceAccountName = graph.GetName() + "-auth-verifier"
 	}
 
-	// In ODH, the readiness probe is using HTTPS
-	if router.ReadinessProbe != nil && router.ReadinessProbe.HTTPGet != nil {
-		router.ReadinessProbe.HTTPGet.Scheme = corev1.URISchemeHTTPS
-	}
 	return nil
+}
+
+// routerTLSEnabled decides whether the RawDeployment router listens with TLS.
+// An explicit "true" or "false" annotation wins. Any other annotation value is
+// ignored. With no usable annotation, router.enableTLS in inferenceservice-config
+// applies, and a missing field keeps TLS enabled.
+func routerTLSEnabled(graph *v1alpha1.InferenceGraph, configured *bool) bool {
+	if graph != nil {
+		if value, ok := graph.GetAnnotations()[constants.ODHKserveEnableTLS]; ok {
+			switch strings.ToLower(strings.TrimSpace(value)) {
+			case "false":
+				return false
+			case "true":
+				return true
+			}
+		}
+	}
+	if configured != nil {
+		return *configured
+	}
+	return true
+}
+
+// readRouterTLSConfig reads router.enableTLS from inferenceservice-config.
+// A missing ConfigMap, or a client that cannot read ConfigMaps, means the
+// field is unset. A present document that does not parse is an error.
+func readRouterTLSConfig(ctx context.Context, reader client.Reader) (*bool, error) {
+	if reader == nil {
+		return nil, nil
+	}
+
+	cm := &corev1.ConfigMap{}
+	err := reader.Get(ctx, types.NamespacedName{
+		Name:      constants.InferenceServiceConfigMapName,
+		Namespace: constants.KServeNamespace,
+	}, cm)
+	if err != nil {
+		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) || runtime.IsNotRegisteredError(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	raw := strings.TrimSpace(cm.Data["router"])
+	if raw == "" {
+		return nil, nil
+	}
+	parsed := &routerTLSConfig{}
+	if err := json.Unmarshal([]byte(raw), parsed); err != nil {
+		return nil, err
+	}
+	return parsed.EnableTLS, nil
 }
 
 // addServiceCaBundle mounts the OpenShift service CA bundle into the router container and points
