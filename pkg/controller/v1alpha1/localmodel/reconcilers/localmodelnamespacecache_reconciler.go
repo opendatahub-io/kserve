@@ -462,6 +462,8 @@ func (c *LocalModelNamespaceCacheReconciler) SetupWithManager(mgr ctrl.Manager) 
 	}
 
 	c.setupNamespaceCacheConfigMapWatch(controllerBuilder)
+	// Setup hook (ODH: ownership watch on cache-owned NetworkPolicies; upstream no-op).
+	c.extendNamespaceCacheControllerSetup(controllerBuilder)
 	return controllerBuilder.
 		Watches(&v1alpha1.LocalModelNamespaceCache{}, handler.EnqueueRequestsFromMapFunc(c.deletedCacheFuncNamespaceCache), builder.WithPredicates(cacheDeletePredicates)).
 		Watches(&corev1.Node{}, handler.EnqueueRequestsFromMapFunc(c.nodeFuncNamespaceCache), builder.WithPredicates(nodePredicates)).

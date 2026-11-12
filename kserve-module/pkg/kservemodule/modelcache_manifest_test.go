@@ -8,6 +8,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -206,6 +207,107 @@ func TestModelCacheRenderedStartupPermissions(t *testing.T) {
 	groupRange := ranges[0].(map[string]any)
 	if groupRange["min"] != *security.FSGroup || groupRange["max"] != *security.FSGroup {
 		t.Fatalf("agent SCC must permit exactly workload fsGroup %d, got %v", *security.FSGroup, groupRange)
+	}
+}
+
+// TestModelCacheRenderedDownloadEgressNetworkPolicy pins the static egress-only
+// NetworkPolicy `kserve-localmodel-download` that the odh-modelcache overlay ships for
+// per-node model download Jobs. The manifest owns this policy's lifecycle: no controller
+// creates, watches, or cleans it, so this test keeps the rendered namespace, selector,
+// and spec stable. The selector literals are asserted as plain strings because
+// kserve-module cannot import the root module's Go constants
+// (constants.DownloadJobLabelKey / constants.DownloadJobLabelValueNode in
+// pkg/constants/constants_odh.go in the kserve repo); the root-package test
+// pkg/controller/v1alpha1/localmodelnode/platform_odh_test.go pins those constants to
+// the same literals, keeping manifest and controller code in sync.
+func TestModelCacheRenderedDownloadEgressNetworkPolicy(t *testing.T) {
+	r := newReconcilerWithFakeClient()
+	path := filepath.Join("..", "..", "..", "config", "overlays", "odh-modelcache")
+	resources, err := kustomize.Render(path, nil, kustomize.WithNamespace(modelCacheNamespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources, err = modelCacheComponentPostRender(context.Background(), r, nil, resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rendered := findRenderedModelCacheResource(resources, "NetworkPolicy", "kserve-localmodel-download")
+	if rendered == nil {
+		t.Fatal("NetworkPolicy kserve-localmodel-download missing from rendered overlay")
+	}
+	policy := &netv1.NetworkPolicy{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(rendered.Object, policy); err != nil {
+		t.Fatal(err)
+	}
+	if policy.Namespace != modelCacheNamespace {
+		t.Fatalf("kserve-localmodel-download rendered in namespace %q, want %q", policy.Namespace, modelCacheNamespace)
+	}
+	selector := policy.Spec.PodSelector.MatchLabels
+	if len(selector) != 1 || selector["serving.kserve.io/localmodel-download"] != "node" ||
+		len(policy.Spec.PodSelector.MatchExpressions) != 0 {
+		t.Fatalf("kserve-localmodel-download selector = %+v, want exactly serving.kserve.io/localmodel-download: node",
+			policy.Spec.PodSelector)
+	}
+	if len(policy.Spec.PolicyTypes) != 1 || policy.Spec.PolicyTypes[0] != netv1.PolicyTypeEgress {
+		t.Fatalf("kserve-localmodel-download policyTypes = %v, want [Egress] only", policy.Spec.PolicyTypes)
+	}
+	// Egress-only by design: no ingress rules are added, so download Job pods keep the
+	// namespace's default ingress isolation.
+	if len(policy.Spec.Ingress) != 0 {
+		t.Fatalf("kserve-localmodel-download must add no ingress rules, got %v", policy.Spec.Ingress)
+	}
+	// Exactly one empty egress rule: an explicit allow-all grant over every destination,
+	// protocol, and port, so configurable storage/registry/authentication/DNS endpoints
+	// all work even under namespace default-deny egress.
+	if len(policy.Spec.Egress) != 1 || len(policy.Spec.Egress[0].To) != 0 || len(policy.Spec.Egress[0].Ports) != 0 {
+		t.Fatalf("kserve-localmodel-download egress = %+v, want exactly one empty allow-all rule", policy.Spec.Egress)
+	}
+}
+
+// TestModelCacheRenderedNetworkPolicyRBAC verifies the generated LocalModel RBAC behind
+// the cache-owned import egress NetworkPolicies (see
+// pkg/controller/v1alpha1/localmodel/reconcilers/sharedpvc_platform_odh.go in the kserve
+// repo): only the LocalModel manager role may touch networkpolicies, with exactly the
+// reconcile verbs get/list/watch/create/update. No patch or delete — teardown is
+// owner-reference garbage collection with the cache CR — and the node agent gains no
+// networkpolicy privileges. The static overlay policy needs no controller RBAC at all.
+func TestModelCacheRenderedNetworkPolicyRBAC(t *testing.T) {
+	r := newReconcilerWithFakeClient()
+	path := filepath.Join("..", "..", "..", "config", "overlays", "odh-modelcache")
+	resources, err := kustomize.Render(path, nil, kustomize.WithNamespace(modelCacheNamespace))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resources, err = modelCacheComponentPostRender(context.Background(), r, nil, resources)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name string
+		want []string
+	}{
+		{"kserve-localmodel-distro-role", []string{"create", "get", "list", "update", "watch"}},
+		{"kserve-localmodelnode-distro-role", nil},
+		{"kserve-localmodelnode-agent-role", nil},
+	} {
+		rendered := findRenderedModelCacheResource(resources, "ClusterRole", tt.name)
+		if rendered == nil {
+			t.Fatalf("ClusterRole %s missing", tt.name)
+		}
+		role := &rbacv1.ClusterRole{}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(rendered.Object, role); err != nil {
+			t.Fatal(err)
+		}
+		var verbs []string
+		for _, rule := range role.Rules {
+			if slices.Contains(rule.APIGroups, "networking.k8s.io") && slices.Contains(rule.Resources, "networkpolicies") {
+				verbs = append(verbs, rule.Verbs...)
+			}
+		}
+		slices.Sort(verbs)
+		if !slices.Equal(verbs, tt.want) {
+			t.Fatalf("ClusterRole %s networkpolicies verbs = %v, want %v", tt.name, verbs, tt.want)
+		}
 	}
 }
 

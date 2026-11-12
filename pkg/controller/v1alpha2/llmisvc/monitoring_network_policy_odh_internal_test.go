@@ -24,7 +24,10 @@ import (
 	"reflect"
 	"testing"
 
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
@@ -34,6 +37,8 @@ import (
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	gwapiv1 "sigs.k8s.io/gateway-api/apis/v1"
+	disaggregatedsetv1 "sigs.k8s.io/lws/api/disaggregatedset/v1"
+	lwsapi "sigs.k8s.io/lws/api/leaderworkerset/v1"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha2"
 	"github.com/kserve/kserve/pkg/constants"
@@ -56,11 +61,11 @@ func TestIngressNamespaceUsesConfigNotOpenShiftFallback(t *testing.T) {
 	}
 }
 
-func TestMonitoringNetworkPolicyNameIsPerService(t *testing.T) {
+func TestLegacyMonitoringNetworkPolicyNameIsPerService(t *testing.T) {
 	t.Parallel()
 
 	llmSvc := &v1alpha2.LLMInferenceService{ObjectMeta: metav1.ObjectMeta{Name: "svc-a", Namespace: "team-a"}}
-	got := monitoringNetworkPolicyName(llmSvc)
+	got := legacyMonitoringNetworkPolicyName(llmSvc)
 	want := kmeta.ChildName("svc-a", "-prometheus-scraping")
 	if got != want {
 		t.Fatalf("got %q want %q", got, want)
@@ -76,11 +81,9 @@ func TestGatewayPeerNamespaces(t *testing.T) {
 	llmSvc := func(refs ...v1alpha2.GatewayObjectReference) *v1alpha2.LLMInferenceService {
 		svc := &v1alpha2.LLMInferenceService{
 			ObjectMeta: metav1.ObjectMeta{Name: "svc-a", Namespace: svcNs},
-		}
-		if len(refs) > 0 {
-			svc.Spec.Router = &v1alpha2.RouterSpec{
+			Spec: v1alpha2.LLMInferenceServiceSpec{Router: &v1alpha2.RouterSpec{
 				Gateway: &v1alpha2.GatewaySpec{Refs: refs},
-			}
+			}},
 		}
 		return svc
 	}
@@ -104,19 +107,19 @@ func TestGatewayPeerNamespaces(t *testing.T) {
 			want: []string{managed},
 		},
 		{
-			name: "same-namespace custom ref is skipped",
+			name: "same-namespace custom ref is included",
 			svc:  llmSvc(ref("my-gw", svcNs)),
-			want: []string{managed},
+			want: []string{svcNs},
 		},
 		{
-			name: "empty ref namespace defaults to service namespace and is skipped",
+			name: "empty ref namespace defaults to service namespace",
 			svc:  llmSvc(ref("my-gw", "")),
-			want: []string{managed},
+			want: []string{svcNs},
 		},
 		{
-			name: "cross-namespace custom ref is added",
+			name: "cross-namespace custom ref replaces managed",
 			svc:  llmSvc(ref("my-gw", "other-ns")),
-			want: []string{managed, "other-ns"},
+			want: []string{"other-ns"},
 		},
 		{
 			name: "duplicate managed namespace is not repeated",
@@ -126,12 +129,52 @@ func TestGatewayPeerNamespaces(t *testing.T) {
 		{
 			name: "two cross-namespace refs",
 			svc:  llmSvc(ref("gw-a", "ns-a"), ref("gw-b", "ns-b")),
-			want: []string{managed, "ns-a", "ns-b"},
+			want: []string{"ns-a", "ns-b"},
 		},
 		{
-			name: "nil service still has managed peer",
+			name: "inline route parent replaces managed namespace",
+			svc: func() *v1alpha2.LLMInferenceService {
+				svc := llmSvc()
+				svc.Spec.Router.Gateway = nil
+				svc.Spec.Router.Route = &v1alpha2.GatewayRoutesSpec{
+					HTTP: &v1alpha2.HTTPRouteSpec{Spec: &gwapiv1.HTTPRouteSpec{
+						CommonRouteSpec: gwapiv1.CommonRouteSpec{ParentRefs: []gwapiv1.ParentReference{{Namespace: ptr.To(gwapiv1.Namespace("custom-gateway"))}}},
+					}},
+				}
+				return svc
+			}(),
+			want: []string{"custom-gateway"},
+		},
+		{
+			name: "empty gateway with inline route parent does not add managed namespace",
+			svc: func() *v1alpha2.LLMInferenceService {
+				svc := llmSvc()
+				svc.Spec.Router.Gateway = &v1alpha2.GatewaySpec{}
+				svc.Spec.Router.Route = &v1alpha2.GatewayRoutesSpec{
+					HTTP: &v1alpha2.HTTPRouteSpec{Spec: &gwapiv1.HTTPRouteSpec{
+						CommonRouteSpec: gwapiv1.CommonRouteSpec{ParentRefs: []gwapiv1.ParentReference{{Namespace: ptr.To(gwapiv1.Namespace("custom-gateway"))}}},
+					}},
+				}
+				return svc
+			}(),
+			want: []string{"custom-gateway"},
+		},
+		{
+			name: "referenced route requires reconciliation lookup",
+			svc: func() *v1alpha2.LLMInferenceService {
+				svc := llmSvc()
+				svc.Spec.Router.Gateway = nil
+				svc.Spec.Router.Route = &v1alpha2.GatewayRoutesSpec{
+					HTTP: &v1alpha2.HTTPRouteSpec{Refs: []corev1.LocalObjectReference{{Name: "external-route"}}},
+				}
+				return svc
+			}(),
+			want: nil,
+		},
+		{
+			name: "nil service has no Gateway peer",
 			svc:  nil,
-			want: []string{managed},
+			want: nil,
 		},
 	}
 
@@ -207,17 +250,33 @@ func TestReconcileNetworkPoliciesPropagatesTracingServiceErrors(t *testing.T) {
 	if err := corev1.AddToScheme(scheme); err != nil {
 		t.Fatalf("failed to add core scheme: %v", err)
 	}
+	if err := netv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add networking scheme: %v", err)
+	}
 	if err := v1alpha2.AddToScheme(scheme); err != nil {
 		t.Fatalf("failed to add serving scheme: %v", err)
 	}
+	// The selector inventory reads Deployments and the optional LWS and
+	// DisaggregatedSet APIs; register their types so the reads report NotFound.
+	if err := appsv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add apps scheme: %v", err)
+	}
+	if err := lwsapi.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add LeaderWorkerSet scheme: %v", err)
+	}
+	if err := disaggregatedsetv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("failed to add DisaggregatedSet scheme: %v", err)
+	}
 
 	wantErr := errors.New("transient OTLP Service read failure")
+	serviceReadErr := wantErr
 	fakeClient := clientfake.NewClientBuilder().
 		WithScheme(scheme).
+		WithRESTMapper(networkPolicyTestRESTMapper()).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-				if _, ok := obj.(*corev1.Service); ok {
-					return wantErr
+				if _, ok := obj.(*corev1.Service); ok && serviceReadErr != nil {
+					return serviceReadErr
 				}
 				return c.Get(ctx, key, obj, opts...)
 			},
@@ -236,13 +295,63 @@ func TestReconcileNetworkPoliciesPropagatesTracingServiceErrors(t *testing.T) {
 			ExporterEndpoint: ptr.To("http://jaeger.observability.svc:4317"),
 		}},
 	}
+	// Seed the stored main Deployment and the tracing policy of an earlier
+	// successful reconcile, so the failure path can be checked for retention.
+	mainSelector := metav1.LabelSelector{MatchLabels: map[string]string{"app.kubernetes.io/name": "svc-a"}}
+	if err := fakeClient.Create(t.Context(), ownedDeployment(llmSvc, mainDeploymentName(llmSvc), mainSelector.DeepCopy(), mainSelector.MatchLabels)); err != nil {
+		t.Fatal(err)
+	}
+	seededTracing := expectedTracingNetworkPolicy(llmSvc, netv1.NetworkPolicyPeer{}, 0, false)
+	if err := fakeClient.Create(t.Context(), seededTracing); err != nil {
+		t.Fatal(err)
+	}
 	reconciler := &LLMISVCReconciler{
 		Client:        fakeClient,
-		EventRecorder: record.NewFakeRecorder(10),
+		EventRecorder: record.NewFakeRecorder(20),
 	}
 
 	err := reconciler.reconcileNetworkPolicies(context.Background(), llmSvc, nil)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("reconcileNetworkPolicies error = %v, want wrapped %v", err, wantErr)
+	}
+	// Ingress is reconciled independently of the tracing exporter failure.
+	defaultMain := &netv1.NetworkPolicy{}
+	if err := fakeClient.Get(context.Background(), client.ObjectKey{
+		Name:      ingressNetworkPolicyName(llmSvc, networkPolicyModeDefault, networkPolicyComponentMain),
+		Namespace: llmSvc.Namespace,
+	}, defaultMain); err != nil {
+		t.Fatalf("ingress policy was not reconciled despite the tracing failure: %v", err)
+	}
+	if !reflect.DeepEqual(defaultMain.Spec.PodSelector, mainSelector) {
+		t.Fatalf("ingress policy selector got %#v, want the stored Deployment selector", defaultMain.Spec.PodSelector)
+	}
+	// The existing tracing policy is retained unchanged while the error is
+	// retried; no broad or deny-all egress fallback is created.
+	retainedTracing := &netv1.NetworkPolicy{}
+	if err := fakeClient.Get(context.Background(), client.ObjectKeyFromObject(seededTracing), retainedTracing); err != nil {
+		t.Fatalf("tracing policy must be retained on the exporter lookup error: %v", err)
+	}
+	if !reflect.DeepEqual(retainedTracing.Spec, seededTracing.Spec) {
+		t.Fatalf("retained tracing policy was modified: got %#v want %#v", retainedTracing.Spec, seededTracing.Spec)
+	}
+	for _, name := range []string{egressNetworkPolicyName(llmSvc), allowAllNetworkPolicyName(llmSvc)} {
+		if err := fakeClient.Get(context.Background(), client.ObjectKey{Name: name, Namespace: llmSvc.Namespace}, &netv1.NetworkPolicy{}); !apierrors.IsNotFound(err) {
+			t.Fatalf("no broad or deny-all egress fallback may be created for %s: %v", name, err)
+		}
+	}
+
+	// A retry completes tracing egress while preserving the ingress grant.
+	serviceReadErr = nil
+	if err := reconciler.reconcileNetworkPolicies(t.Context(), llmSvc, nil); err != nil {
+		t.Fatalf("tracing recovery failed: %v", err)
+	}
+	if err := fakeClient.Get(t.Context(), client.ObjectKey{Name: tracingNetworkPolicyName(llmSvc), Namespace: llmSvc.Namespace}, &netv1.NetworkPolicy{}); err != nil {
+		t.Fatalf("tracing egress not restored: %v", err)
+	}
+	if err := fakeClient.Get(t.Context(), client.ObjectKey{
+		Name:      ingressNetworkPolicyName(llmSvc, networkPolicyModeDefault, networkPolicyComponentMain),
+		Namespace: llmSvc.Namespace,
+	}, defaultMain); err != nil {
+		t.Fatalf("tracing recovery lost the ingress grant: %v", err)
 	}
 }

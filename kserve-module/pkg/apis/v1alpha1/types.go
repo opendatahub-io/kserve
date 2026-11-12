@@ -103,10 +103,12 @@ type KserveSpec struct {
 	// Enabled by default.
 	EnableLLMInferenceServiceConsoleDashboards *bool `json:"enableLLMInferenceServiceConsoleDashboards,omitempty"`
 
-	// EnableLLMMonitoringIngressNetworkPolicy enables per-LLMInferenceService ingress
-	// NetworkPolicies that restrict Prometheus and gateway traffic (same rules as the
-	// 3.6 restricted defaults). Disabled by default for seamless upgrades.
-	EnableLLMMonitoringIngressNetworkPolicy *bool `json:"enableLLMMonitoringIngressNetworkPolicy,omitempty"`
+	// EnableLLMInferenceServiceStrictNetworkPolicy enables the restrictive
+	// (least-privilege) per-LLMInferenceService NetworkPolicies that isolate
+	// workload, scheduler and tokenizer Pods. Disabled by default: a single
+	// per-service allow-all NetworkPolicy is created instead, for seamless
+	// upgrades from releases that did not restrict pod traffic.
+	EnableLLMInferenceServiceStrictNetworkPolicy *bool `json:"enableLLMInferenceServiceStrictNetworkPolicy,omitempty"`
 
 	// Enables hardware-aware creation of accelerator LLMInferenceServiceConfig presets:
 	// presets for an accelerator are only created when a matching resource is present in
