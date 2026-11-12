@@ -258,6 +258,8 @@ var _ = Describe("Inference Graph controller ODH test", func() {
 			Eventually(func() error {
 				return k8sClient.Get(ctx, osRouteKey, &osRoute)
 			}, timeout, interval).Should(Succeed())
+			Expect(osRoute.Spec.TLS).NotTo(BeNil())
+			Expect(osRoute.Spec.TLS.Termination).To(Equal(osv1.TLSTerminationReencrypt))
 
 			// OpenShift route hostname should be set to InferenceGraph
 			routeHost := "openshift-route-example.com"
@@ -275,6 +277,60 @@ var _ = Describe("Inference Graph controller ODH test", func() {
 				g.Expect(ig.Status.URL).NotTo(BeNil())
 				g.Expect(ig.Status.URL.Host).To(Equal(routeHost))
 				g.Expect(ig.Status.URL.Scheme).To(Equal("https"))
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("Should serve HTTP when router TLS is disabled", func(ctx SpecContext) {
+			createConfigMap(ctx)
+
+			graphName := "igraw-odh-http"
+			ig := rawGraph(graphName, nil)
+			ig.Annotations[constants.ODHKserveEnableTLS] = "false"
+			serviceKey := client.ObjectKeyFromObject(ig)
+			Expect(k8sClient.Create(ctx, ig)).Should(Succeed())
+			DeferCleanup(func(ctx SpecContext) {
+				_ = k8sClient.Delete(ctx, ig)
+			})
+
+			actualK8sServiceCreated := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, serviceKey, actualK8sServiceCreated)
+			}, timeout, interval).Should(Succeed())
+			Expect(actualK8sServiceCreated.Spec.Ports[0].Port).To(Equal(int32(constants.CommonDefaultHttpPort)))
+			Expect(actualK8sServiceCreated.Spec.Ports[0].TargetPort.IntVal).To(Equal(int32(8080)))
+			Expect(actualK8sServiceCreated.Annotations).NotTo(HaveKey(constants.OpenshiftServingCertAnnotation))
+
+			deployment := &appsv1.Deployment{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, serviceKey, deployment)
+			}, timeout, interval).Should(Succeed())
+			router := deployment.Spec.Template.Spec.Containers[0]
+			Expect(router.Args).NotTo(ContainElement("--enable-tls"))
+			Expect(router.ReadinessProbe.HTTPGet.Scheme).To(Equal(corev1.URISchemeHTTP))
+			Expect(deployment.Spec.Template.Spec.Volumes).To(ContainElement(HaveField("Name", constants.ServiceCaBundleVolumeName)))
+			Expect(deployment.Spec.Template.Spec.Volumes).NotTo(ContainElement(HaveField("Name", "proxy-tls")))
+			Expect(deployment.Spec.Template.Annotations).NotTo(HaveKey(constants.OpenshiftServingCertAnnotation))
+
+			markDeploymentAvailable(ctx, serviceKey)
+
+			osRoute := osv1.Route{}
+			osRouteKey := types.NamespacedName{Name: graphName + "-route", Namespace: ig.GetNamespace()}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, osRouteKey, &osRoute)
+			}, timeout, interval).Should(Succeed())
+			Expect(osRoute.Spec.TLS).To(BeNil())
+
+			routeHost := "openshift-route-http.example.com"
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, osRouteKey, &osRoute)).To(Succeed())
+				osRoute.Status.Ingress = []osv1.RouteIngress{{Host: routeHost}}
+				g.Expect(k8sClient.Status().Update(ctx, &osRoute)).To(Succeed())
+			}, timeout, interval).Should(Succeed())
+			Eventually(func(g Gomega) {
+				g.Expect(k8sClient.Get(ctx, serviceKey, ig)).Should(Succeed())
+				g.Expect(ig.Status.URL).NotTo(BeNil())
+				g.Expect(ig.Status.URL.Host).To(Equal(routeHost))
+				g.Expect(ig.Status.URL.Scheme).To(Equal("http"))
 			}, timeout, interval).Should(Succeed())
 		})
 

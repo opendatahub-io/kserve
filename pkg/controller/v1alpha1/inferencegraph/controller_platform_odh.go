@@ -96,8 +96,10 @@ func (r *InferenceGraphReconciler) reconcileRawPlatformPrerequisites(ctx context
 }
 
 // reconcileRawPlatformNetworking exposes the graph through an OpenShift Route when the Route
-// CRD is installed. The returned URL uses https and the admitted Route host, or the
-// cluster-local hostname for graphs labelled with cluster-local visibility.
+// CRD is installed. The returned URL uses the admitted Route host, or the cluster-local
+// hostname for graphs labelled with cluster-local visibility. The scheme is https while the
+// router serves TLS, and http when security.opendatahub.io/enable-tls or router.enableTLS
+// turns the listener off.
 func (r *InferenceGraphReconciler) reconcileRawPlatformNetworking(ctx context.Context, graph *v1alpha1.InferenceGraph, url *apis.URL) (*apis.URL, error) {
 	routeAvailable, _ := utils.IsCrdAvailable(r.ClientConfig, osv1.GroupVersion.String(), "Route")
 	if routeAvailable {
@@ -105,9 +107,17 @@ func (r *InferenceGraphReconciler) reconcileRawPlatformNetworking(ctx context.Co
 			Scheme: r.Scheme,
 			Client: r.Client,
 		}
+		tlsEnabled, err := routeReconciler.routerServesTLS(ctx, graph)
+		if err != nil {
+			return nil, errors.Wrapf(err, "fails to resolve InferenceGraph router TLS")
+		}
 		hostname, err := routeReconciler.Reconcile(ctx, graph)
 		url.Host = hostname
-		url.Scheme = "https"
+		if tlsEnabled {
+			url.Scheme = "https"
+		} else {
+			url.Scheme = "http"
+		}
 		if err != nil {
 			return nil, errors.Wrapf(err, "fails to reconcile Route for InferenceGraph")
 		}

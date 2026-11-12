@@ -289,6 +289,43 @@ func TestCustomizeServiceInferenceGraphIgnoresAuthProxy(t *testing.T) {
 	assert.NotEqual(t, "https", svc.Spec.Ports[0].Name)
 }
 
+func TestCustomizeServiceInferenceGraphHTTPListener(t *testing.T) {
+	meta := metav1.ObjectMeta{
+		Name: "test-ig",
+		Labels: map[string]string{
+			constants.InferenceGraphLabel: "test-ig",
+		},
+	}
+	newSvc := func() *corev1.Service {
+		return &corev1.Service{
+			Spec: corev1.ServiceSpec{
+				Ports: []corev1.ServicePort{{
+					Name:       "test-ig",
+					Port:       constants.CommonDefaultHttpPort,
+					TargetPort: intstr.FromInt32(8080),
+				}},
+			},
+		}
+	}
+
+	httpSvc := newSvc()
+	customizeService(httpSvc, meta, &corev1.PodSpec{Containers: []corev1.Container{{
+		Name: "test-ig",
+		Args: []string{"--graph-json", "{}"},
+	}}})
+	assert.Equal(t, int32(constants.CommonDefaultHttpPort), httpSvc.Spec.Ports[0].Port)
+	assert.Equal(t, int32(8080), httpSvc.Spec.Ports[0].TargetPort.IntVal)
+	assert.NotContains(t, httpSvc.Annotations, constants.OpenshiftServingCertAnnotation)
+
+	tlsSvc := newSvc()
+	customizeService(tlsSvc, meta, &corev1.PodSpec{Containers: []corev1.Container{{
+		Name: "test-ig",
+		Args: []string{"--enable-tls", "--graph-json", "{}"},
+	}}})
+	assert.Equal(t, int32(443), tlsSvc.Spec.Ports[0].Port)
+	assert.Equal(t, "test-ig"+constants.ServingCertSecretSuffix, tlsSvc.Annotations[constants.OpenshiftServingCertAnnotation])
+}
+
 func TestCustomizeHeadSvcAddsServingCertAnnotation(t *testing.T) {
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
