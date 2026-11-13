@@ -27,6 +27,7 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
+	isvcutils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -138,7 +139,7 @@ func transformerServingPort(podSpec *corev1.PodSpec) int32 {
 	if container == nil {
 		return servingPort
 	}
-	if userPort, ok := getArgValue(container.Args, constants.ArgumentHttpPort); ok {
+	if userPort, ok := isvcutils.GetArgValue(container.Args, constants.ArgumentHttpPort); ok {
 		if userPort != constants.InferenceServiceDefaultHttpPort {
 			if parsed, err := utils.ParsePort(userPort); err == nil {
 				servingPort = parsed
@@ -146,28 +147,6 @@ func transformerServingPort(podSpec *corev1.PodSpec) int32 {
 		}
 	}
 	return servingPort
-}
-
-// getArgValue extracts the value for a CLI flag from an args slice, handling both
-// "--flag value" and "--flag=value" forms.
-//
-// TODO(RHOAIENG-95631): duplicated from the unexported helper in the deployment
-// package (deployment_reconciler.go). De-duplicate by promoting a shared exported
-// helper (e.g. in pkg/utils) once upstream/downstream can be updated together.
-func getArgValue(args []string, flag string) (string, bool) {
-	var lastVal string
-	found := false
-	for i, arg := range args {
-		if arg == flag && i+1 < len(args) {
-			lastVal = args[i+1]
-			found = true
-		}
-		if strings.HasPrefix(arg, flag+"=") {
-			lastVal = strings.TrimPrefix(arg, flag+"=")
-			found = true
-		}
-	}
-	return lastVal, found
 }
 
 // customizeHeadSvc applies ODH-specific customizations to headless (head node) services:
