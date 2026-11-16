@@ -200,6 +200,114 @@ func TestCustomizeKserveConfigMap_StrictNetworkPolicy(t *testing.T) {
 	g.Expect(cm.Data[llmisvcConfigKeyName]).Should(ContainSubstring(`"monitoringNamespace": "custom-ods-monitoring"`))
 }
 
+func TestUpdateLLMISVCConfigMapKey_DisaggregatedSet(t *testing.T) {
+	tests := []struct {
+		name         string
+		existing     *string
+		disaggSet    *bool
+		strictNP     *bool
+		wantKey      bool
+		wantGates    map[string]any
+		wantTopLevel map[string]any
+	}{
+		{
+			name:    "unset does not add the llmisvc key",
+			wantKey: false,
+		},
+		{
+			name:      "true adds the key with the gate on",
+			disaggSet: ptr.To(true),
+			wantKey:   true,
+			wantGates: map[string]any{"disaggregatedSet": true},
+		},
+		{
+			name:      "false adds the key with the gate off",
+			disaggSet: ptr.To(false),
+			wantKey:   true,
+			wantGates: map[string]any{"disaggregatedSet": false},
+		},
+		{
+			name:      "sets both gates",
+			disaggSet: ptr.To(true),
+			strictNP:  ptr.To(false),
+			wantKey:   true,
+			wantGates: map[string]any{"disaggregatedSet": true, "strictNetworkPolicy": false},
+		},
+		{
+			name:         "keeps other gates and keys already in the llmisvc key",
+			existing:     ptr.To(`{"featureGates": {"otherGate": true}, "other": "kept"}`),
+			disaggSet:    ptr.To(true),
+			wantKey:      true,
+			wantGates:    map[string]any{"disaggregatedSet": true, "otherGate": true},
+			wantTopLevel: map[string]any{"other": "kept"},
+		},
+		{
+			name:      "overwrites a gate value already in the llmisvc key",
+			existing:  ptr.To(`{"featureGates": {"disaggregatedSet": true}}`),
+			disaggSet: ptr.To(false),
+			wantKey:   true,
+			wantGates: map[string]any{"disaggregatedSet": false},
+		},
+		{
+			name:      "unset leaves a gate value already in the llmisvc key",
+			existing:  ptr.To(`{"featureGates": {"disaggregatedSet": true}}`),
+			wantKey:   true,
+			wantGates: map[string]any{"disaggregatedSet": true},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			t.Setenv("MONITORING_NAMESPACE", "")
+
+			cm := &corev1.ConfigMap{Data: map[string]string{}}
+			if tt.existing != nil {
+				cm.Data[llmisvcConfigKeyName] = *tt.existing
+			}
+			kserve := &platformv1alpha1.Kserve{
+				Spec: platformv1alpha1.KserveSpec{
+					EnableLLMInferenceServiceDisaggregatedSet:    tt.disaggSet,
+					EnableLLMInferenceServiceStrictNetworkPolicy: tt.strictNP,
+				},
+			}
+
+			g.Expect(updateLLMISVCConfigMapKey(cm, kserve)).To(Succeed())
+
+			raw, ok := cm.Data[llmisvcConfigKeyName]
+			g.Expect(ok).To(Equal(tt.wantKey))
+			if !tt.wantKey {
+				return
+			}
+
+			var data map[string]any
+			g.Expect(json.Unmarshal([]byte(raw), &data)).To(Succeed())
+			g.Expect(data["featureGates"]).To(Equal(tt.wantGates))
+			for k, v := range tt.wantTopLevel {
+				g.Expect(data).To(HaveKeyWithValue(k, v))
+			}
+		})
+	}
+}
+
+func TestCustomizeKserveConfigMap_DisaggregatedSet(t *testing.T) {
+	g := NewWithT(t)
+	t.Setenv("MONITORING_NAMESPACE", "")
+
+	resources := buildTestResources(t)
+	result, err := customizeKserveConfigMap(resources, &platformv1alpha1.Kserve{
+		Spec: platformv1alpha1.KserveSpec{
+			RawDeploymentServiceConfig:                platformv1alpha1.KserveRawHeadless,
+			EnableLLMInferenceServiceDisaggregatedSet: ptr.To(true),
+		},
+	})
+	g.Expect(err).ShouldNot(HaveOccurred())
+
+	_, cm, err := getIndexedResource[corev1.ConfigMap](result, configMapGVK, kserveConfigMapName)
+	g.Expect(err).ShouldNot(HaveOccurred())
+	g.Expect(cm.Data[llmisvcConfigKeyName]).Should(ContainSubstring(`"disaggregatedSet": true`))
+}
+
 func TestCustomizeKserveConfigMap_EnableTLS_False(t *testing.T) {
 	g := NewWithT(t)
 
