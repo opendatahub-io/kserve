@@ -84,13 +84,17 @@ type dynamicWatch struct {
 	crdName    string
 	filterFn   func(*unstructured.Unstructured) bool
 	predicates []predicate.Predicate
-	// selfInstalled marks a watch whose CRD this module installs itself. Such a
-	// CRD is guaranteed to exist after the reconcile that installs it, so its
-	// watch registration is gated (reconcile requeues until registered) rather
-	// than best-effort. External/optional CRDs (selfInstalled false) register
-	// only if already present and never hold up the happy path.
+	// selfInstalled marks a watch whose CRD this module always installs. Its
+	// watch registration is gated (reconcile requeues until registered).
+	// requiredWhen gates registration of a CRD installed by an optional component
+	// only while that component is enabled.
 	selfInstalled bool
+	requiredWhen  func(*platformv1alpha1.Kserve) bool
 	registered    bool
+}
+
+func (dw *dynamicWatch) requiresRegistration(kserve *platformv1alpha1.Kserve) bool {
+	return dw.selfInstalled || (dw.requiredWhen != nil && dw.requiredWhen(kserve))
 }
 
 // buildDynamicWatches returns the watches attached lazily once their backing CRD
@@ -103,9 +107,11 @@ func (r *KserveModuleReconciler) buildDynamicWatches() []*dynamicWatch {
 			gvk:       schema.GroupVersionKind{Group: "operator.openshift.io", Version: "v1", Kind: "LeaderWorkerSetOperator"},
 		},
 		{
-			groupKind:     schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
-			gvk:           localModelNodeGroupGVK,
-			selfInstalled: true,
+			// ModelCache installs this CRD only when enabled. The CRD watch
+			// triggers registration if it appears after startup.
+			groupKind:    schema.GroupKind{Group: "serving.kserve.io", Kind: "LocalModelNodeGroup"},
+			gvk:          localModelNodeGroupGVK,
+			requiredWhen: isModelCacheEnabled,
 		},
 		{
 			// Presets are deliberately out of the ownerRef chain (see
@@ -300,12 +306,12 @@ func (r *KserveModuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // registerDynamicWatches attaches a watch for each dynamicWatch whose backing
-// CRD exists and is Established. It returns true when a self-installed watch is
-// still pending registration, so the caller can requeue and retry: without that
-// the watch would never register once the happy path stops requeuing
-// (RHOAIENG-88471). External/optional CRDs that are simply absent do not mark
-// work pending.
-func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) bool {
+// CRD exists and is Established. It returns true when a required watch is still
+// pending registration, so the caller can requeue and retry: without that the
+// watch would never register once the happy path stops requeuing
+// (RHOAIENG-88471). An optional CRD that is absent while its component is
+// disabled does not mark work pending.
+func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context, kserve *platformv1alpha1.Kserve) bool {
 	r.dynamicWatchMu.Lock()
 	defer r.dynamicWatchMu.Unlock()
 
@@ -330,8 +336,8 @@ func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) boo
 		if err := r.dynamicWatchCRDExists(ctx, reader, dw); err != nil {
 			// A self-installed CRD is guaranteed to exist once installed; if the
 			// check does not see it yet (not Established, cache lag), keep the
-			// caller requeuing until it does. An absent external CRD is expected.
-			if dw.selfInstalled {
+			// caller requeuing until it does. An absent optional CRD is expected.
+			if dw.requiresRegistration(kserve) {
 				pending = true
 			}
 			continue
@@ -342,7 +348,7 @@ func (r *KserveModuleReconciler) registerDynamicWatches(ctx context.Context) boo
 
 		if err := r.controller.Watch(source.Kind[client.Object](r.cache, obj, handler.EnqueueRequestsFromMapFunc(mapToKserve), dynamicWatchPredicates(dw)...)); err != nil {
 			ctrl.LoggerFrom(ctx).Error(err, "failed to register dynamic watch", "gvk", dw.gvk)
-			if dw.selfInstalled {
+			if dw.requiresRegistration(kserve) {
 				pending = true
 			}
 			continue

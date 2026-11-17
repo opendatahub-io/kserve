@@ -249,7 +249,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 	log.Info("reconciling Kserve CR", "name", kserve.Name)
 
-	r.registerDynamicWatches(ctx)
+	r.registerDynamicWatches(ctx, kserve)
 
 	condMgr := newConditionManager(kserve)
 	defer func() {
@@ -307,8 +307,8 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	// cached client during the reconcile that installs it, so the top-of-reconcile
 	// attempt above misses it. Once the happy path stops requeuing, no further
 	// reconcile runs and the preset self-heal watch would never register
-	// (RHOAIENG-88471). Requeue until every self-installed watch is registered.
-	if r.registerDynamicWatches(ctx) {
+	// (RHOAIENG-88471). Requeue until every required watch is registered.
+	if r.registerDynamicWatches(ctx, kserve) {
 		log.Info("self-installed dynamic watch registration pending, requeueing")
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
 	}
