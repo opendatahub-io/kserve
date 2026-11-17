@@ -61,16 +61,35 @@ pydantic = "^2.5.0"
 pyyaml = "^6.0.0"
 # CVE-2025-66418 urllib3: Unbounded decompression chain leads to resource exhaustion
 # CVE-2026-44432 urllib3: Denial of Service due to excessive HTTP response decompression
-urllib3 = ">=2.7.0,<3.0.0"
+# CVE-2026-97687 urllib3: Traffic interception via HTTPS proxy TLS configuration override
+# CVE-2026-97689 urllib3: Denial of Service via unbounded memory allocation in chunk parser
+urllib3 = ">=2.8.0,<3.0.0"
 # CVE-2026-69244 AIOHTTP Denial of Service via malformed HTTP responses (out-of-bounds heap read)
-aiohttp = ">=3.14.3,<4.0.0"
+# CVE-2026-111064 AIOHTTP Denial of Service via missing initial request timeout
+# CVE-2026-111066 AIOHTTP Denial of Service via file descriptor exhaustion in multipart request processing
+# CVE-2026-123817 AIOHTTP Denial of Service via memory exhaustion during WebSocket frame reassembly
+aiohttp = ">=3.14.4,<4.0.0"
 # CVE-2026-32597 PyJWT accepts unknown `crit` header extensions (RFC 7515 §4.1.11 MUST violation)
+# CVE-2026-102267 PyJWT verification key substitution via unvalidated JWKS redirects
+# CVE-2026-102272 PyJWT token forgery via improper Unicode byte-order mark handling
+# CVE-2026-102271 PyJWT authentication bypass via acceptance of DER public keys as HMAC secrets
+# CVE-2026-102266 PyJWT authentication bypass via empty HMAC key acceptance
 # Pinning because it is a transitive dependency.
-PyJWT = ">=2.12.0"
+PyJWT = ">=2.14.0"
 # CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion.
 # CVE-2026-59885 pyasn1 Denial of Service via crafted ASN.1 OBJECT IDENTIFIER.
+# CVE-2026-119194 pyasn1 Denial of Service via hash collisions in schemaless decoding
+# CVE-2026-119195 pyasn1 Denial of Service via quadratic processing of fragmented ASN.1 data
+# CVE-2026-119196 pyasn1 Denial of Service via constructed bit string decoding
+# CVE-2026-119197 pyasn1 Denial of Service via quadratic complexity in binary REAL decoding
 # Pinning because it is a transitive dependency.
-pyasn1 = ">=0.6.4"
+pyasn1 = ">=0.6.5"
+# CVE-2026-118669 oauthlib: privilege escalation via client identity confusion in token grant handlers
+# Pinning because it is a transitive dependency.
+oauthlib = ">=4.0.0"
+# CVE-2026-63374 AnyIO: TLS certificate spoofing via improper internationalized domain name encoding
+# Pinning because it is a transitive dependency.
+anyio = ">=4.14.2"
 # CVE-2026-28684 python-dotenv: Arbitrary file overwrite via symbolic link following
 # Pinning because it is a transitive dependency.
 python-dotenv = ">=1.2.2"

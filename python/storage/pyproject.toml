@@ -30,17 +30,28 @@ boto3 = { version = "^1.29.0"}
 huggingface-hub = { version = "^0.30.0", extras = ["hf-transfer"]}
 # CVE-2026-32597 PyJWT accepts unknown `crit` header extensions (RFC 7515 §4.1.11 MUST violation)
 # CVE-2026-48526 PyJWT authentication bypass via JWK accepted as HMAC secret
+# CVE-2026-102267 PyJWT verification key substitution via unvalidated JWKS redirects
+# CVE-2026-102272 PyJWT token forgery via improper Unicode byte-order mark handling
+# CVE-2026-102271 PyJWT authentication bypass via acceptance of DER public keys as HMAC secrets
+# CVE-2026-102266 PyJWT authentication bypass via empty HMAC key acceptance
 # Pinning because it is a transitive dependency.
-PyJWT = {version = ">=2.13.0"}
+PyJWT = {version = ">=2.14.0"}
 # CVE-2026-26007 cryptography fails to validate EC public key subgroup membership (SECT curves)
 # Pinning because it is a transitive dependency.
 cryptography = {version = ">=46.0.5"}
 # CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion.
 # CVE-2026-59885 pyasn1 Denial of Service via crafted ASN.1 OBJECT IDENTIFIER.
+# CVE-2026-119194 pyasn1 Denial of Service via hash collisions in schemaless decoding
+# CVE-2026-119195 pyasn1 Denial of Service via quadratic processing of fragmented ASN.1 data
+# CVE-2026-119196 pyasn1 Denial of Service via constructed bit string decoding
+# CVE-2026-119197 pyasn1 Denial of Service via quadratic complexity in binary REAL decoding
 # Pinning because it is a transitive dependency.
-pyasn1 = {version = ">=0.6.4"}
+pyasn1 = {version = ">=0.6.5"}
 # CVE-2026-69244 AIOHTTP Denial of Service via malformed HTTP responses (out-of-bounds heap read)
-aiohttp = {version = ">=3.14.3"}
+# CVE-2026-111064 AIOHTTP Denial of Service via missing initial request timeout
+# CVE-2026-111066 AIOHTTP Denial of Service via file descriptor exhaustion in multipart request processing
+# CVE-2026-123817 AIOHTTP Denial of Service via memory exhaustion during WebSocket frame reassembly
+aiohttp = {version = ">=3.14.4"}
 
 
 #[tool.poetry-version-plugin]
