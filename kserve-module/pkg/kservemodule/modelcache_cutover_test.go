@@ -2,6 +2,7 @@ package kservemodule
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -312,6 +313,24 @@ func TestModelCacheCutoverDeletesOnlyLocalModelNodeJobs(t *testing.T) {
 	}
 	if err := r.Get(context.Background(), client.ObjectKeyFromObject(sharedPVCJob), &batchv1.Job{}); err != nil {
 		t.Fatalf("shared-PVC Job was removed: %v", err)
+	}
+}
+
+func TestModelCacheCutoverListsPodsAndJobsWithoutCache(t *testing.T) {
+	r := newReconcilerWithFakeClient()
+	r.apiReader = r.Client
+	r.Client = fake.NewClientBuilder().WithScheme(r.Scheme).WithInterceptorFuncs(interceptor.Funcs{
+		List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+			return errors.New("cached list would start an informer that needs watch permission")
+		},
+	}).Build()
+
+	ctx := context.Background()
+	if err := r.waitForOldModelCachePods(ctx, "test-ns"); err != nil {
+		t.Fatalf("Pod cleanup used the cached client: %v", err)
+	}
+	if err := r.removeOldModelCacheJobs(ctx, "test-ns"); err != nil {
+		t.Fatalf("Job cleanup used the cached client: %v", err)
 	}
 }
 
