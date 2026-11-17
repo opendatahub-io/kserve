@@ -16,8 +16,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmisvc
+package main
 
-import corev1 "k8s.io/api/core/v1"
+import ctrl "sigs.k8s.io/controller-runtime"
 
-func configureSchedulerMetricsProtocol(_ *corev1.Service, _ *corev1.PodSpec) {}
+func setupDistroControllers(_ ctrl.Manager) error { return nil }

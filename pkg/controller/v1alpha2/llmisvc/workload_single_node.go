@@ -46,10 +46,6 @@ func (r *LLMISVCReconciler) reconcileSingleNodeWorkload(ctx context.Context, llm
 		return fmt.Errorf("failed to reconcile managed DRA: %w", err)
 	}
 
-	if err := r.reconcileSingleNodeMainServiceAccount(ctx, llmSvc, config); err != nil {
-		return fmt.Errorf("failed to reconcile service account: %w", err)
-	}
-
 	if err := r.reconcileSingleNodeMainWorkload(ctx, llmSvc, config, useDisaggregatedSet); err != nil {
 		return fmt.Errorf("failed to reconcile main workload: %w", err)
 	}
@@ -181,11 +177,14 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainPodTemplate(ctx context.Contex
 		},
 	}
 
+	var evictorTemplate *corev1.Container
 	if llmSvc.Spec.Template != nil && !utils.GetForceStopRuntime(llmSvc) {
 		template.Spec = *llmSvc.Spec.Template.DeepCopy()
+		evictorTemplate = takePVCEvictorContainerTemplate(&template.Spec)
 
 		var serviceAccount *corev1.ServiceAccount = nil
-		if hasRoutingSidecar(template.Spec) || config.ModelExpress != nil {
+		if hasRoutingSidecar(template.Spec) || config.ModelExpress != nil ||
+			(llmSvc.Spec.Template.ServiceAccountName == "" && requiresDedicatedServiceAccount(llmSvc.Spec.Template)) {
 			var err error
 			serviceAccount, _, err = r.expectedSingleNodeMainServiceAccount(ctx, llmSvc)
 			if err != nil {
@@ -215,7 +214,7 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainPodTemplate(ctx context.Contex
 			return nil, fmt.Errorf("failed to attach model artifacts to main pod template: %w", err)
 		}
 		if llmSvc.Spec.KVCacheOffloading != nil {
-			attachKVCacheSecondaryTiers(&template.Spec, llmSvc.Spec.KVCacheOffloading.Secondary, "main")
+			attachKVCacheSecondaryTiers(&template.Spec, llmSvc.Spec.KVCacheOffloading.Secondary, "main", evictorTemplate)
 		}
 		if err := attachModelExpress(llmSvc, &template.Spec, config.ModelExpress); err != nil {
 			return nil, fmt.Errorf("failed to attach ModelExpress: %w", err)
@@ -226,6 +225,9 @@ func (r *LLMISVCReconciler) expectedSingleNodeMainPodTemplate(ctx context.Contex
 
 	utils.PropagateMap(llmSvc.Spec.Labels, &template.Labels)
 	utils.PropagateMap(llmSvc.Spec.Annotations, &template.Annotations, nonPropagatedSpecAnnotations...)
+	if llmSvc.Spec.KVCacheOffloading != nil {
+		template.Labels = addPVCEvictorConsumerLabels(template.Labels, llmSvc.Spec.KVCacheOffloading.Secondary, evictorTemplate != nil)
+	}
 
 	// Inject tracing instrumentation when spec.tracing is set
 	if llmSvc.Spec.Tracing != nil {
@@ -329,8 +331,15 @@ func (r *LLMISVCReconciler) expectedSingleNodePrefillPodTemplate(ctx context.Con
 		template.Labels = maps.Clone(labels)
 	}
 
+	var evictorTemplate *corev1.Container
 	if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.Template != nil && !utils.GetForceStopRuntime(llmSvc) {
 		template.Spec = *llmSvc.Spec.Prefill.Template.DeepCopy()
+		evictorTemplate = takePVCEvictorContainerTemplate(&template.Spec)
+		if evictorTemplate == nil {
+			evictorTemplate = findPVCEvictorContainerTemplate(llmSvc.Spec.Template)
+		} else {
+			evictorTemplate = inheritPVCEvictorImage(evictorTemplate, findPVCEvictorContainerTemplate(llmSvc.Spec.Template))
+		}
 
 		// A prefill workload that already runs keeps the ServiceAccount it
 		// runs with — including none — whichever backend deploys it: the
@@ -362,7 +371,7 @@ func (r *LLMISVCReconciler) expectedSingleNodePrefillPodTemplate(ctx context.Con
 			if err != nil {
 				return nil, fmt.Errorf("failed to fetch existing single node prefill service account %s/%s: %w", llmSvc.Namespace, template.Spec.ServiceAccountName, err)
 			}
-		} else if config.ModelExpress != nil {
+		} else if config.ModelExpress != nil || requiresDedicatedServiceAccount(llmSvc.Spec.Prefill.Template) {
 			var err error
 			existingServiceAccount, _, err = r.expectedSingleNodeMainServiceAccount(ctx, llmSvc)
 			if err != nil {
@@ -375,7 +384,7 @@ func (r *LLMISVCReconciler) expectedSingleNodePrefillPodTemplate(ctx context.Con
 			return nil, fmt.Errorf("failed to attach model artifacts to prefill pod template: %w", err)
 		}
 		if llmSvc.Spec.Prefill != nil && llmSvc.Spec.Prefill.KVCacheOffloading != nil {
-			attachKVCacheSecondaryTiers(&template.Spec, llmSvc.Spec.Prefill.KVCacheOffloading.Secondary, "main")
+			attachKVCacheSecondaryTiers(&template.Spec, llmSvc.Spec.Prefill.KVCacheOffloading.Secondary, "main", evictorTemplate)
 		}
 		if err := attachModelExpress(llmSvc, &template.Spec, config.ModelExpress); err != nil {
 			return nil, fmt.Errorf("failed to attach ModelExpress: %w", err)
@@ -387,6 +396,9 @@ func (r *LLMISVCReconciler) expectedSingleNodePrefillPodTemplate(ctx context.Con
 	if llmSvc.Spec.Prefill != nil {
 		utils.PropagateMap(llmSvc.Spec.Prefill.Labels, &template.Labels)
 		utils.PropagateMap(llmSvc.Spec.Prefill.Annotations, &template.Annotations, nonPropagatedSpecAnnotations...)
+		if llmSvc.Spec.Prefill.KVCacheOffloading != nil {
+			template.Labels = addPVCEvictorConsumerLabels(template.Labels, llmSvc.Spec.Prefill.KVCacheOffloading.Secondary, evictorTemplate != nil)
+		}
 	}
 
 	// Inject tracing instrumentation when spec.tracing is set
@@ -491,7 +503,11 @@ func (r *LLMISVCReconciler) reconcileSingleNodeMainServiceAccount(ctx context.Co
 	}
 
 	if !useExistingServiceAccount {
-		if utils.GetForceStopRuntime(llmSvc) || (!hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) && config.ModelExpress == nil) {
+		platformNeedsServiceAccount, err := r.platformNeedsSingleNodeServiceAccount(ctx, llmSvc, serviceAccount.GetName())
+		if err != nil {
+			return fmt.Errorf("failed to check platform need for single node service account: %w", err)
+		}
+		if utils.GetForceStopRuntime(llmSvc) || (!hasRoutingSidecar(expectedDeployment.Spec.Template.Spec) && config.ModelExpress == nil && !platformNeedsServiceAccount) {
 			return Delete(ctx, r, llmSvc, serviceAccount)
 		}
 

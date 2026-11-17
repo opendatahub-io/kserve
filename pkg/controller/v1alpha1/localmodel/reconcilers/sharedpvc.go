@@ -374,6 +374,12 @@ func cachePrecedes(candidate, current *v1alpha1.LocalModelNamespaceCache) bool {
 // created while consumers still reference the cache: the Job writes straight into the model
 // destination their pods read.
 func (c *LocalModelNamespaceCacheReconciler) getOrCreateImportJob(ctx context.Context, localModel *v1alpha1.LocalModelNamespaceCache, pvc *corev1.PersistentVolumeClaim, storageKey string, isvcConfigMap *corev1.ConfigMap, localModelConfig *v1beta1.LocalModelConfig, consumers cacheConsumers) (*batchv1.Job, bool, error) {
+	// Platform hook (ODH: the cache-owned import egress NetworkPolicy; upstream no-op).
+	// Runs before any Job inspection or creation so a platform resource failure blocks a
+	// new import Job and surfaces through the caller's import-pending error handling.
+	if err := c.reconcileSharedPVCPlatformResources(ctx, localModel); err != nil {
+		return nil, false, err
+	}
 	jobName := importJobName(localModel.Name)
 	job := &batchv1.Job{}
 	err := c.Get(ctx, types.NamespacedName{Name: jobName, Namespace: localModel.Namespace}, job)
@@ -650,6 +656,9 @@ func (c *LocalModelNamespaceCacheReconciler) buildImportJob(ctx context.Context,
 			},
 		},
 	}
+	// Platform hook (ODH: download-role and cache-identity pod-template labels; upstream
+	// no-op). New Jobs only: an existing Job is never relabeled.
+	customizeSharedPVCImportJob(job, localModel)
 	return job, nil
 }
 

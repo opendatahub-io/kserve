@@ -51,7 +51,7 @@ import (
 // where changing them would roll the pods. A key can only join before it ships:
 // dropping one that pod templates already carry changes their hash and rolls
 // every workload that has it on upgrade.
-var nonPropagatedSpecAnnotations = []string{AnnotationModelBasedRoutingEnabled, AnnotationModelBasedRoutingOnly, AnnotationLoRAModelRoutingStrategy, constants.LLMDisaggregatedSetAnnotationKey}
+var nonPropagatedSpecAnnotations = []string{AnnotationModelBasedRoutingEnabled, AnnotationModelBasedRoutingOnly, AnnotationLoRAModelRoutingStrategy, AnnotationRouteRuleNaming, constants.LLMDisaggregatedSetAnnotationKey}
 
 // sidecarSSRFProtectionRules defines RBAC rules for the routing sidecar
 // These permissions are needed to discover and monitor inference pools and pods.
@@ -89,6 +89,11 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 	r.markDisaggregatedSetDecision(ctx, llmSvc, disaggregatedSetDecision)
 	useDisaggregatedSet := useDisaggregatedSetWorkload(llmSvc, disaggregatedSetDecision)
 
+	if err := r.reconcileSingleNodeMainServiceAccount(ctx, llmSvc, config); err != nil {
+		llmSvc.MarkMainWorkloadNotReady("ReconcileSingleNodeWorkloadError", err.Error())
+		return fmt.Errorf("failed to reconcile single node service account: %w", err)
+	}
+
 	// A DisaggregatedSet computes its revision from its own roles.
 	if !useDisaggregatedSet {
 		if err := r.reconcileWorkloadRevision(ctx, llmSvc, config); err != nil {
@@ -105,7 +110,7 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 
 	// Reconcile platform-specific workload permissions (e.g. SCC RoleBindings)
 	// before creating workloads so pods can start with the correct permissions.
-	if err := r.reconcileWorkloadPlatformPermissions(ctx, llmSvc); err != nil {
+	if err := r.reconcileWorkloadPlatformPermissions(ctx, llmSvc, config); err != nil {
 		llmSvc.MarkMainWorkloadNotReady("ReconcileWorkloadPermissionsError", err.Error())
 		return fmt.Errorf("failed to reconcile workload platform permissions: %w", err)
 	}

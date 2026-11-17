@@ -108,11 +108,11 @@ type FeatureGates struct {
 	// carry the default and keep their workloads unless they set the annotation.
 	DisaggregatedSet bool `json:"disaggregatedSet,omitempty"`
 
-	// MonitoringIngressNetworkPolicy enables per-LLMInferenceService ingress
-	// NetworkPolicies that restrict Prometheus and gateway traffic while allowing
-	// same-namespace access. Off by default for seamless upgrades from releases
-	// that did not create these policies.
-	MonitoringIngressNetworkPolicy bool `json:"monitoringIngressNetworkPolicy,omitempty"`
+	// StrictNetworkPolicy enables the restrictive (least-privilege) per-
+	// LLMInferenceService NetworkPolicies that isolate workload, scheduler and
+	// tokenizer Pods. Off by default: a single per-service allow-all NetworkPolicy
+	// is created instead, so upgrades match the pre-policy behavior.
+	StrictNetworkPolicy bool `json:"strictNetworkPolicy,omitempty"`
 }
 
 // LLMISVCConfig holds LLMInferenceService controller settings read from the "llmisvc"
@@ -178,6 +178,10 @@ type Config struct {
 	// directly constructed Configs keep the byte-compatible default.
 	LoRAModelRoutingStrategy LoRAModelRoutingStrategy `json:"loraModelRoutingStrategy,omitempty"`
 
+	// RouteRuleNaming is not validated at load; applyRouteRuleNaming rejects an
+	// unknown value per service.
+	RouteRuleNaming RouteRuleNaming `json:"routeRuleNaming,omitempty"`
+
 	// FeatureGates holds the opt-in behaviour switches from the "llmisvc" key of
 	// inferenceservice-config. The zero value leaves every gate off, so a directly
 	// constructed Config behaves as it did before any gate existed.
@@ -238,6 +242,7 @@ func NewConfig(ingressConfig *v1beta1.IngressConfig, storageConfig *types.Storag
 		ModelBasedRoutingHeaderName: ingressConfig.ModelBasedRoutingHeaderName,
 		ModelBasedRoutingMode:       parseModelBasedRoutingMode(ingressConfig.ModelBasedRoutingMode),
 		LoRAModelRoutingStrategy:    LoRAModelRoutingStrategy(ingressConfig.LoRAModelRoutingStrategy),
+		RouteRuleNaming:             RouteRuleNaming(ingressConfig.RouteRuleNaming),
 		StorageConfig:               storageConfig,
 		CredentialConfig:            credentialConfig,
 		SchedulerConfig:             schedulerConfig,

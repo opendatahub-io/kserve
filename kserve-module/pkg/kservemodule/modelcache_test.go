@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/opendatahub-io/odh-platform-utilities/api/common"
 	"github.com/opendatahub-io/odh-platform-utilities/pkg/cluster"
+	odhLabels "github.com/opendatahub-io/odh-platform-utilities/pkg/metadata/labels"
 
 	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
@@ -174,10 +176,10 @@ func TestLabelModelCacheNodes_ByNodeSelector(t *testing.T) {
 
 func TestUpdateNamespacePSA(t *testing.T) {
 	tests := []struct {
-		name          string
-		level         string
-		expectLabel   string
-		expectAnnot   bool
+		name        string
+		level       string
+		expectLabel string
+		expectAnnot bool
 	}{
 		{
 			name:        "privileged sets label and annotation",
@@ -211,7 +213,7 @@ func TestUpdateNamespacePSA(t *testing.T) {
 			cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
 			r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
 
-			err := r.updateNamespacePSA(context.Background(), tt.level)
+			err := r.updateNamespacePSA(context.Background(), "test-ns", tt.level)
 			g.Expect(err).NotTo(HaveOccurred())
 
 			updated := &corev1.Namespace{}
@@ -246,7 +248,7 @@ func TestUpdateNamespacePSA_SkipsDowngradeWhenNotOwnedByUs(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
 	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
 
-	err := r.updateNamespacePSA(context.Background(), "baseline")
+	err := r.updateNamespacePSA(context.Background(), "test-ns", "baseline")
 	g.Expect(err).NotTo(HaveOccurred())
 
 	updated := &corev1.Namespace{}
@@ -271,7 +273,7 @@ func TestUpdateNamespacePSA_SkipsDowngradeWhenNoAnnotation(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
 	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
 
-	err := r.updateNamespacePSA(context.Background(), "baseline")
+	err := r.updateNamespacePSA(context.Background(), "test-ns", "baseline")
 	g.Expect(err).NotTo(HaveOccurred())
 
 	updated := &corev1.Namespace{}
@@ -296,7 +298,7 @@ func TestUpdateNamespacePSA_NoOpWhenAlreadySet(t *testing.T) {
 	cli := fake.NewClientBuilder().WithScheme(scheme).WithObjects(ns).Build()
 	r := &KserveModuleReconciler{Client: cli, applicationsNamespace: "test-ns"}
 
-	err := r.updateNamespacePSA(context.Background(), "privileged")
+	err := r.updateNamespacePSA(context.Background(), "test-ns", "privileged")
 	g.Expect(err).NotTo(HaveOccurred())
 }
 
@@ -332,16 +334,15 @@ func TestLocalModelConfigViaCustomizeKserveConfigMap(t *testing.T) {
 	err = json.Unmarshal([]byte(updatedCM.Data[localModelConfigKeyName]), &localModelData)
 	g.Expect(err).NotTo(HaveOccurred())
 	g.Expect(localModelData["enabled"]).To(Equal(true))
-	g.Expect(localModelData["jobNamespace"]).To(Equal("test-ns"))
+	g.Expect(localModelData["jobNamespace"]).To(Equal(modelCacheNamespace))
 }
-
-
 
 func newReconcilerWithFakeClient(objects ...client.Object) *KserveModuleReconciler {
 	scheme := runtime.NewScheme()
 	_ = corev1.AddToScheme(scheme)
 	_ = platformv1alpha1.AddToScheme(scheme)
 	_ = appsv1.AddToScheme(scheme)
+	_ = batchv1.AddToScheme(scheme)
 
 	allObjects := objects
 	hasTestNS := false
@@ -400,7 +401,7 @@ func TestModelCachePostRender_AppendsResourcesAndLabelsNodes(t *testing.T) {
 	g.Expect(updatedNode.Labels[modelCacheLabelKey]).To(Equal(modelCacheLabelValue))
 
 	ns := &corev1.Namespace{}
-	g.Expect(r.Get(ctx, client.ObjectKey{Name: "test-ns"}, ns)).To(Succeed())
+	g.Expect(r.Get(ctx, client.ObjectKey{Name: modelCacheNamespace}, ns)).To(Succeed())
 	g.Expect(ns.Labels[securityEnforceLabel]).To(Equal("privileged"))
 }
 
@@ -501,7 +502,7 @@ func TestCleanupModelCache_DeletesResources(t *testing.T) {
 	r := newReconcilerWithFakeClient(node)
 
 	// Simulate enable: elevate PSA
-	g.Expect(r.updateNamespacePSA(ctx, "privileged")).To(Succeed())
+	g.Expect(r.updateNamespacePSA(ctx, "test-ns", "privileged")).To(Succeed())
 
 	err := r.cleanupModelCache(ctx)
 	g.Expect(err).NotTo(HaveOccurred())
@@ -549,7 +550,7 @@ func testDaemonSet(mcsLevel string) *appsv1.DaemonSet {
 	ds := &appsv1.DaemonSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      localModelNodeAgentDaemonSetName,
-			Namespace: "test-ns",
+			Namespace: modelCacheNamespace,
 		},
 		Spec: appsv1.DaemonSetSpec{
 			Template: corev1.PodTemplateSpec{
@@ -604,7 +605,9 @@ func TestPatchLocalModelNodeAgentMCSLevel(t *testing.T) {
 func TestModelCacheComponentPostRender_PatchesMCS(t *testing.T) {
 	g := NewWithT(t)
 	node := &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "worker-1"}}
-	r := newOpenShiftReconciler(node, namespaceWithMCS("test-ns", "s0:c28,c27"))
+	namespace := namespaceWithMCS(modelCacheNamespace, "s0:c28,c27")
+	namespace.Labels = map[string]string{odhLabels.PlatformPartOf: KserveComponentName}
+	r := newOpenShiftReconciler(node, namespace)
 	kserve := testKserveWithModelCache(common.Managed, "100Gi", []string{"worker-1"})
 	resources := []unstructured.Unstructured{
 		toUnstructuredDaemonSet(testDaemonSet("")),
@@ -620,7 +623,7 @@ func readyLocalModelControllerDeployment() *appsv1.Deployment {
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      localmodelControllerDeployment,
-			Namespace: "test-ns",
+			Namespace: modelCacheNamespace,
 		},
 		Status: appsv1.DeploymentStatus{
 			AvailableReplicas: 1,
@@ -633,7 +636,7 @@ func seedModelCacheObjects(t *testing.T, r *KserveModuleReconciler, kserve *plat
 	t.Helper()
 	g := NewWithT(t)
 	ctx := context.Background()
-	resources, err := buildModelCacheResources(kserve, r.getApplicationsNamespace())
+	resources, err := buildModelCacheResources(kserve, modelCacheNamespace)
 	g.Expect(err).NotTo(HaveOccurred())
 	for i := range resources {
 		existing := resources[i].DeepCopy()
@@ -658,7 +661,7 @@ func seedModelCacheReadinessObjects(t *testing.T, r *KserveModuleReconciler, dsM
 
 func TestCheckModelCacheReadiness_MCSMatch(t *testing.T) {
 	g := NewWithT(t)
-	r := newOpenShiftReconciler(namespaceWithMCS("test-ns", "s0:c29,c4"))
+	r := newOpenShiftReconciler(namespaceWithMCS(modelCacheNamespace, "s0:c29,c4"))
 	seedModelCacheReadinessObjects(t, r, "s0:c29,c4")
 	err := r.checkModelCacheReadiness(context.Background())
 	g.Expect(err).NotTo(HaveOccurred())
@@ -666,7 +669,7 @@ func TestCheckModelCacheReadiness_MCSMatch(t *testing.T) {
 
 func TestCheckModelCacheReadiness_MCSMismatch(t *testing.T) {
 	g := NewWithT(t)
-	r := newOpenShiftReconciler(namespaceWithMCS("test-ns", "s0:c29,c4"))
+	r := newOpenShiftReconciler(namespaceWithMCS(modelCacheNamespace, "s0:c29,c4"))
 	seedModelCacheReadinessObjects(t, r, "s0:c240,c768")
 	err := r.checkModelCacheReadiness(context.Background())
 	g.Expect(err).To(HaveOccurred())
@@ -675,7 +678,7 @@ func TestCheckModelCacheReadiness_MCSMismatch(t *testing.T) {
 
 func TestCheckModelCacheReadiness_DaemonSetMissing(t *testing.T) {
 	g := NewWithT(t)
-	r := newOpenShiftReconciler(namespaceWithMCS("test-ns", "s0:c29,c4"))
+	r := newOpenShiftReconciler(namespaceWithMCS(modelCacheNamespace, "s0:c29,c4"))
 	seedModelCacheReadinessObjects(t, r, "")
 	err := r.checkModelCacheReadiness(context.Background())
 	g.Expect(err).To(HaveOccurred())

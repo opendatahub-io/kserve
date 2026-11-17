@@ -73,8 +73,27 @@ func tracingNetworkPolicyName(llmSvc *v1alpha2.LLMInferenceService) string {
 	return kmeta.ChildName(llmSvc.GetName(), tracingNetworkPolicySuffix)
 }
 
+// tracingEgressOptedIn reports whether llmSvc opted into the tracing egress
+// NetworkPolicy: a tracing configuration in the reconciled spec together with
+// the serving.kserve.io/enable-tracing-egress-network-policy annotation
+// carrying the exact value "true" — every other value opts out. The
+// reconciler replaces spec with the base-merged effective configuration
+// before policy reconciliation, so tracing resolved from base references
+// opts in exactly like a directly configured one. This is the single opt-in
+// gate shared by reconcileTracingNetworkPolicy and the allow-all egress
+// lifecycle; the Service-index predicate stays deliberately separate because
+// it indexes status-resolved endpoints and carries its own force-stop
+// handling.
+func tracingEgressOptedIn(llmSvc *v1alpha2.LLMInferenceService) bool {
+	return llmSvc.Spec.Tracing != nil &&
+		llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] == "true"
+}
+
 func (r *LLMISVCReconciler) reconcileTracingNetworkPolicy(ctx context.Context, llmSvc *v1alpha2.LLMInferenceService) error {
-	if utils.GetForceStopRuntime(llmSvc) || llmSvc.Spec.Tracing == nil || llmSvc.GetAnnotations()[constants.EnableTracingEgressNetworkPolicyAnnotationKey] != "true" {
+	// Keep the egress policy while a force-stopped workload terminates. This
+	// avoids a gap in the opt-in tracing restriction and lets finalization own
+	// cleanup once the LLMInferenceService is deleted.
+	if !tracingEgressOptedIn(llmSvc) {
 		setTracingServiceStatusAnnotation(llmSvc, "")
 		return r.cleanupTracingNetworkPolicy(ctx, llmSvc)
 	}
@@ -258,6 +277,9 @@ func expectedTracingNetworkPolicy(llmSvc *v1alpha2.LLMInferenceService, otlpPeer
 			},
 		},
 		Spec: netv1.NetworkPolicySpec{
+			// The pre-existing application labels select every Pod of the
+			// service across all components; no NetworkPolicy-specific identity
+			// is stamped onto Pod templates.
 			PodSelector: metav1.LabelSelector{MatchLabels: map[string]string{
 				constants.KubernetesPartOfLabelKey:  constants.LLMInferenceServicePartOfValue,
 				constants.KubernetesAppNameLabelKey: llmSvc.GetName(),

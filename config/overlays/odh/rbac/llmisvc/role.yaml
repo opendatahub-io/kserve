@@ -13,6 +13,12 @@ rules:
   - list
   - watch
 - apiGroups:
+  - apps
+  resources:
+  - deployments/finalizers
+  verbs:
+  - update
+- apiGroups:
   - monitoring.coreos.com
   resources:
   - podmonitors

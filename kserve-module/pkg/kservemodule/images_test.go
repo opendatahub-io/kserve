@@ -3,6 +3,7 @@ package kservemodule
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -50,6 +51,64 @@ func TestConfidentialStorageHelperImage_RenderedFromParams(t *testing.T) {
 				return
 			}
 			t.Fatal("confidential bare-metal preset missing from rendered overlay")
+		})
+	}
+}
+
+func TestPVCEvictorImage_RenderedFromParams(t *testing.T) {
+	for _, override := range []string{"", "registry.example.com/evictor@sha256:3333333333333333333333333333333333333333333333333333333333333333"} {
+		name := "default"
+		if override != "" {
+			name = "mirrored"
+		}
+		t.Run(name, func(t *testing.T) {
+			g := NewWithT(t)
+			configDir := filepath.Join(t.TempDir(), "config")
+			g.Expect(os.CopyFS(configDir, os.DirFS("../../../config"))).To(Succeed())
+			overlay := filepath.Join(configDir, "overlays", "odh")
+			params, err := parseParams(filepath.Join(overlay, "params.env"))
+			g.Expect(err).NotTo(HaveOccurred())
+			expectedImage := params["kserve-llm-d-kv-pvc-evictor"]
+			g.Expect(expectedImage).NotTo(BeEmpty())
+			if override != "" {
+				expectedImage = override
+			}
+
+			t.Setenv("RELATED_IMAGE_ODH_LLM_D_KV_PVC_EVICTOR_IMAGE", override)
+			g.Expect(applyParams(overlay, kserveImageParamMap)).To(Succeed())
+
+			presets := []string{
+				"kserve-config-llm-template",
+				"kserve-config-llm-worker-data-parallel",
+				"kserve-config-llm-decode-template",
+				"kserve-config-llm-decode-worker-data-parallel",
+				"kserve-config-llm-decode-worker-data-parallel-multi-port",
+			}
+			for _, overlayName := range []string{"odh", "odh-xks"} {
+				resources, err := kustomize.Render(filepath.Join(configDir, "overlays", overlayName), nil)
+				g.Expect(err).NotTo(HaveOccurred())
+				found := make(map[string]bool, len(presets))
+				for _, resource := range resources {
+					if resource.GetKind() != "LLMInferenceServiceConfig" {
+						continue
+					}
+					preset := resource.GetName()
+					if !slices.Contains(presets, preset) {
+						continue
+					}
+					containers, exists, err := unstructured.NestedSlice(resource.Object, "spec", "template", "containers")
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(exists).To(BeTrue(), "%s is missing template containers in %s", preset, overlayName)
+					g.Expect(containers).To(ContainElement(SatisfyAll(
+						HaveKeyWithValue("name", "pvc-evictor"),
+						HaveKeyWithValue("image", expectedImage),
+					)), "%s must use the configured PVC evictor image in %s", preset, overlayName)
+					found[preset] = true
+				}
+				for _, preset := range presets {
+					g.Expect(found[preset]).To(BeTrue(), "%s missing from rendered %s overlay", preset, overlayName)
+				}
+			}
 		})
 	}
 }

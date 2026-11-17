@@ -193,6 +193,114 @@ func TestAttachModelExpressLayered(t *testing.T) {
 	})
 	assert.Contains(t, c.VolumeMounts, corev1.VolumeMount{Name: modelExpressTokenVolumeName, MountPath: "/var/run/secrets/modelexpress", ReadOnly: true})
 	assert.Nil(t, c.SecurityContext, "no capabilities are added")
+	_, ok := envOf(c, "MODEL_EXPRESS_TLS_CA_FILE")
+	assert.False(t, ok, "no CA bundle")
+	for _, v := range podSpec.Volumes {
+		assert.NotEqual(t, modelExpressCAVolumeName, v.Name)
+	}
+}
+
+func TestAttachModelExpressCABundle(t *testing.T) {
+	t.Parallel()
+
+	withCA := func() *modelExpressConfig {
+		mx := mxNative()
+		mx.Server.CABundle = &modelExpressCABundle{ConfigMap: "openshift-service-ca.crt", Key: "service-ca.crt"}
+		return mx
+	}
+	caVolume := corev1.Volume{
+		Name: modelExpressCAVolumeName,
+		VolumeSource: corev1.VolumeSource{ConfigMap: &corev1.ConfigMapVolumeSource{
+			LocalObjectReference: corev1.LocalObjectReference{Name: "openshift-service-ca.crt"},
+			Items:                []corev1.KeyToPath{{Key: "service-ca.crt", Path: "ca.crt"}},
+		}},
+	}
+	caMount := corev1.VolumeMount{Name: modelExpressCAVolumeName, MountPath: "/etc/modelexpress/ca", ReadOnly: true}
+
+	t.Run("mounts the bundle key as the client CA file", func(t *testing.T) {
+		t.Parallel()
+		for _, uri := range []string{"hf://org/model", "s3://bucket/llama", "pvc://models/llama"} {
+			podSpec := presetPod()
+			require.NoError(t, attachModelExpress(mxService(t, uri, nil), podSpec, withCA()), uri)
+			c := mainOf(t, podSpec)
+
+			assert.Contains(t, podSpec.Volumes, caVolume, uri)
+			assert.Contains(t, c.VolumeMounts, caMount, uri)
+			e, ok := envOf(c, "MODEL_EXPRESS_TLS_CA_FILE")
+			require.True(t, ok, uri)
+			assert.Equal(t, corev1.EnvVar{Name: "MODEL_EXPRESS_TLS_CA_FILE", Value: "/etc/modelexpress/ca/ca.crt"}, e, uri)
+		}
+	})
+
+	t.Run("works without a token", func(t *testing.T) {
+		t.Parallel()
+		podSpec := presetPod()
+		mx := withCA()
+		mx.Server.TokenAudience = ""
+		require.NoError(t, attachModelExpress(mxService(t, "hf://org/model", nil), podSpec, mx))
+		c := mainOf(t, podSpec)
+		assert.Contains(t, podSpec.Volumes, caVolume)
+		assert.Contains(t, c.VolumeMounts, caMount)
+		_, ok := envOf(c, "MX_AUTH_TOKEN_PATH")
+		assert.False(t, ok)
+	})
+
+	t.Run("leaves the CA to a workload that sets the CA file", func(t *testing.T) {
+		t.Parallel()
+		userCA := map[string]corev1.EnvVar{
+			"path":  {Name: "MODEL_EXPRESS_TLS_CA_FILE", Value: "/etc/mx-ca/service-ca.crt"},
+			"empty": {Name: "MODEL_EXPRESS_TLS_CA_FILE"},
+			"reference": {Name: "MODEL_EXPRESS_TLS_CA_FILE", ValueFrom: &corev1.EnvVarSource{
+				ConfigMapKeyRef: &corev1.ConfigMapKeySelector{LocalObjectReference: corev1.LocalObjectReference{Name: "mx"}, Key: "ca-path"},
+			}},
+		}
+		for name, env := range userCA {
+			podSpec := presetPod()
+			podSpec.Containers[0].Env = append(podSpec.Containers[0].Env, env)
+			podSpec.Containers[0].VolumeMounts = append(podSpec.Containers[0].VolumeMounts, corev1.VolumeMount{Name: "service-ca", MountPath: "/etc/mx-ca", ReadOnly: true})
+			podSpec.Volumes = append(podSpec.Volumes, corev1.Volume{Name: "service-ca", VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{LocalObjectReference: corev1.LocalObjectReference{Name: "openshift-service-ca.crt"}},
+			}})
+			volumes := slices.Clone(podSpec.Volumes)
+
+			require.NoError(t, attachModelExpress(mxService(t, "hf://org/model", nil), podSpec, withCA()), name)
+			c := mainOf(t, podSpec)
+
+			got, _ := envOf(c, "MODEL_EXPRESS_TLS_CA_FILE")
+			assert.Equal(t, env, got, name)
+			assert.Equal(t, 1, envCount(c, "MODEL_EXPRESS_TLS_CA_FILE"), name)
+			assert.NotContains(t, c.VolumeMounts, caMount, name)
+			for _, v := range podSpec.Volumes {
+				assert.NotEqual(t, modelExpressCAVolumeName, v.Name, name)
+			}
+			assert.Subset(t, podSpec.Volumes, volumes, name)
+		}
+	})
+
+	t.Run("keeps a workload volume of the same name", func(t *testing.T) {
+		t.Parallel()
+		podSpec := presetPod()
+		own := corev1.Volume{Name: modelExpressCAVolumeName, VolumeSource: corev1.VolumeSource{
+			Secret: &corev1.SecretVolumeSource{SecretName: "mx-ca"},
+		}}
+		podSpec.Volumes = append(podSpec.Volumes, own)
+
+		require.NoError(t, attachModelExpress(mxService(t, "hf://org/model", nil), podSpec, withCA()))
+		assert.Contains(t, podSpec.Volumes, own)
+		assert.NotContains(t, podSpec.Volumes, caVolume)
+		assert.Contains(t, mainOf(t, podSpec).VolumeMounts, caMount)
+	})
+
+	t.Run("is idempotent on the same pod spec", func(t *testing.T) {
+		t.Parallel()
+		podSpec := presetPod()
+		svc := mxService(t, "s3://bucket/llama", nil)
+		require.NoError(t, attachModelExpress(svc, podSpec, withCA()))
+		once := podSpec.DeepCopy()
+		require.NoError(t, attachModelExpress(svc, podSpec, withCA()))
+		assert.Equal(t, once, podSpec)
+		assert.Equal(t, 1, envCount(mainOf(t, podSpec), "MODEL_EXPRESS_TLS_CA_FILE"))
+	})
 }
 
 func TestAttachModelExpressRespectsWorkload(t *testing.T) {
@@ -632,6 +740,63 @@ func TestModelExpressServerFromAnnotations(t *testing.T) {
 	}))
 	require.NoError(t, err)
 	assert.Equal(t, &modelExpressServer{Address: "mx.mx.svc:8001", TokenAudience: "modelexpress"}, server)
+
+	t.Run("https without a CA bundle annotation trusts system roots", func(t *testing.T) {
+		t.Parallel()
+		server, err := modelExpressServerFromAnnotations(mxService(t, "s3://b/m", map[string]string{
+			constants.ModelExpressAddressAnnotationKey: "https://mx.mx.svc:8001",
+		}))
+		require.NoError(t, err)
+		assert.Equal(t, &modelExpressServer{Address: "https://mx.mx.svc:8001"}, server)
+	})
+
+	t.Run("reads the CA bundle with the default key", func(t *testing.T) {
+		t.Parallel()
+		server, err := modelExpressServerFromAnnotations(mxService(t, "s3://b/m", map[string]string{
+			constants.ModelExpressAddressAnnotationKey:           "https://mx.mx.svc:8001",
+			constants.ModelExpressCABundleConfigMapAnnotationKey: " global-ca-bundle ",
+		}))
+		require.NoError(t, err)
+		assert.Equal(t, &modelExpressCABundle{ConfigMap: "global-ca-bundle", Key: "cabundle.crt"}, server.CABundle)
+	})
+
+	t.Run("reads the CA bundle key", func(t *testing.T) {
+		t.Parallel()
+		server, err := modelExpressServerFromAnnotations(mxService(t, "s3://b/m", map[string]string{
+			constants.ModelExpressAddressAnnotationKey:           "https://mx.mx.svc:8001",
+			constants.ModelExpressCABundleConfigMapAnnotationKey: "openshift-service-ca.crt",
+			constants.ModelExpressCABundleKeyAnnotationKey:       " service-ca.crt ",
+		}))
+		require.NoError(t, err)
+		assert.Equal(t, &modelExpressCABundle{ConfigMap: "openshift-service-ca.crt", Key: "service-ca.crt"}, server.CABundle)
+	})
+
+	rejected := map[string]struct {
+		annotations map[string]string
+		want        string
+	}{
+		"CA bundle for a plaintext server": {
+			annotations: map[string]string{
+				constants.ModelExpressAddressAnnotationKey:           "http://mx.mx.svc:8001",
+				constants.ModelExpressCABundleConfigMapAnnotationKey: "mx-ca",
+			},
+			want: "requires an https://",
+		},
+		"CA key without a ConfigMap": {
+			annotations: map[string]string{
+				constants.ModelExpressAddressAnnotationKey:     "https://mx.mx.svc:8001",
+				constants.ModelExpressCABundleKeyAnnotationKey: "ca.crt",
+			},
+			want: constants.ModelExpressCABundleConfigMapAnnotationKey + " is required",
+		},
+	}
+	for name, tt := range rejected {
+		t.Run("rejects "+name, func(t *testing.T) {
+			t.Parallel()
+			_, err := modelExpressServerFromAnnotations(mxService(t, "s3://b/m", tt.annotations))
+			assert.ErrorContains(t, err, tt.want)
+		})
+	}
 }
 
 func TestValidateNativeModelExpressWorkload(t *testing.T) {

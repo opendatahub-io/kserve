@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	netv1 "k8s.io/api/networking/v1"
 	apierr "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -496,6 +497,9 @@ func TestReconcileSharedPVCPreservesNotReadyOnImportJobReadError(t *testing.T) {
 	if err := batchv1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add batch scheme: %v", err)
 	}
+	if err := netv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add networking scheme: %v", err)
+	}
 	baseClient := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&v1alpha1.LocalModelNamespaceCache{}).
@@ -504,6 +508,9 @@ func TestReconcileSharedPVCPreservesNotReadyOnImportJobReadError(t *testing.T) {
 	readErr := errors.New("import Job read failed")
 	reconciler := &LocalModelNamespaceCacheReconciler{
 		Client: &jobReadErrorClient{Client: baseClient, err: readErr},
+		// The ODH platform hook sets a controller reference on the import egress
+		// NetworkPolicy before creating it, which needs the scheme.
+		Scheme: scheme,
 	}
 
 	if _, err := reconciler.reconcileSharedPVC(context.Background(), cache, nil, nil, cacheConsumers{}); !errors.Is(err, readErr) {
@@ -643,6 +650,9 @@ func TestReconcileSharedPVCSurfacesCredentialErrorWithoutCreatingJob(t *testing.
 	if err := batchv1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add batch scheme: %v", err)
 	}
+	if err := netv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add networking scheme: %v", err)
+	}
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
 		WithStatusSubresource(&v1alpha1.LocalModelNamespaceCache{}).
@@ -704,6 +714,9 @@ func TestReconcileSharedPVCMountsImagePullSecretFromCacheNamespace(t *testing.T)
 	}
 	if err := batchv1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add batch scheme: %v", err)
+	}
+	if err := netv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add networking scheme: %v", err)
 	}
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{Name: "reg-cred", Namespace: "ns"},
@@ -776,6 +789,9 @@ func TestReconcileSharedPVCMissingImagePullSecretSurfacesCredentialError(t *test
 	}
 	if err := batchv1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add batch scheme: %v", err)
+	}
+	if err := netv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add networking scheme: %v", err)
 	}
 	cl := fake.NewClientBuilder().
 		WithScheme(scheme).
@@ -891,6 +907,9 @@ func sharedPVCFixture(t *testing.T, cache *v1alpha1.LocalModelNamespaceCache, pv
 	}
 	if err := batchv1.AddToScheme(scheme); err != nil {
 		t.Fatalf("add batch scheme: %v", err)
+	}
+	if err := netv1.AddToScheme(scheme); err != nil {
+		t.Fatalf("add networking scheme: %v", err)
 	}
 	objects := append([]client.Object{cache, pvc}, extra...)
 	return fake.NewClientBuilder().

@@ -634,7 +634,7 @@ func hasLLMInferenceServiceCRD(mgr ctrl.Manager) (bool, error) {
 }
 
 func (r *KernelCacheCaptureControllerReconciler) captureConfigRequests(ctx context.Context, obj client.Object) []reconcile.Request {
-	if obj.GetName() != constants.InferenceServiceConfigMapName || obj.GetNamespace() != constants.KServeNamespace {
+	if obj.GetName() != constants.InferenceServiceConfigMapName || obj.GetNamespace() != inferenceServiceConfigNamespace() {
 		return nil
 	}
 	namespaces := map[string]struct{}{}

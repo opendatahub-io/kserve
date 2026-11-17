@@ -35,6 +35,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
+	distrotls "github.com/kserve/kserve/pkg/tls/distro"
 )
 
 type listRetryReader struct {
@@ -130,7 +131,7 @@ func TestInferenceServiceRequestsForTLSProfileReturnsTransientErrorAfterBoundedR
 	requests, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, &configv1.APIServer{
 		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 	})
-	if !isTransientTLSProfileListError(err) || len(requests) != 0 {
+	if !distrotls.IsTransientTLSProfileListError(err) || len(requests) != 0 {
 		t.Fatalf("got requests=%v, err=%v; want transient error for asynchronous retry", requests, err)
 	}
 	if reader.listCalls != 3 {
@@ -153,7 +154,7 @@ func TestInferenceServiceRequestsForTLSProfileDoesNotRetryPermanentErrors(t *tes
 			requests, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, &configv1.APIServer{
 				ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
 			})
-			if err == nil || isTransientTLSProfileListError(err) || len(requests) != 0 {
+			if err == nil || distrotls.IsTransientTLSProfileListError(err) || len(requests) != 0 {
 				t.Fatalf("got requests=%v, err=%v; want permanent fail-closed error", requests, err)
 			}
 			if reader.listCalls != 1 {
@@ -178,11 +179,11 @@ func TestScheduleTLSProfileRetryQueuesClusterEventAndCoalesces(t *testing.T) {
 		err:               apierrors.NewServiceUnavailable("temporary list failure"),
 	}
 	apiServer := &configv1.APIServer{ObjectMeta: metav1.ObjectMeta{Name: "cluster"}}
-	if _, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, apiServer); !isTransientTLSProfileListError(err) {
+	if _, err := inferenceServiceRequestsForTLSProfile(t.Context(), reader, apiServer); !distrotls.IsTransientTLSProfileListError(err) {
 		t.Fatalf("initial profile mapping error = %v, want transient failure", err)
 	}
-	scheduleTLSProfileRetry(retryEvents, &scheduled, time.Millisecond)
-	scheduleTLSProfileRetry(retryEvents, &scheduled, time.Millisecond)
+	distrotls.ScheduleTLSProfileRetry(retryEvents, &scheduled, time.Millisecond)
+	distrotls.ScheduleTLSProfileRetry(retryEvents, &scheduled, time.Millisecond)
 
 	select {
 	case retry := <-retryEvents:

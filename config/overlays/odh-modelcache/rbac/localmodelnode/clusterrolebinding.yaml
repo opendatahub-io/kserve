@@ -9,4 +9,4 @@ roleRef:
 subjects:
 - kind: ServiceAccount
   name: kserve-localmodelnode-agent
-  namespace: opendatahub
+  namespace: model-serving-cache

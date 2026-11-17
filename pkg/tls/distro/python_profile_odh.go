@@ -20,11 +20,9 @@ package distro
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/kserve/kserve/pkg/constants"
@@ -40,6 +38,9 @@ const (
 // InjectPythonTLSProfile configures containers that already serve HTTPS
 // through the KServe SDK's certificate arguments or environment. The upstream
 // Python server owns TLS profile application through its provider interface.
+// Workloads keep their serving defaults for NoOpinion and
+// LegacyAdheringComponentsOnly adherence or when the APIServer object is
+// unavailable. Read errors fail the reconciliation.
 func InjectPythonTLSProfile(ctx context.Context, reader client.Reader, podSpec *corev1.PodSpec) error {
 	targets := make([]int, 0, len(podSpec.Containers))
 	for i := range podSpec.Containers {
@@ -51,14 +52,11 @@ func InjectPythonTLSProfile(ctx context.Context, reader client.Reader, podSpec *
 		return nil
 	}
 
-	workloadTLS, apiServerReadable, err := resolveWorkloadArgs(ctx, reader)
-	if isAPIServerAccessDenied(err) {
-		return nil
-	}
+	workloadTLS, honored, err := resolveWorkloadArgs(ctx, reader)
 	if err != nil {
 		return err
 	}
-	if !apiServerReadable {
+	if !honored {
 		return nil
 	}
 	for _, i := range targets {
@@ -67,16 +65,6 @@ func InjectPythonTLSProfile(ctx context.Context, reader client.Reader, podSpec *
 		setContainerEnv(&podSpec.Containers[i], tlsCiphersEnv, workloadTLS.OpenSSLCipherSuites)
 	}
 	return nil
-}
-
-func isAPIServerAccessDenied(err error) bool {
-	for err != nil {
-		if apierrors.IsForbidden(err) || apierrors.IsUnauthorized(err) {
-			return true
-		}
-		err = errors.Unwrap(err)
-	}
-	return false
 }
 
 func hasTLSCredentials(container *corev1.Container) bool {

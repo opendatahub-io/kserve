@@ -29,6 +29,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	apiMeta "k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // ResolveWorkloadArgs reads the cluster profile for a consumer workload. A
@@ -39,10 +40,11 @@ func ResolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLS
 	return args, err
 }
 
-// resolveWorkloadArgs also reports whether the OpenShift APIServer object was
-// readable. Consumers that apply an OpenShift profile directly can leave their
-// workloads untouched when the resource is unavailable, while Go proxies keep
-// using the hardened Intermediate fallback through ResolveWorkloadArgs.
+// resolveWorkloadArgs also reports whether the cluster adherence policy makes
+// workloads honor the OpenShift TLS profile. Consumers that apply the profile
+// directly leave their workloads untouched for NoOpinion and
+// LegacyAdheringComponentsOnly, while ResolveWorkloadArgs keeps returning the
+// Intermediate fallback for Go proxies.
 func resolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLSArgs, bool, error) {
 	if reader == nil {
 		args, err := workloadArgsFromSettings(Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType]}, true)
@@ -58,12 +60,15 @@ func resolveWorkloadArgs(ctx context.Context, reader client.Reader) (WorkloadTLS
 	}
 	settings, err := workloadSettingsFromAPIServer(apiServer)
 	if err != nil {
-		return WorkloadTLSArgs{}, true, err
+		return WorkloadTLSArgs{}, false, err
+	}
+	if !isKnownTLSAdherence(settings.Adherence) {
+		logf.FromContext(ctx).Info("Unknown TLS adherence policy, treating it as StrictAllComponents", "adherence", settings.Adherence)
 	}
 	// The sidecar is a separate strict-FIPS binary; its curve policy must not
 	// depend on whether the manager process itself was built in FIPS mode.
 	args, err := workloadArgsFromSettings(settings, true)
-	return args, true, err
+	return args, shouldHonorClusterTLSProfile(settings.Adherence), err
 }
 
 var goCurveIDs = map[string]uint16{

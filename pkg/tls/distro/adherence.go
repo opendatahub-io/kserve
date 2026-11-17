@@ -35,6 +35,17 @@ func shouldHonorClusterTLSProfile(adherence configv1.TLSAdherencePolicy) bool {
 	}
 }
 
+func isKnownTLSAdherence(adherence configv1.TLSAdherencePolicy) bool {
+	switch adherence {
+	case configv1.TLSAdherencePolicyNoOpinion,
+		configv1.TLSAdherencePolicyLegacyAdheringComponentsOnly,
+		configv1.TLSAdherencePolicyStrictAllComponents:
+		return true
+	default:
+		return false
+	}
+}
+
 func settingsFromAPIServer(apiServer *configv1.APIServer) Settings {
 	adherence := apiServer.Spec.TLSAdherence
 	profileSpec := *resolveProfileSpec(apiServer.Spec.TLSSecurityProfile)

@@ -56,6 +56,8 @@ model URI scheme KServe supports.
 | `exp-modelexpress-address` | yes | ModelExpress server as `host:port`, `http://host:port` or `https://host:port`. The client enables TLS for `https://` only. |
 | `exp-modelexpress-token-audience` | no | Projects a ServiceAccount token with this audience for ModelExpress server authentication. |
 | `exp-modelexpress-revision` | no | Overrides the revision in the P2P identity. Defaults to a hash of `spec.model.uri` and the image, command, args and env of every engine role's `main` container, so changing any engine setting starts a new peer pool. |
+| `exp-modelexpress-ca-bundle-configmap` | no | ConfigMap in the service's namespace holding the PEM CA bundle that issued the server certificate. Requires an `https://` address. |
+| `exp-modelexpress-ca-bundle-key` | no | Key of the CA bundle in that ConfigMap. Defaults to `cabundle.crt`. |
 
 The admission webhook rejects an unknown mode, an address it cannot parse, empty values, and
 the other annotations without a mode. When the service sets `spec.model.uri` itself, the webhook
@@ -102,11 +104,35 @@ container:
 | `MX_MODEL_REVISION` | The revision annotation, or a hash of `spec.model.uri` and the engine containers |
 | `POD_NAME`, `POD_NAMESPACE`, `POD_UID`, `MX_WORKER_HOST` | Downward API |
 | `MX_AUTH_TOKEN_PATH` and a projected token volume | Only with a token audience |
+| `MODEL_EXPRESS_TLS_CA_FILE` and a ConfigMap volume at `/etc/modelexpress/ca` | Only with a CA bundle |
 | `MX_MODEL_URI` | Native `s3://` only |
 | `MODEL_EXPRESS_NO_SHARED_STORAGE`, `MODEL_EXPRESS_CACHE_DIRECTORY`, `HF_HUB_OFFLINE` | Native `hf://` only |
 
 Environment variables the workload already sets are kept. Single-node main and prefill pods
 share the `<name>-kserve` ServiceAccount, so the ModelExpress server's allowlist can name one identity.
+
+### TLS
+
+The client connects over TLS when the address starts with `https://`. Without a CA bundle it verifies
+the server certificate against the engine image's system roots, which fails for a certificate from a
+private CA such as cert-manager or the OpenShift service CA. Name the ConfigMap that holds the CA:
+
+```yaml
+metadata:
+  annotations:
+    serving.kserve.io/exp-modelexpress-mode: native
+    serving.kserve.io/exp-modelexpress-address: https://modelexpress.modelexpress.svc:8001
+    serving.kserve.io/exp-modelexpress-ca-bundle-configmap: modelexpress-ca
+    serving.kserve.io/exp-modelexpress-ca-bundle-key: ca.crt
+```
+
+The controller mounts that key on every engine pod and points `MODEL_EXPRESS_TLS_CA_FILE` at it. The
+client then trusts only that bundle, so it must contain the CA that issued the server certificate.
+When KServe's storage CA bundle is configured (`storageInitializer.caBundleConfigMapName`), the
+`global-ca-bundle` ConfigMap it copies into each namespace works with the default key.
+
+A workload that sets `MODEL_EXPRESS_TLS_CA_FILE` in its `main` container keeps its own value and gets no
+CA volume.
 
 ### The model argument
 
@@ -123,7 +149,7 @@ The `ModelExpressReady` condition reports whether ModelExpress is configured. It
 | Situation | native | layered |
 |---|---|---|
 | Server resolved, model source supported | `True` | `True` |
-| No usable server address (`ServerNotResolved`) | `False`; the workload is not rendered | `False`; the workload renders without ModelExpress |
+| No usable server address or CA bundle (`ServerNotResolved`) | `False`; the workload is not rendered | `False`; the workload renders without ModelExpress |
 | Unsupported model source or workload | `False`; the workload is not rendered | not applicable |
 
 A stopped service ignores ModelExpress configuration, so stopping always works.
@@ -158,7 +184,17 @@ load with `rdma`.
 
 ### `ModelExpressReady=False` with reason `ServerNotResolved`
 
-Set `serving.kserve.io/exp-modelexpress-address` to the ModelExpress server's gRPC endpoint.
+Set `serving.kserve.io/exp-modelexpress-address` to the ModelExpress server's gRPC endpoint. A CA
+bundle annotation needs an `https://` address.
+
+### The engine fails with `Tls handshake failed (TSI_PROTOCOL_FAILURE)`
+
+The client does not trust the server certificate. Set `exp-modelexpress-ca-bundle-configmap` and
+`exp-modelexpress-ca-bundle-key` to the CA that issued it; see [TLS](#tls).
+
+### Engine pods stay in `ContainerCreating` with `MountVolume.SetUp failed for volume "modelexpress-ca"`
+
+The CA bundle ConfigMap, or the key in it, does not exist in the service's namespace.
 
 ### Every strategy fails and the engine exits with `No loading strategy succeeded`
 

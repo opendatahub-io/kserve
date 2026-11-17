@@ -1010,7 +1010,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "scheduler": {
                 "config": {
                     "inline": {
-                        "apiVersion": "llm-d.ai/v1alpha1",
+                        "apiVersion": "llm-d.ai/v1",
                         "kind": "EndpointPickerConfig",
                         "plugins": [
                             {"type": "single-profile-handler"},
@@ -1038,7 +1038,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "scheduler": {
                 "config": {
                     "inline": {
-                        "apiVersion": "llm-d.ai/v1alpha1",
+                        "apiVersion": "llm-d.ai/v1",
                         "kind": "EndpointPickerConfig",
                         "plugins": [
                             {"type": "single-profile-handler"},
@@ -1103,7 +1103,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                             "args": [
                                 "--config-text",
                                 (
-                                    "apiVersion: llm-d.ai/v1alpha1\n"
+                                    "apiVersion: llm-d.ai/v1\n"
                                     "kind: EndpointPickerConfig\n"
                                     "plugins:\n"
                                     "- type: single-profile-handler\n"
@@ -1149,7 +1149,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "scheduler": {
                 "config": {
                     "inline": {
-                        "apiVersion": "llm-d.ai/v1alpha1",
+                        "apiVersion": "llm-d.ai/v1",
                         "kind": "EndpointPickerConfig",
                         "plugins": [
                             {"type": "single-profile-handler"},
@@ -1391,7 +1391,7 @@ LLMINFERENCESERVICE_CONFIGS = {
                                 "vllm:kv_cache_usage_perc",
                                 "--config-text",
                                 (
-                                    "apiVersion: llm-d.ai/v1alpha1\n"
+                                    "apiVersion: llm-d.ai/v1\n"
                                     "kind: EndpointPickerConfig\n"
                                     "plugins:\n"
                                     "- type: single-profile-handler\n"
@@ -1640,6 +1640,13 @@ LLMINFERENCESERVICE_CONFIGS = {
             "prometheus.io/path": "/metrics",
         },
     },
+    # Suffixes the managed HTTPRoute rule names with the service's identity, so
+    # services on a shared gateway no longer share rule names.
+    "route-rule-naming-unique": {
+        "annotations": {
+            "serving.kserve.io/route-rule-naming": "unique",
+        },
+    },
     # Like "prometheus-scrape" but for the P/D simulator, which listens on
     # different ports per role: main/decode on 8001, prefill on 8000. The
     # prefill pod template is a separate WorkloadSpec, so it needs its own
@@ -1853,7 +1860,7 @@ LLMINFERENCESERVICE_CONFIGS = {
             "scheduler": {
                 "config": {
                     "inline": {
-                        "apiVersion": "llm-d.ai/v1alpha1",
+                        "apiVersion": "llm-d.ai/v1",
                         "kind": "EndpointPickerConfig",
                         "featureGates": ["flowControl"],
                         "plugins": [
@@ -2251,8 +2258,62 @@ def inject_k8s_proxy():
         logger.info("No HTTP proxy configured for k8s client")
 
 
+def has_istio():
+    try:
+        client.ApiextensionsV1Api().read_custom_resource_definition(
+            "destinationrules.networking.istio.io"
+        )
+        return True
+    except client.ApiException:
+        return False
+
+
+def apply_epp_tls_workaround(ns):
+    """Apply Istio DestinationRules for EPP TLS. Idempotent.
+
+    Istio's sidecar proxy enforces mTLS between services by default, but
+    the EPP scheduler generates its own self-signed TLS cert rather than
+    using Istio mesh certs. Without a DestinationRule, Istio initiates
+    mTLS to EPP, EPP presents its self-signed cert, and Istio rejects
+    the connection - leaving InferencePool stuck in WaitingForGateway.
+
+    The DestinationRule switches to SIMPLE TLS (accept any server cert)
+    for EPP services, bypassing the mTLS mismatch. Only needed on Istio;
+    Envoy Gateway handles EPP TLS natively.
+    """
+    core = client.CoreV1Api()
+    api = client.CustomObjectsApi()
+    svcs = core.list_namespaced_service(ns)
+    for svc in svcs.items:
+        if "epp" not in svc.metadata.name:
+            continue
+        name = f"{svc.metadata.name}-tls"
+        body = {
+            "apiVersion": "networking.istio.io/v1",
+            "kind": "DestinationRule",
+            "metadata": {"name": name, "namespace": ns},
+            "spec": {
+                "host": f"{svc.metadata.name}.{ns}.svc.cluster.local",
+                "trafficPolicy": {
+                    "tls": {"mode": "SIMPLE", "insecureSkipVerify": True}
+                },
+            },
+        }
+        try:
+            api.create_namespaced_custom_object(
+                "networking.istio.io", "v1", ns, "destinationrules", body
+            )
+        except client.ApiException as e:
+            if e.status == 409:
+                api.patch_namespaced_custom_object(
+                    "networking.istio.io", "v1", ns, "destinationrules", name, body
+                )
+            else:
+                raise
+
+
 # Scheduler config YAML used for ConfigMap ref tests
-SCHEDULER_CONFIG_YAML = """apiVersion: llm-d.ai/v1alpha1
+SCHEDULER_CONFIG_YAML = """apiVersion: llm-d.ai/v1
 kind: EndpointPickerConfig
 plugins:
 - type: single-profile-handler
@@ -2328,7 +2389,7 @@ def delete_scheduler_configmap(namespace):
 
 
 INFERENCE_OBJECTIVE_GROUP = "llm-d.ai"
-INFERENCE_OBJECTIVE_VERSION = "v1alpha2"
+INFERENCE_OBJECTIVE_VERSION = "v1"
 INFERENCE_OBJECTIVE_PLURAL = "inferenceobjectives"
 
 
@@ -2352,7 +2413,7 @@ def create_inference_objectives(pool_name, objectives, namespace):
                 "namespace": namespace,
             },
             "spec": {
-                "poolRef": {"name": pool_name},
+                "poolRefs": [{"name": pool_name}],
                 "priority": obj["priority"],
             },
         }
