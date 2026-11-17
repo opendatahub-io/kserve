@@ -37,8 +37,10 @@ huggingface-hub = { version = "^0.30.0", extras = ["hf-transfer"]}
 # Pinning because it is a transitive dependency.
 PyJWT = {version = ">=2.14.0"}
 # CVE-2026-26007 cryptography fails to validate EC public key subgroup membership (SECT curves)
+# CVE-2026-69247 python-cryptography PKCS#7 EnvelopedData decryption exposes a
+# Bleichenbacher oracle through distinguishable errors and timing.
 # Pinning because it is a transitive dependency.
-cryptography = {version = ">=46.0.5"}
+cryptography = {version = ">=50.0.0"}
 # CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion.
 # CVE-2026-59885 pyasn1 Denial of Service via crafted ASN.1 OBJECT IDENTIFIER.
 # CVE-2026-119194 pyasn1 Denial of Service via hash collisions in schemaless decoding
@@ -69,6 +71,9 @@ filelock = {version = ">=3.12.2,<3.20.4"}
 # version. Matching the rhoai-3.5 fix and pinning to 2026.10.23 (latest).
 # Pinning because it is a transitive dependency.
 certifi = {version = ">=2026.10.23"}
+# CVE-2026-21226 Azure Core deserialization of untrusted data allows remote code execution.
+# Pinning because it is a transitive dependency.
+azure-core = {version = ">=1.38.0"}
 
 
 #[tool.poetry-version-plugin]
