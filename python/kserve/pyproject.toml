@@ -93,6 +93,23 @@ anyio = ">=4.14.2"
 # CVE-2026-28684 python-dotenv: Arbitrary file overwrite via symbolic link following
 # Pinning because it is a transitive dependency.
 python-dotenv = ">=1.2.2"
+# CVE-2026-104851 fsspec: Arbitrary code execution via crafted reference documents
+# Pinning because it is a transitive dependency.
+fsspec = ">=2026.6.0"
+# CVE-2026-112940 filelock: Arbitrary file overwrite via insecure database file reopening.
+# Versions in the range >=3.20.4,<4.2.1 contain the CVE. We currently ship 3.18.0
+# (unaffected); this cap fences off the vulnerable window. To raise it past 3.20.3,
+# jump directly to >=4.2.1 — note that requires Python >=3.11 (we declare >=3.10)
+# and forces virtualenv >=21 (20.x caps filelock <4).
+# Pinning because it is a transitive dependency.
+filelock = ">=3.12.2,<3.20.4"
+# CVE-2026-129265 Distrust eMudhra intermediate CA certificates (follow-up to
+# CVE-2026-114406). certifi versions before 2026.10.19 bundle emSign roots whose
+# eMudhra intermediates have compromised keys; 2026.10.19 removed the affected
+# roots and restored the unaffected ones, so 2026.10.19 is the minimum safe
+# version. Matching the rhoai-3.5 fix and pinning to 2026.10.23 (latest).
+# Pinning because it is a transitive dependency.
+certifi = ">=2026.10.23"
 
 # Storage dependencies. They can be opted into by apps.
 requests = { version = "^2.32.2", optional = true }
