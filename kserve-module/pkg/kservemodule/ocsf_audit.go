@@ -32,6 +32,7 @@ const authorinoCRDName = "authorinos.operator.authorino.kuadrant.io"
 type auditLoggingCapabilities struct {
 	ocsfErr         error
 	customFieldsErr error
+	retry           bool
 }
 
 type auditLoggingCondition struct {
@@ -55,19 +56,26 @@ const (
 // KServe ownership metadata. TelemetryPolicy is intentionally handled as an
 // unstructured optional dependency: installed RHCL builds may serve logging
 // fields without serving the OCSF stanza.
-func (r *KserveModuleReconciler) reconcileOCSFAuditLogging(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
+func (r *KserveModuleReconciler) reconcileOCSFAuditLogging(ctx context.Context, kserve *platformv1alpha1.Kserve) (bool, error) {
 	r.ocsfAuditLoggingCondition = nil
 	if kserve.Spec.AuditLoggingProfile != platformv1alpha1.AuditProfileMetadata {
-		return r.cleanupOCSFAuditPolicies(ctx, nil, kserve.Name, kserve.UID)
+		if err := r.cleanupOCSFAuditPolicies(ctx, nil, kserve.Name, kserve.UID); err != nil {
+			r.ocsfAuditLoggingCondition = &auditLoggingCondition{
+				reason:  reasonAuditLoggingReconcileFailed,
+				message: err.Error(),
+			}
+			return false, err
+		}
+		return false, nil
 	}
 
-	supported, err := r.telemetryPolicyOCSFSupported(ctx)
+	supported, retry, err := r.telemetryPolicyOCSFSupported(ctx)
 	if err != nil || !supported {
 		r.ocsfAuditLoggingCondition = &auditLoggingCondition{
 			reason:  reasonRHCLDependencyUnavailable,
 			message: fmt.Sprintf("%s: %v", ocsfDependencyMessage, err),
 		}
-		return nil
+		return retry, nil
 	}
 
 	gatewayNamespace, gatewayName, err := r.llmInferenceGateway(ctx)
@@ -76,7 +84,7 @@ func (r *KserveModuleReconciler) reconcileOCSFAuditLogging(ctx context.Context, 
 			reason:  reasonGatewayConfigurationUnavailable,
 			message: err.Error(),
 		}
-		return nil
+		return false, nil
 	}
 
 	desired := desiredOCSFPolicy(kserve, gatewayNamespace, gatewayName)
@@ -85,19 +93,23 @@ func (r *KserveModuleReconciler) reconcileOCSFAuditLogging(ctx context.Context, 
 			reason:  reasonAuditLoggingReconcileFailed,
 			message: err.Error(),
 		}
-		return err
+		return false, err
 	}
 	if err := r.cleanupOCSFAuditPolicies(ctx, desired, kserve.Name, kserve.UID); err != nil {
-		return err
+		r.ocsfAuditLoggingCondition = &auditLoggingCondition{
+			reason:  reasonAuditLoggingReconcileFailed,
+			message: err.Error(),
+		}
+		return false, err
 	}
 	if r.ocsfAuditLoggingCondition != nil {
-		return nil
+		return false, nil
 	}
-	r.ocsfAuditLoggingCondition = r.ocsfPolicyStatus(ctx, desired)
-	return nil
+	r.ocsfAuditLoggingCondition, retry = r.ocsfPolicyStatus(ctx, desired)
+	return retry, nil
 }
 
-func (r *KserveModuleReconciler) crdSchema(ctx context.Context, name, versionName, kind string) (*apiextensionsv1.JSONSchemaProps, error) {
+func (r *KserveModuleReconciler) crdSchema(ctx context.Context, name, versionName, kind string) (*apiextensionsv1.JSONSchemaProps, bool, error) {
 	reader := r.apiReader
 	if reader == nil {
 		reader = r.Client
@@ -107,39 +119,40 @@ func (r *KserveModuleReconciler) crdSchema(ctx context.Context, name, versionNam
 	err := reader.Get(ctx, client.ObjectKey{Name: name}, crd)
 	if err != nil {
 		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
-			return nil, fmt.Errorf("%s CRD is unavailable", kind)
+			return nil, false, fmt.Errorf("%s CRD is unavailable", kind)
 		}
-		return nil, fmt.Errorf("checking %s CRD: %w", kind, err)
+		return nil, true, fmt.Errorf("checking %s CRD: %w", kind, err)
 	}
 	if !telemetryPolicyCRDEstablished(crd) {
-		return nil, fmt.Errorf("%s CRD is not established", kind)
+		return nil, false, fmt.Errorf("%s CRD is not established", kind)
 	}
 
 	for _, version := range crd.Spec.Versions {
 		if version.Name == versionName && version.Served {
 			if version.Schema == nil || version.Schema.OpenAPIV3Schema == nil {
-				return nil, fmt.Errorf("%s CRD %s has no OpenAPI schema", kind, versionName)
+				return nil, false, fmt.Errorf("%s CRD %s has no OpenAPI schema", kind, versionName)
 			}
-			return version.Schema.OpenAPIV3Schema, nil
+			return version.Schema.OpenAPIV3Schema, false, nil
 		}
 	}
-	return nil, fmt.Errorf("%s CRD does not serve %s", kind, versionName)
+	return nil, false, fmt.Errorf("%s CRD does not serve %s", kind, versionName)
 }
 
-func (r *KserveModuleReconciler) telemetryPolicyOCSFSupported(ctx context.Context) (bool, error) {
-	schemaRoot, err := r.crdSchema(ctx, telemetryPolicyGVKName, telemetryPolicyGVK.Version, "TelemetryPolicy")
+func (r *KserveModuleReconciler) telemetryPolicyOCSFSupported(ctx context.Context) (bool, bool, error) {
+	schemaRoot, retry, err := r.crdSchema(ctx, telemetryPolicyGVKName, telemetryPolicyGVK.Version, "TelemetryPolicy")
 	if err != nil {
-		return false, err
+		return false, retry, err
 	}
 	if !supportsOCSF(&apiextensionsv1.CustomResourceValidation{OpenAPIV3Schema: schemaRoot}) {
-		return false, fmt.Errorf("TelemetryPolicy CRD does not support spec.logging.default.ocsf")
+		return false, false, fmt.Errorf("TelemetryPolicy CRD does not support spec.logging.default.ocsf")
 	}
-	return true, nil
+	return true, false, nil
 }
 
 func (r *KserveModuleReconciler) auditLoggingCRDCapabilities(ctx context.Context) auditLoggingCapabilities {
 	capabilities := auditLoggingCapabilities{}
-	telemetrySchema, telemetryErr := r.crdSchema(ctx, telemetryPolicyGVKName, telemetryPolicyGVK.Version, "TelemetryPolicy")
+	telemetrySchema, telemetryRetry, telemetryErr := r.crdSchema(ctx, telemetryPolicyGVKName, telemetryPolicyGVK.Version, "TelemetryPolicy")
+	capabilities.retry = telemetryRetry
 	if telemetryErr != nil {
 		capabilities.ocsfErr = telemetryErr
 		capabilities.customFieldsErr = telemetryErr
@@ -151,7 +164,8 @@ func (r *KserveModuleReconciler) auditLoggingCRDCapabilities(ctx context.Context
 			capabilities.customFieldsErr = fmt.Errorf("TelemetryPolicy CRD does not support spec.logging.default.fields")
 		}
 	}
-	authorinoSchema, authorinoErr := r.crdSchema(ctx, authorinoCRDName, "v1beta1", "Authorino")
+	authorinoSchema, authorinoRetry, authorinoErr := r.crdSchema(ctx, authorinoCRDName, "v1beta1", "Authorino")
+	capabilities.retry = capabilities.retry || authorinoRetry
 	if authorinoErr == nil && !schemaPathExists(authorinoSchema, "spec", "enableLoggingFields") {
 		authorinoErr = fmt.Errorf("Authorino CRD does not support spec.enableLoggingFields")
 	}
@@ -211,7 +225,7 @@ func schemaPathExists(root *apiextensionsv1.JSONSchemaProps, path ...string) boo
 
 // A reconciled policy is ready only after Kuadrant observes this generation and
 // reports both acceptance and enforcement. A CRD schema alone proves neither.
-func (r *KserveModuleReconciler) ocsfPolicyStatus(ctx context.Context, desired *unstructured.Unstructured) *auditLoggingCondition {
+func (r *KserveModuleReconciler) ocsfPolicyStatus(ctx context.Context, desired *unstructured.Unstructured) (*auditLoggingCondition, bool) {
 	reader := r.apiReader
 	if reader == nil {
 		reader = r.Client
@@ -219,9 +233,9 @@ func (r *KserveModuleReconciler) ocsfPolicyStatus(ctx context.Context, desired *
 	policy := &unstructured.Unstructured{}
 	policy.SetGroupVersionKind(telemetryPolicyGVK)
 	if err := reader.Get(ctx, client.ObjectKeyFromObject(desired), policy); err != nil {
-		return &auditLoggingCondition{reason: reasonTelemetryPolicyPending, message: fmt.Sprintf("reading TelemetryPolicy status: %v", err)}
+		return &auditLoggingCondition{reason: reasonTelemetryPolicyPending, message: fmt.Sprintf("reading TelemetryPolicy status: %v", err)}, true
 	}
-	return evaluateOCSFPolicyStatus(policy)
+	return evaluateOCSFPolicyStatus(policy), false
 }
 
 func evaluateOCSFPolicyStatus(policy *unstructured.Unstructured) *auditLoggingCondition {

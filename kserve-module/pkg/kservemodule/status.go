@@ -123,22 +123,22 @@ func applyAuditLoggingCapabilityConditions(condMgr *conditions.Manager, kserve *
 }
 
 func applyOCSFAuditLoggingCondition(condMgr *conditions.Manager, kserve *platformv1alpha1.Kserve, condition *auditLoggingCondition) {
+	if condition != nil {
+		condMgr.MarkFalse(ConditionLLMISVCOCSFAuditLoggingReady,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason(condition.reason),
+			conditions.WithMessage("%s", condition.message),
+			conditions.WithObservedGeneration(kserve.Generation))
+		return
+	}
 	if kserve.Spec.AuditLoggingProfile != platformv1alpha1.AuditProfileMetadata {
 		condMgr.MarkTrue(ConditionLLMISVCOCSFAuditLoggingReady,
 			conditions.WithReason(reasonAuditLoggingDisabled),
 			conditions.WithObservedGeneration(kserve.Generation))
 		return
 	}
-	if condition == nil {
-		condMgr.MarkTrue(ConditionLLMISVCOCSFAuditLoggingReady,
-			conditions.WithReason(reasonAuditLoggingEnforced),
-			conditions.WithObservedGeneration(kserve.Generation))
-		return
-	}
-	condMgr.MarkFalse(ConditionLLMISVCOCSFAuditLoggingReady,
-		conditions.WithSeverity(common.ConditionSeverityInfo),
-		conditions.WithReason(condition.reason),
-		conditions.WithMessage("%s", condition.message),
+	condMgr.MarkTrue(ConditionLLMISVCOCSFAuditLoggingReady,
+		conditions.WithReason(reasonAuditLoggingEnforced),
 		conditions.WithObservedGeneration(kserve.Generation))
 }
 

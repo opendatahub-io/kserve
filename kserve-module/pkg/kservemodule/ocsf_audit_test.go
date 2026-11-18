@@ -2,6 +2,7 @@ package kservemodule
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -28,7 +29,8 @@ func TestReconcileOCSFAuditLoggingMetadataCreatesPolicy(t *testing.T) {
 	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
 	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testGatewayConfigMap(), authorino)
 
-	g.Expect(r.reconcileOCSFAuditLogging(context.Background(), kserve)).To(Succeed())
+	_, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(err).To(Succeed())
 	g.Expect(r.ocsfAuditLoggingCondition.reason).To(Equal(reasonTelemetryPolicyPending))
 
 	policy := &unstructured.Unstructured{}
@@ -73,7 +75,8 @@ func TestReconcileOCSFAuditLoggingRepairsDriftAndIsIdempotent(t *testing.T) {
 	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testGatewayConfigMap())
 	ctx := context.Background()
 
-	g.Expect(r.reconcileOCSFAuditLogging(ctx, kserve)).To(Succeed())
+	_, err := r.reconcileOCSFAuditLogging(ctx, kserve)
+	g.Expect(err).To(Succeed())
 	policy := &unstructured.Unstructured{}
 	policy.SetGroupVersionKind(telemetryPolicyGVK)
 	key := client.ObjectKey{Name: telemetryPolicyName, Namespace: "gateway-system"}
@@ -81,12 +84,14 @@ func TestReconcileOCSFAuditLoggingRepairsDriftAndIsIdempotent(t *testing.T) {
 	policy.Object["spec"].(map[string]any)["targetRef"].(map[string]any)["name"] = "drifted-gateway"
 	g.Expect(cli.Update(ctx, policy)).To(Succeed())
 
-	g.Expect(r.reconcileOCSFAuditLogging(ctx, kserve)).To(Succeed())
+	_, err = r.reconcileOCSFAuditLogging(ctx, kserve)
+	g.Expect(err).To(Succeed())
 	g.Expect(cli.Get(ctx, key, policy)).To(Succeed())
 	desired := desiredOCSFPolicy(kserve, "gateway-system", "shared-llm-gateway")
 	g.Expect(policy.Object["spec"]).To(Equal(desired.Object["spec"]))
 	stable := policy.DeepCopy()
-	g.Expect(r.reconcileOCSFAuditLogging(ctx, kserve)).To(Succeed())
+	_, err = r.reconcileOCSFAuditLogging(ctx, kserve)
+	g.Expect(err).To(Succeed())
 	g.Expect(cli.Get(ctx, key, policy)).To(Succeed())
 	g.Expect(policy.Object["spec"]).To(Equal(stable.Object["spec"]))
 }
@@ -106,14 +111,38 @@ func TestReconcileOCSFAuditLoggingRemovedDeletesOnlyOwnedPolicy(t *testing.T) {
 	user.SetGroupVersionKind(telemetryPolicyGVK)
 	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), owned, user)
 
-	g.Expect(r.reconcileOCSFAuditLogging(context.Background(), kserve)).To(Succeed())
+	_, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(err).To(Succeed())
 	deleted := &unstructured.Unstructured{}
 	deleted.SetGroupVersionKind(telemetryPolicyGVK)
-	err := cli.Get(context.Background(), client.ObjectKeyFromObject(owned), deleted)
+	err = cli.Get(context.Background(), client.ObjectKeyFromObject(owned), deleted)
 	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	kept := &unstructured.Unstructured{}
 	kept.SetGroupVersionKind(telemetryPolicyGVK)
 	g.Expect(cli.Get(context.Background(), client.ObjectKeyFromObject(user), kept)).To(Succeed())
+}
+
+func TestReconcileOCSFAuditLoggingCleanupFailureMarksNotReady(t *testing.T) {
+	g := NewWithT(t)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testGatewayConfigMap())
+	r.Client = &failingListClient{Client: cli, err: errors.New("cleanup list failed")}
+
+	retry, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(retry).To(BeFalse())
+	g.Expect(err).To(MatchError(ContainSubstring("cleanup list failed")))
+	g.Expect(r.ocsfAuditLoggingCondition).NotTo(BeNil())
+	g.Expect(r.ocsfAuditLoggingCondition.reason).To(Equal(reasonAuditLoggingReconcileFailed))
+
+	condMgr := newConditionManager(kserve)
+	applyOCSFAuditLoggingCondition(condMgr, kserve, r.ocsfAuditLoggingCondition)
+	condition := condMgr.GetCondition(ConditionLLMISVCOCSFAuditLoggingReady)
+	g.Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(condition.Reason).To(Equal(reasonAuditLoggingReconcileFailed))
+
+	policy := &unstructured.Unstructured{}
+	policy.SetGroupVersionKind(telemetryPolicyGVK)
+	g.Expect(cli.Get(context.Background(), client.ObjectKey{Name: telemetryPolicyName, Namespace: "gateway-system"}, policy)).To(Succeed())
 }
 
 func TestReconcileOCSFAuditLoggingReportsMissingOrIncompatibleRHCL(t *testing.T) {
@@ -132,7 +161,8 @@ func TestReconcileOCSFAuditLoggingReportsMissingOrIncompatibleRHCL(t *testing.T)
 				objects = append(objects, tt.crd)
 			}
 			r, _ := newOCSFReconciler(t, objects...)
-			g.Expect(r.reconcileOCSFAuditLogging(context.Background(), kserve)).To(Succeed())
+			_, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+			g.Expect(err).To(Succeed())
 			g.Expect(r.ocsfAuditLoggingCondition).NotTo(BeNil())
 			g.Expect(r.ocsfAuditLoggingCondition.reason).To(Equal(reasonRHCLDependencyUnavailable))
 			g.Expect(r.ocsfAuditLoggingCondition.message).To(ContainSubstring("OCSF audit logging is unavailable"))
@@ -185,6 +215,36 @@ func TestAuditLoggingCRDCapabilities(t *testing.T) {
 	}
 }
 
+func TestAuditLoggingCRDCapabilitiesRetriesTransientRead(t *testing.T) {
+	g := NewWithT(t)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testAuthorinoCRD(true))
+	r.apiReader = &failOnceReader{
+		Reader: cli,
+		key:    client.ObjectKey{Name: telemetryPolicyGVKName},
+		err:    errors.New("temporary API failure"),
+	}
+
+	capabilities := r.auditLoggingCRDCapabilities(context.Background())
+	g.Expect(capabilities.retry).To(BeTrue())
+	g.Expect(capabilities.ocsfErr).To(HaveOccurred())
+
+	capabilities = r.auditLoggingCRDCapabilities(context.Background())
+	g.Expect(capabilities.retry).To(BeFalse())
+	g.Expect(capabilities.ocsfErr).NotTo(HaveOccurred())
+	g.Expect(capabilities.customFieldsErr).NotTo(HaveOccurred())
+}
+
+func TestAuditLoggingCRDCapabilitiesDoesNotRetryUnavailableCRD(t *testing.T) {
+	g := NewWithT(t)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+	r, _ := newOCSFReconciler(t, kserve, testAuthorinoCRD(true))
+
+	capabilities := r.auditLoggingCRDCapabilities(context.Background())
+	g.Expect(capabilities.retry).To(BeFalse())
+	g.Expect(capabilities.ocsfErr).To(HaveOccurred())
+}
+
 func TestInferenceServiceAuditLoggingUnavailableWhenKServeRemoved(t *testing.T) {
 	g := NewWithT(t)
 	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
@@ -212,6 +272,35 @@ func TestOCSFPolicyStatusRequiresCurrentEnforcement(t *testing.T) {
 	g.Expect(evaluateOCSFPolicyStatus(policy)).To(BeNil())
 	policy.SetGeneration(3)
 	g.Expect(evaluateOCSFPolicyStatus(policy).reason).To(Equal(reasonTelemetryPolicyPending))
+}
+
+func TestReconcileOCSFAuditLoggingRetriesPolicyStatusRead(t *testing.T) {
+	g := NewWithT(t)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+	policy := desiredOCSFPolicy(kserve, "gateway-system", "shared-llm-gateway")
+	policy.SetGeneration(1)
+	policy.Object["status"] = map[string]any{"conditions": []any{
+		map[string]any{"type": "Accepted", "status": "True", "observedGeneration": int64(1)},
+		map[string]any{"type": "Enforced", "status": "True", "observedGeneration": int64(1)},
+	}}
+	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testGatewayConfigMap(), policy)
+	r.apiReader = &failOnceReader{
+		Reader: cli,
+		key:    client.ObjectKeyFromObject(policy),
+		err:    errors.New("temporary status read failure"),
+	}
+
+	retry, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(retry).To(BeTrue())
+	g.Expect(r.ocsfAuditLoggingCondition.reason).To(Equal(reasonTelemetryPolicyPending))
+
+	// A retry reads the recovered status from the same policy without requiring
+	// any intervening policy update.
+	retry, err = r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(retry).To(BeFalse())
+	g.Expect(r.ocsfAuditLoggingCondition).To(BeNil())
 }
 
 func TestOCSFAuditLoggingWatchesTelemetryPolicyCRD(t *testing.T) {
@@ -299,6 +388,30 @@ func newOCSFReconciler(t *testing.T, objects ...client.Object) (*KserveModuleRec
 		apiReader:             cli,
 		applicationsNamespace: "opendatahub",
 	}, cli
+}
+
+type failingListClient struct {
+	client.Client
+	err error
+}
+
+func (c *failingListClient) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return c.err
+}
+
+type failOnceReader struct {
+	client.Reader
+	key    client.ObjectKey
+	err    error
+	failed bool
+}
+
+func (r *failOnceReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if key == r.key && !r.failed {
+		r.failed = true
+		return r.err
+	}
+	return r.Reader.Get(ctx, key, obj, opts...)
 }
 
 func ExpectNoError(t *testing.T, err error) {
