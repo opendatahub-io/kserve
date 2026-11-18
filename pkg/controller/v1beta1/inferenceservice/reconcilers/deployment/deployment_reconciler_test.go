@@ -1843,7 +1843,7 @@ func TestGetArgValue(t *testing.T) {
 			wantOk: false,
 		},
 		{
-			// getArgValue only tokenizes: "-1" is this flag's value rather than a
+			// GetArgValue only tokenizes: "-1" is this flag's value rather than a
 			// separate flag. It is rejected as a port later, by utils.ParsePort.
 			name:    "negative number is a value, not a flag",
 			args:    []string{"--http_port", "-1"},
