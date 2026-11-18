@@ -13,7 +13,11 @@ concurrency:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # Pinned to ubuntu-24.04: the ubuntu-latest fleet is rolling over to 26.04,
+    # where Python 3.9 is unavailable and the older glibc refuses to load the
+    # execstack-marked libintel-ext-pt-cpu.so from intel_extension_for_pytorch
+    # 2.6.0 (huggingfaceserver CPU tests fail with ImportError at model load).
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
