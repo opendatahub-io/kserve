@@ -257,6 +257,7 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			retErr = err
 		}
 	}()
+	applyAuditLoggingCapabilityConditions(condMgr, kserve, r.auditLoggingCRDCapabilities(ctx))
 
 	depResult := r.checkDependencies(ctx, kserve)
 	applyDependencyConditions(condMgr, depResult)

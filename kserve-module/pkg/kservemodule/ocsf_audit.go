@@ -27,6 +27,13 @@ var (
 	telemetryPolicyListGVK = telemetryPolicyGVK.GroupVersion().WithKind("TelemetryPolicyList")
 )
 
+const authorinoCRDName = "authorinos.operator.authorino.kuadrant.io"
+
+type auditLoggingCapabilities struct {
+	ocsfErr         error
+	customFieldsErr error
+}
+
 type auditLoggingCondition struct {
 	reason  string
 	message string
@@ -36,16 +43,20 @@ const (
 	reasonAuditLoggingDisabled            = "Disabled"
 	reasonRHCLDependencyUnavailable       = "RHCLDependencyUnavailable"
 	reasonGatewayConfigurationUnavailable = "GatewayConfigurationUnavailable"
-	reasonAuditLoggingConfigured          = "OCSFAuditLoggingConfigured"
+	reasonAuditLoggingEnforced            = "OCSFAuditLoggingEnforced"
 	reasonAuditLoggingReconcileFailed     = "ReconcileFailed"
-	ocsfDependencyMessage                 = "LLMInferenceService OCSF audit logging requires RHCL 1.5.1 or later"
+	reasonTelemetryPolicyPending          = "TelemetryPolicyPending"
+	reasonTelemetryPolicyNotAccepted      = "TelemetryPolicyNotAccepted"
+	reasonTelemetryPolicyNotEnforced      = "TelemetryPolicyNotEnforced"
+	ocsfDependencyMessage                 = "LLMInferenceService OCSF audit logging is unavailable"
 )
 
 // reconcileOCSFAuditLogging manages only the TelemetryPolicy identified by the
 // KServe ownership metadata. TelemetryPolicy is intentionally handled as an
-// unstructured optional dependency: RHCL versions before 1.5.1 either do not
-// serve the CRD or serve it without the OCSF stanza.
+// unstructured optional dependency: installed RHCL builds may serve logging
+// fields without serving the OCSF stanza.
 func (r *KserveModuleReconciler) reconcileOCSFAuditLogging(ctx context.Context, kserve *platformv1alpha1.Kserve) error {
+	r.ocsfAuditLoggingCondition = nil
 	if kserve.Spec.AuditLoggingProfile != platformv1alpha1.AuditProfileMetadata {
 		return r.cleanupOCSFAuditPolicies(ctx, nil, kserve.Name, kserve.UID)
 	}
@@ -76,33 +87,82 @@ func (r *KserveModuleReconciler) reconcileOCSFAuditLogging(ctx context.Context, 
 		}
 		return err
 	}
-	return r.cleanupOCSFAuditPolicies(ctx, desired, kserve.Name, kserve.UID)
+	if err := r.cleanupOCSFAuditPolicies(ctx, desired, kserve.Name, kserve.UID); err != nil {
+		return err
+	}
+	if r.ocsfAuditLoggingCondition != nil {
+		return nil
+	}
+	r.ocsfAuditLoggingCondition = r.ocsfPolicyStatus(ctx, desired)
+	return nil
 }
 
-func (r *KserveModuleReconciler) telemetryPolicyOCSFSupported(ctx context.Context) (bool, error) {
+func (r *KserveModuleReconciler) crdSchema(ctx context.Context, name, versionName, kind string) (*apiextensionsv1.JSONSchemaProps, error) {
 	reader := r.apiReader
 	if reader == nil {
 		reader = r.Client
 	}
 
 	crd := &apiextensionsv1.CustomResourceDefinition{}
-	err := reader.Get(ctx, client.ObjectKey{Name: telemetryPolicyGVKName}, crd)
+	err := reader.Get(ctx, client.ObjectKey{Name: name}, crd)
 	if err != nil {
 		if apierrors.IsNotFound(err) || meta.IsNoMatchError(err) {
-			return false, fmt.Errorf("TelemetryPolicy CRD is unavailable")
+			return nil, fmt.Errorf("%s CRD is unavailable", kind)
 		}
-		return false, fmt.Errorf("checking TelemetryPolicy CRD: %w", err)
+		return nil, fmt.Errorf("checking %s CRD: %w", kind, err)
 	}
 	if !telemetryPolicyCRDEstablished(crd) {
-		return false, fmt.Errorf("TelemetryPolicy CRD is not established")
+		return nil, fmt.Errorf("%s CRD is not established", kind)
 	}
 
 	for _, version := range crd.Spec.Versions {
-		if version.Name == telemetryPolicyGVK.Version && version.Served && supportsOCSF(version.Schema) {
-			return true, nil
+		if version.Name == versionName && version.Served {
+			if version.Schema == nil || version.Schema.OpenAPIV3Schema == nil {
+				return nil, fmt.Errorf("%s CRD %s has no OpenAPI schema", kind, versionName)
+			}
+			return version.Schema.OpenAPIV3Schema, nil
 		}
 	}
-	return false, fmt.Errorf("TelemetryPolicy CRD does not support spec.logging.default.ocsf")
+	return nil, fmt.Errorf("%s CRD does not serve %s", kind, versionName)
+}
+
+func (r *KserveModuleReconciler) telemetryPolicyOCSFSupported(ctx context.Context) (bool, error) {
+	schemaRoot, err := r.crdSchema(ctx, telemetryPolicyGVKName, telemetryPolicyGVK.Version, "TelemetryPolicy")
+	if err != nil {
+		return false, err
+	}
+	if !supportsOCSF(&apiextensionsv1.CustomResourceValidation{OpenAPIV3Schema: schemaRoot}) {
+		return false, fmt.Errorf("TelemetryPolicy CRD does not support spec.logging.default.ocsf")
+	}
+	return true, nil
+}
+
+func (r *KserveModuleReconciler) auditLoggingCRDCapabilities(ctx context.Context) auditLoggingCapabilities {
+	capabilities := auditLoggingCapabilities{}
+	telemetrySchema, telemetryErr := r.crdSchema(ctx, telemetryPolicyGVKName, telemetryPolicyGVK.Version, "TelemetryPolicy")
+	if telemetryErr != nil {
+		capabilities.ocsfErr = telemetryErr
+		capabilities.customFieldsErr = telemetryErr
+	} else {
+		if !supportsOCSF(&apiextensionsv1.CustomResourceValidation{OpenAPIV3Schema: telemetrySchema}) {
+			capabilities.ocsfErr = fmt.Errorf("TelemetryPolicy CRD does not support spec.logging.default.ocsf")
+		}
+		if !schemaPathExists(telemetrySchema, "spec", "logging", "default", "fields") {
+			capabilities.customFieldsErr = fmt.Errorf("TelemetryPolicy CRD does not support spec.logging.default.fields")
+		}
+	}
+	authorinoSchema, authorinoErr := r.crdSchema(ctx, authorinoCRDName, "v1beta1", "Authorino")
+	if authorinoErr == nil && !schemaPathExists(authorinoSchema, "spec", "enableLoggingFields") {
+		authorinoErr = fmt.Errorf("Authorino CRD does not support spec.enableLoggingFields")
+	}
+	if authorinoErr != nil {
+		if capabilities.customFieldsErr != nil {
+			capabilities.customFieldsErr = fmt.Errorf("%v; %w", capabilities.customFieldsErr, authorinoErr)
+		} else {
+			capabilities.customFieldsErr = authorinoErr
+		}
+	}
+	return capabilities
 }
 
 func telemetryPolicyCRDEstablished(crd *apiextensionsv1.CustomResourceDefinition) bool {
@@ -147,6 +207,55 @@ func schemaPathExists(root *apiextensionsv1.JSONSchemaProps, path ...string) boo
 		current = &next
 	}
 	return true
+}
+
+// A reconciled policy is ready only after Kuadrant observes this generation and
+// reports both acceptance and enforcement. A CRD schema alone proves neither.
+func (r *KserveModuleReconciler) ocsfPolicyStatus(ctx context.Context, desired *unstructured.Unstructured) *auditLoggingCondition {
+	reader := r.apiReader
+	if reader == nil {
+		reader = r.Client
+	}
+	policy := &unstructured.Unstructured{}
+	policy.SetGroupVersionKind(telemetryPolicyGVK)
+	if err := reader.Get(ctx, client.ObjectKeyFromObject(desired), policy); err != nil {
+		return &auditLoggingCondition{reason: reasonTelemetryPolicyPending, message: fmt.Sprintf("reading TelemetryPolicy status: %v", err)}
+	}
+	return evaluateOCSFPolicyStatus(policy)
+}
+
+func evaluateOCSFPolicyStatus(policy *unstructured.Unstructured) *auditLoggingCondition {
+	conditions, found, err := unstructured.NestedSlice(policy.Object, "status", "conditions")
+	if err != nil || !found {
+		return &auditLoggingCondition{reason: reasonTelemetryPolicyPending, message: "waiting for TelemetryPolicy Accepted and Enforced conditions"}
+	}
+	for _, expected := range []struct {
+		name   string
+		reason string
+	}{
+		{"Accepted", reasonTelemetryPolicyNotAccepted},
+		{"Enforced", reasonTelemetryPolicyNotEnforced},
+	} {
+		var condition map[string]any
+		for _, item := range conditions {
+			value, ok := item.(map[string]any)
+			if ok && value["type"] == expected.name {
+				condition = value
+				break
+			}
+		}
+		if condition == nil || condition["observedGeneration"] != policy.GetGeneration() {
+			return &auditLoggingCondition{reason: reasonTelemetryPolicyPending, message: fmt.Sprintf("waiting for TelemetryPolicy %s at generation %d", expected.name, policy.GetGeneration())}
+		}
+		if condition["status"] != "True" {
+			message := fmt.Sprintf("TelemetryPolicy %s=%v", expected.name, condition["status"])
+			if detail, ok := condition["message"].(string); ok && detail != "" {
+				message += ": " + detail
+			}
+			return &auditLoggingCondition{reason: expected.reason, message: message}
+		}
+	}
+	return nil
 }
 
 func (r *KserveModuleReconciler) llmInferenceGateway(ctx context.Context) (string, string, error) {
