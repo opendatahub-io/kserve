@@ -117,6 +117,12 @@ azure-core = ">=1.38.0"
 # Bleichenbacher oracle through distinguishable errors and timing.
 # Pinning because it is a transitive dependency.
 cryptography = ">=50.0.0"
+# Distrust eMudhra intermediate CA certificates (bz#2563310, same eMudhra
+# compromise as CVE-2026-129265 above): python-botocore before 1.43.117
+# bundles the Comodo AAA Certificate Services root CA that chains to the
+# compromised eMudhra intermediates.
+# Pinning because it is a transitive dependency.
+botocore = ">=1.43.117"
 
 # Storage dependencies. They can be opted into by apps.
 requests = { version = "^2.32.2", optional = true }

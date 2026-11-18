@@ -41,6 +41,12 @@ PyJWT = {version = ">=2.14.0"}
 # Bleichenbacher oracle through distinguishable errors and timing.
 # Pinning because it is a transitive dependency.
 cryptography = {version = ">=50.0.0"}
+# Distrust eMudhra intermediate CA certificates (bz#2563310, same eMudhra
+# compromise as CVE-2026-129265 above): python-botocore before 1.43.117
+# bundles the Comodo AAA Certificate Services root CA that chains to the
+# compromised eMudhra intermediates.
+# Pinning because it is a transitive dependency.
+botocore = {version = ">=1.43.117"}
 # CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion.
 # CVE-2026-59885 pyasn1 Denial of Service via crafted ASN.1 OBJECT IDENTIFIER.
 # CVE-2026-119194 pyasn1 Denial of Service via hash collisions in schemaless decoding
