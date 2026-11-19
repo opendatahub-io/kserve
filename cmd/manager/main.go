@@ -308,15 +308,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("Setting up LLMInferenceService controller")
+	// Existing llm-d workloads are left untouched. Only status and legacy
+	// finalization remain managed; the provisioning controller is not started.
 	llmEventBroadcaster := record.NewBroadcaster()
 	llmEventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: clientSet.CoreV1().Events("")})
-	if err = (&llmisvc.LLMInferenceServiceReconciler{
+	if err = (&llmisvc.UnmanagedReconciler{LLMInferenceServiceReconciler: &llmisvc.LLMInferenceServiceReconciler{
 		Client:        mgr.GetClient(),
 		Clientset:     clientSet,
-		EventRecorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "LLMInferenceServiceController"}),
-	}).SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create controller", "v1beta1Controller", "InferenceService")
+		EventRecorder: llmEventBroadcaster.NewRecorder(scheme, corev1.EventSource{Component: "UnmanagedLLMInferenceServiceController"}),
+	}}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create unmanaged LLMInferenceService cleanup controller")
 		os.Exit(1)
 	}
 
@@ -354,6 +355,11 @@ func main() {
 	hookServer := mgr.GetWebhookServer()
 
 	setupLog.Info("registering webhooks to the webhook server")
+	// Keep the existing fail-closed webhooks, but reject creation and spec changes
+	// without provisioning-era validation or dependencies on removed presets.
+	removedLLMDValidator := &llmisvcvalidation.RemovedFeatureValidator{}
+	hookServer.Register("/validate-serving-kserve-io-v1alpha1-llminferenceservice", &webhook.Admission{Handler: removedLLMDValidator})
+	hookServer.Register("/validate-serving-kserve-io-v1alpha1-llminferenceserviceconfig", &webhook.Admission{Handler: removedLLMDValidator})
 	hookServer.Register("/mutate-pods", &webhook.Admission{
 		Handler: &pod.Mutator{Client: mgr.GetClient(), Clientset: clientSet, Decoder: admission.NewDecoder(scheme)},
 	})
@@ -398,20 +404,6 @@ func main() {
 		WithValidator(&localmodelcache.LocalModelCacheValidator{Client: mgr.GetClient()}).
 		Complete(); err != nil {
 		setupLog.Error(err, "unable to create webhook", "webhook", "localmodelcache")
-		os.Exit(1)
-	}
-
-	llmConfigValidator := &llmisvcvalidation.LLMInferenceServiceConfigValidator{
-		ClientSet: clientSet,
-	}
-	if err = llmConfigValidator.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceserviceconfig")
-		os.Exit(1)
-	}
-
-	llmInferenceServiceValidator := &llmisvcvalidation.LLMInferenceServiceValidator{}
-	if err = llmInferenceServiceValidator.SetupWithManager(mgr); err != nil {
-		setupLog.Error(err, "unable to create webhook", "webhook", "llminferenceservice")
 		os.Exit(1)
 	}
 
