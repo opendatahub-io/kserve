@@ -288,8 +288,18 @@ async def test_bert_sequence_classification_return_probabilities(bert_base_retur
 
     assert response == {
         "predictions": [
-            {0: approx(-3.1508713), 1: approx(3.5892851)},
-            {0: approx(-3.1508713), 1: approx(3.589285)},
+            # abs tolerance loosened from pytest.approx's default rel=1e-06:
+            # float32 inference results vary at that magnitude across runner
+            # CPUs, making the assertion flaky. Mirrors the upstream fix in
+            # kserve/kserve#4566.
+            {
+                0: approx(-3.1508712768554688, abs=0.000009),
+                1: approx(3.589285135269165, abs=0.000009),
+            },
+            {
+                0: approx(-3.1508712768554688, abs=0.000009),
+                1: approx(3.589284896850586, abs=0.000009),
+            },
         ]
     }
 

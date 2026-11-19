@@ -30,17 +30,56 @@ boto3 = { version = "^1.29.0"}
 huggingface-hub = { version = "^0.30.0", extras = ["hf-transfer"]}
 # CVE-2026-32597 PyJWT accepts unknown `crit` header extensions (RFC 7515 §4.1.11 MUST violation)
 # CVE-2026-48526 PyJWT authentication bypass via JWK accepted as HMAC secret
+# CVE-2026-102267 PyJWT verification key substitution via unvalidated JWKS redirects
+# CVE-2026-102272 PyJWT token forgery via improper Unicode byte-order mark handling
+# CVE-2026-102271 PyJWT authentication bypass via acceptance of DER public keys as HMAC secrets
+# CVE-2026-102266 PyJWT authentication bypass via empty HMAC key acceptance
 # Pinning because it is a transitive dependency.
-PyJWT = {version = ">=2.13.0"}
+PyJWT = {version = ">=2.14.0"}
 # CVE-2026-26007 cryptography fails to validate EC public key subgroup membership (SECT curves)
+# CVE-2026-69247 python-cryptography PKCS#7 EnvelopedData decryption exposes a
+# Bleichenbacher oracle through distinguishable errors and timing.
 # Pinning because it is a transitive dependency.
-cryptography = {version = ">=46.0.5"}
+cryptography = {version = ">=50.0.0"}
+# Distrust eMudhra intermediate CA certificates (bz#2563310, same eMudhra
+# compromise as CVE-2026-129265 above): python-botocore before 1.43.117
+# bundles the Comodo AAA Certificate Services root CA that chains to the
+# compromised eMudhra intermediates.
+# Pinning because it is a transitive dependency.
+botocore = {version = ">=1.43.117"}
 # CVE-2026-30922 pyasn1 Vulnerable to Denial of Service via Unbounded Recursion.
 # CVE-2026-59885 pyasn1 Denial of Service via crafted ASN.1 OBJECT IDENTIFIER.
+# CVE-2026-119194 pyasn1 Denial of Service via hash collisions in schemaless decoding
+# CVE-2026-119195 pyasn1 Denial of Service via quadratic processing of fragmented ASN.1 data
+# CVE-2026-119196 pyasn1 Denial of Service via constructed bit string decoding
+# CVE-2026-119197 pyasn1 Denial of Service via quadratic complexity in binary REAL decoding
 # Pinning because it is a transitive dependency.
-pyasn1 = {version = ">=0.6.4"}
+pyasn1 = {version = ">=0.6.5"}
 # CVE-2026-69244 AIOHTTP Denial of Service via malformed HTTP responses (out-of-bounds heap read)
-aiohttp = {version = ">=3.14.3"}
+# CVE-2026-111064 AIOHTTP Denial of Service via missing initial request timeout
+# CVE-2026-111066 AIOHTTP Denial of Service via file descriptor exhaustion in multipart request processing
+# CVE-2026-123817 AIOHTTP Denial of Service via memory exhaustion during WebSocket frame reassembly
+aiohttp = {version = ">=3.14.4"}
+# CVE-2026-104851 fsspec: Arbitrary code execution via crafted reference documents
+# Pinning because it is a transitive dependency.
+fsspec = {version = ">=2026.6.0"}
+# CVE-2026-112940 filelock: Arbitrary file overwrite via insecure database file reopening.
+# Versions in the range >=3.20.4,<4.2.1 contain the CVE. We currently ship 3.18.0
+# (unaffected); this cap fences off the vulnerable window. To raise it past 3.20.3,
+# jump directly to >=4.2.1 — note that requires Python >=3.11 (we declare >=3.10)
+# and forces virtualenv >=21 (20.x caps filelock <4).
+# Pinning because it is a transitive dependency.
+filelock = {version = ">=3.12.2,<3.20.4"}
+# CVE-2026-129265 Distrust eMudhra intermediate CA certificates (follow-up to
+# CVE-2026-114406). certifi versions before 2026.10.19 bundle emSign roots whose
+# eMudhra intermediates have compromised keys; 2026.10.19 removed the affected
+# roots and restored the unaffected ones, so 2026.10.19 is the minimum safe
+# version. Matching the rhoai-3.5 fix and pinning to 2026.10.23 (latest).
+# Pinning because it is a transitive dependency.
+certifi = {version = ">=2026.10.23"}
+# CVE-2026-21226 Azure Core deserialization of untrusted data allows remote code execution.
+# Pinning because it is a transitive dependency.
+azure-core = {version = ">=1.38.0"}
 
 
 #[tool.poetry-version-plugin]
