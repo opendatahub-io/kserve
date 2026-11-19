@@ -257,6 +257,9 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			retErr = err
 		}
 	}()
+	capabilities := r.auditLoggingCRDCapabilities(ctx)
+	applyAuditLoggingCapabilityConditions(condMgr, kserve, capabilities)
+	auditLoggingRetry := capabilities.retry
 
 	depResult := r.checkDependencies(ctx, kserve)
 	applyDependencyConditions(condMgr, depResult)
@@ -276,8 +279,10 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if componentErrors == nil {
 		componentErrors = make(map[string]error)
 	}
-	if err := r.reconcileOCSFAuditLogging(ctx, kserve); err != nil {
-		componentErrors["auditLogging"] = err
+	retryAuditLogging, auditLoggingErr := r.reconcileOCSFAuditLogging(ctx, kserve)
+	auditLoggingRetry = auditLoggingRetry || retryAuditLogging
+	if auditLoggingErr != nil {
+		componentErrors["auditLogging"] = auditLoggingErr
 	}
 	applyProvisioningCondition(condMgr, componentErrors)
 	applyOCSFAuditLoggingCondition(condMgr, kserve, r.ocsfAuditLoggingCondition)
@@ -311,6 +316,10 @@ func (r *KserveModuleReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if r.registerDynamicWatches(ctx) {
 		log.Info("self-installed dynamic watch registration pending, requeueing")
 		return ctrl.Result{RequeueAfter: 15 * time.Second}, nil
+	}
+	if auditLoggingRetry {
+		log.Info("audit logging capability or policy status read failed, requeueing")
+		return ctrl.Result{RequeueAfter: 30 * time.Second}, nil
 	}
 
 	return ctrl.Result{}, nil

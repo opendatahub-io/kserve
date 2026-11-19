@@ -39,6 +39,7 @@ var dependencyCRDSuffixes = []string{
 }
 
 var dependencyCRDNames = map[string]bool{
+	"authorinos.operator.authorino.kuadrant.io":  true,
 	"clusterextensions.olm.operatorframework.io": true,
 	"leaderworkersets.operator.openshift.io":     true,
 	"subscriptions.operators.coreos.com":         true,
@@ -147,10 +148,12 @@ func (r *KserveModuleReconciler) buildDynamicWatches() []*dynamicWatch {
 			groupKind: telemetryPolicyGVK.GroupKind(),
 			gvk:       telemetryPolicyGVK,
 			crdName:   telemetryPolicyGVKName,
+			// Status-only changes matter: Ready must follow Accepted and Enforced.
 			predicates: []predicate.Predicate{predicate.Or(
 				predicate.GenerationChangedPredicate{},
 				predicate.LabelChangedPredicate{},
 				predicate.AnnotationChangedPredicate{},
+				predicate.ResourceVersionChangedPredicate{},
 			)},
 			filterFn: func(u *unstructured.Unstructured) bool {
 				return u.GetName() == telemetryPolicyName ||
