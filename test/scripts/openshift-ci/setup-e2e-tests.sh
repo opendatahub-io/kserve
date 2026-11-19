@@ -33,11 +33,12 @@ readonly DEPLOYMENT_PROFILE="${3:-serverless}"
 validate_deployment_profile "${DEPLOYMENT_PROFILE}"
 
 : "${NS:=opendatahub}"
+PARAMS_ENV="${PROJECT_ROOT}/config/overlays/odh/params.env"
 : "${SKLEARN_IMAGE:=kserve/sklearnserver:latest}"
-: "${KSERVE_CONTROLLER_IMAGE:=quay.io/opendatahub/kserve-controller:stable-2.x}"
-: "${KSERVE_AGENT_IMAGE:=quay.io/opendatahub/kserve-agent:latest}"
-: "${KSERVE_ROUTER_IMAGE:=quay.io/opendatahub/kserve-router:latest}"
-: "${STORAGE_INITIALIZER_IMAGE:=quay.io/opendatahub/kserve-storage-initializer:latest}"
+: "${KSERVE_CONTROLLER_IMAGE:=$(grep '^kserve-controller=' "${PARAMS_ENV}" | cut -d= -f2-)}"
+: "${KSERVE_AGENT_IMAGE:=$(grep '^kserve-agent=' "${PARAMS_ENV}" | cut -d= -f2-)}"
+: "${KSERVE_ROUTER_IMAGE:=$(grep '^kserve-router=' "${PARAMS_ENV}" | cut -d= -f2-)}"
+: "${STORAGE_INITIALIZER_IMAGE:=$(grep '^kserve-storage-initializer=' "${PARAMS_ENV}" | cut -d= -f2-)}"
 : "${ODH_MODEL_CONTROLLER_IMAGE:=quay.io/opendatahub/odh-model-controller:stable-2.x}"
 : "${IMAGE_TRANSFORMER_IMG_TAG:=kserve/image-transformer}"
 : "${ERROR_404_ISVC_IMAGE:=error-404-isvc:latest}"
@@ -116,12 +117,40 @@ kustomize build $PROJECT_ROOT/config/crd | oc apply --server-side=true -f -
 wait_for_crd llminferenceserviceconfigs.serving.kserve.io 90s
 
 echo "⏳ Installing KServe with SeaweedFS"
-kustomize build $PROJECT_ROOT/config/overlays/odh-test |
-  sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
-  sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
-  sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
-  sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
-  oc apply --server-side=true --force-conflicts -f -
+(
+  # Match master's manual install: override params before rendering, not image
+  # names in the generated YAML. Restore the source file even if apply fails.
+  params_backup=$(mktemp "${PARAMS_ENV}.XXXXXX")
+  cp -p "${PARAMS_ENV}" "${params_backup}"
+  trap 'mv -- "${params_backup}" "${PARAMS_ENV}"' EXIT
+
+  sed -i "s|^kserve-controller=.*|kserve-controller=${KSERVE_CONTROLLER_IMAGE}|" "${PARAMS_ENV}"
+  sed -i "s|^kserve-agent=.*|kserve-agent=${KSERVE_AGENT_IMAGE}|" "${PARAMS_ENV}"
+  sed -i "s|^kserve-router=.*|kserve-router=${KSERVE_ROUTER_IMAGE}|" "${PARAMS_ENV}"
+  sed -i "s|^kserve-storage-initializer=.*|kserve-storage-initializer=${STORAGE_INITIALIZER_IMAGE}|" "${PARAMS_ENV}"
+
+  echo "=== Final params.env"
+  cat "${PARAMS_ENV}"
+
+  # Retain the legacy substitutions for fields not wired to params.env, such
+  # as localModel.defaultJobImage. ODH image overrides are resolved above.
+  kustomize build "${PROJECT_ROOT}/config/overlays/odh-test" |
+    sed "s|kserve/storage-initializer:latest|${STORAGE_INITIALIZER_IMAGE}|" |
+    sed "s|kserve/agent:latest|${KSERVE_AGENT_IMAGE}|" |
+    sed "s|kserve/router:latest|${KSERVE_ROUTER_IMAGE}|" |
+    sed "s|kserve/kserve-controller:latest|${KSERVE_CONTROLLER_IMAGE}|" |
+    oc apply --server-side=true --force-conflicts -f -
+)
+
+# The ODH overlay replaces the upstream image via params.env. Do not silently
+# test the base controller when CI supplies a PR build.
+deployed_controller_image=$(oc get deployment kserve-controller-manager -n "${NS}" \
+  -o jsonpath='{.spec.template.spec.containers[?(@.name=="manager")].image}')
+if [[ "${deployed_controller_image}" != "${KSERVE_CONTROLLER_IMAGE}" ]]; then
+  echo "❌ Expected controller image ${KSERVE_CONTROLLER_IMAGE}, got ${deployed_controller_image}" >&2
+  exit 1
+fi
+echo "✅ Controller deployment image: ${deployed_controller_image}"
 
 wait_for_crd datascienceclusters.datasciencecluster.opendatahub.io 90s
 wait_for_crd dscinitializations.dscinitialization.opendatahub.io 90s
@@ -150,6 +179,11 @@ if [[ "${DEPLOYMENT_PROFILE}" == "llm-d" ]]; then
 fi
 
 wait_for_pod_ready "${NS}" "control-plane=kserve-controller-manager"
+
+oc rollout status deployment/kserve-controller-manager -n "${NS}" --timeout=600s
+echo "Controller pod images and pulled image IDs:"
+oc get pods -n "${NS}" -l control-plane=kserve-controller-manager \
+  -o 'jsonpath={range .items[*]}{.metadata.name}{"\n"}{range .spec.containers[?(@.name=="manager")]}{"  image: "}{.image}{"\n"}{end}{range .status.containerStatuses[?(@.name=="manager")]}{"  imageID: "}{.imageID}{"\n"}{end}{end}'
 
 if [ "${DEPLOYMENT_PROFILE}" == "serverless" ]; then
   echo "⏳ Installing authorino and kserve gateways"
