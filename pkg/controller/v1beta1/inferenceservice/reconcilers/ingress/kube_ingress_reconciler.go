@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
@@ -30,7 +29,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"knative.dev/pkg/apis"
-	knapis "knative.dev/pkg/apis"
 	duckv1 "knative.dev/pkg/apis/duck/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -38,7 +36,6 @@ import (
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
-	v1beta1utils "github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/utils"
 	"github.com/kserve/kserve/pkg/utils"
 )
 
@@ -131,12 +128,7 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 		}
 	}
 
-	authEnabled := false
-	if val, ok := isvc.Annotations[constants.ODHKserveRawAuth]; ok && strings.EqualFold(val, "true") {
-		authEnabled = true
-	}
-
-	isvc.Status.URL, err = createRawURLODH(ctx, r.client, isvc, authEnabled)
+	isvc.Status.URL, err = createRawURL(isvc, r.ingressConfig)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
@@ -144,69 +136,12 @@ func (r *RawIngressReconciler) Reconcile(ctx context.Context, isvc *v1beta1.Infe
 	if err != nil {
 		return ctrl.Result{}, err
 	}
-
-	if authEnabled {
-		// When auth is enabled, the HTTPS entry-point port takes precedence over any
-		// port set by createAddress (e.g. :8080 for headless services).
-		// The predictor entry point carries the auth proxy sidecar (OauthProxyPort);
-		// the transformer entry point serves native HTTPS itself (TransformerHTTPSPort).
-		host := getRawServiceHost(isvc)
-		if isvc.Spec.Transformer != nil {
-			isvc.Status.Address.URL.Host = host + ":" + strconv.Itoa(int(constants.TransformerHTTPSPort))
-		} else {
-			isvc.Status.Address.URL.Host = host + ":" + strconv.Itoa(constants.OauthProxyPort)
-		}
-		isvc.Status.Address.URL.Scheme = "https"
-	}
-
 	isvc.Status.SetCondition(v1beta1.IngressReady, &apis.Condition{
 		Type:   v1beta1.IngressReady,
 		Status: corev1.ConditionTrue,
 	})
 
 	return ctrl.Result{}, nil
-}
-
-func createRawURLODH(ctx context.Context, client client.Client, isvc *v1beta1.InferenceService, authEnabled bool) (*knapis.URL, error) {
-	// upstream implementation
-	// var err error
-	// url := &knapis.URL{}
-	// url.Scheme = ingressConfig.UrlScheme
-	// url.Host, err = GenerateDomainName(isvc.Name, isvc.ObjectMeta, ingressConfig)
-	// if err != nil {
-	//	return nil, err
-	// }
-	// if authEnabled {
-	//	url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
-	// }
-	// return url, nil
-
-	// ODH changes
-	var url *knapis.URL
-	if val, ok := isvc.Labels[constants.NetworkVisibility]; ok && val == constants.ODHRouteEnabled {
-		var err error
-		url, err = v1beta1utils.GetRouteURLIfExists(ctx, client, isvc.ObjectMeta, isvc.Name)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		url = &apis.URL{
-			Host:   getRawServiceHost(isvc),
-			Scheme: "http",
-			Path:   "",
-		}
-		if authEnabled {
-			if isvc.Spec.Transformer != nil {
-				// Transformer entry point serves native HTTPS on TransformerHTTPSPort.
-				url.Host += ":" + strconv.Itoa(int(constants.TransformerHTTPSPort))
-			} else {
-				// Predictor entry point carries the auth proxy on OauthProxyPort.
-				url.Host += ":" + strconv.Itoa(constants.OauthProxyPort)
-			}
-			url.Scheme = "https"
-		}
-	}
-	return url, nil
 }
 
 func createAddress(ctx context.Context, cl client.Client, isvc *v1beta1.InferenceService) (*duckv1.Addressable, error) {
@@ -295,7 +230,7 @@ func generateMetadata(isvc *v1beta1.InferenceService,
 ) metav1.ObjectMeta {
 	// get annotations from isvc
 	annotations := utils.Filter(isvc.Annotations, func(key string) bool {
-		return !utils.Includes(v1beta1utils.FilterList(isvcConfig.ServiceAnnotationDisallowedList, constants.ODHKserveRawAuth), key)
+		return !utils.Includes(isvcConfig.ServiceAnnotationDisallowedList, key)
 	})
 	objectMeta := metav1.ObjectMeta{
 		Name:      name,
