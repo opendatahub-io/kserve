@@ -191,7 +191,9 @@ func updateInferenceCM(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) er
 
 func updateLLMISVCConfigMapKey(cm *corev1.ConfigMap, kserve *platformv1alpha1.Kserve) error {
 	monitoringNS := os.Getenv("MONITORING_NAMESPACE")
-	if kserve.Spec.EnableLLMInferenceServiceStrictNetworkPolicy == nil && monitoringNS == "" {
+	if kserve.Spec.EnableLLMInferenceServiceStrictNetworkPolicy == nil &&
+		kserve.Spec.EnableLLMInferenceServiceDisaggregatedSet == nil &&
+		monitoringNS == "" {
 		return nil
 	}
 
@@ -203,14 +205,19 @@ func updateLLMISVCConfigMapKey(cm *corev1.ConfigMap, kserve *platformv1alpha1.Ks
 	}
 
 	return updateCMJSONKey(cm, llmisvcConfigKeyName, func(data map[string]any) {
-		if kserve.Spec.EnableLLMInferenceServiceStrictNetworkPolicy != nil {
+		setFeatureGate := func(name string, value *bool) {
+			if value == nil {
+				return
+			}
 			featureGates, _ := data["featureGates"].(map[string]any)
 			if featureGates == nil {
 				featureGates = map[string]any{}
 				data["featureGates"] = featureGates
 			}
-			featureGates["strictNetworkPolicy"] = *kserve.Spec.EnableLLMInferenceServiceStrictNetworkPolicy
+			featureGates[name] = *value
 		}
+		setFeatureGate("strictNetworkPolicy", kserve.Spec.EnableLLMInferenceServiceStrictNetworkPolicy)
+		setFeatureGate("disaggregatedSet", kserve.Spec.EnableLLMInferenceServiceDisaggregatedSet)
 		if monitoringNS != "" {
 			data["monitoringNamespace"] = monitoringNS
 		}
