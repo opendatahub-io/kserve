@@ -4,6 +4,8 @@ ENV GOTOOLCHAIN=auto
 # distro: UBI go-toolset runs as non-root (1001); switch to root for build
 USER 0
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
+# distro: go-toolset's HOME is /opt/app-root/src, so Go's defaults would miss the cache mounts below.
+ENV GOMODCACHE=/go/pkg/mod GOCACHE=/root/.cache/go-build
 
 # Run as root during build (final image uses nonroot)
 USER 0
