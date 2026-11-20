@@ -119,6 +119,19 @@ func (r *LLMISVCReconciler) attachPlatformModelArtifacts(ctx context.Context, sa
 func applyPlatformDeploymentStrategy(svc *v1alpha2.LLMInferenceService, deployment *appsv1.Deployment) {
 	if usesConfidentialBareMetal(svc) {
 		deployment.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
+		return
+	}
+	// An explicit rolloutStrategy already selected RollingUpdate.
+	if deployment.Spec.Strategy.Type != "" {
+		return
+	}
+	// RHOAIENG-84696: one replica cannot roll two model pods onto the same GPU.
+	// replicas > 1 keeps the Kubernetes RollingUpdate default.
+	// A 1-replica Deployment gets RollingUpdate only when maxUnavailable or maxSurge is set.
+	// Existing 1-replica services switch to Recreate on the next reconcile.
+	replicas := deployment.Spec.Replicas
+	if replicas == nil || *replicas <= 1 {
+		deployment.Spec.Strategy = appsv1.DeploymentStrategy{Type: appsv1.RecreateDeploymentStrategyType}
 	}
 }
 
