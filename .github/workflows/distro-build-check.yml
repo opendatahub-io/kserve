@@ -47,3 +47,12 @@ jobs:
                   # https://github.com/actions/runner-images/issues/14777
                   GOTMPDIR: ${{ runner.temp }}
               run: go test -vet=all -c -o /dev/null ./...
+
+            # go-license-check.yml scans without the tag, so it misses modules only distro builds link.
+            - name: Check licenses of distro builds
+              if: matrix.tags == 'distro'
+              env:
+                  GOFLAGS: -tags=distro
+              run: |
+                  go install github.com/google/go-licenses@v1.6.0
+                  go-licenses check ./cmd/... ./pkg/... --disallowed_types="forbidden,unknown"
