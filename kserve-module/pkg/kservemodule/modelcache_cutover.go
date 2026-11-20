@@ -115,7 +115,7 @@ func (r *KserveModuleReconciler) deleteOldModelCacheObject(ctx context.Context, 
 
 func (r *KserveModuleReconciler) waitForOldModelCachePods(ctx context.Context, namespace string) error {
 	pods := &corev1.PodList{}
-	if err := r.List(ctx, pods, client.InNamespace(namespace)); err != nil {
+	if err := r.modelCacheCutoverReader().List(ctx, pods, client.InNamespace(namespace)); err != nil {
 		return fmt.Errorf("listing old ModelCache Pods: %w", err)
 	}
 	for i := range pods.Items {
@@ -131,7 +131,7 @@ func (r *KserveModuleReconciler) waitForOldModelCachePods(ctx context.Context, n
 
 func (r *KserveModuleReconciler) removeOldModelCacheJobs(ctx context.Context, namespace string) error {
 	jobs := &batchv1.JobList{}
-	if err := r.List(ctx, jobs, client.InNamespace(namespace)); err != nil {
+	if err := r.modelCacheCutoverReader().List(ctx, jobs, client.InNamespace(namespace)); err != nil {
 		return fmt.Errorf("listing old ModelCache Jobs: %w", err)
 	}
 	for i := range jobs.Items {
@@ -153,6 +153,15 @@ func (r *KserveModuleReconciler) removeOldModelCacheJobs(ctx context.Context, na
 		return fmt.Errorf("waiting for old ModelCache Job %s/%s to terminate", namespace, job.Name)
 	}
 	return nil
+}
+
+// modelCacheCutoverReader avoids starting Pod and Job cache informers, which
+// require watch permission even though cutover only needs a current list.
+func (r *KserveModuleReconciler) modelCacheCutoverReader() client.Reader {
+	if r.apiReader != nil {
+		return r.apiReader
+	}
+	return r.Client
 }
 
 type oldWorkingVolume struct {
