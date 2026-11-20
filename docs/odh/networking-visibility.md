@@ -65,3 +65,21 @@ Similarly to InferenceServices, the InferenceGraphs that are deployed in
 
 InferenceGraphs that are deployed in **Raw** mode, currently, do not offer a way
 for switching to private. This is work in progress.
+
+## RawDeployment router TLS
+
+A Raw InferenceGraph serves its router over HTTPS and exposes it with a
+reencrypt Route. To serve HTTP on port 8080 and create a Route without TLS, set:
+
+```yaml
+metadata:
+  annotations:
+    security.opendatahub.io/enable-tls: "false"
+```
+
+The cluster default is `router.enableTLS` in the `inferenceservice-config`
+ConfigMap. The annotation overrides that field. When the annotation is absent
+and `enableTLS` is omitted, TLS stays enabled. `"true"` forces TLS on.
+The router pods roll only when the effective setting changes, so existing
+graphs stay on HTTPS across an upgrade. The router still mounts the OpenShift
+service CA so it can call HTTPS nodes.

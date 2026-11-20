@@ -121,8 +121,13 @@ func (r *DeploymentReconciler) customizePlatformDeployments(ctx context.Context,
 	auditLoggingProfile constants.AuditLoggingProfile,
 	manageAuditLogging bool,
 ) (bool, error) {
-	// Add OpenShift serving cert annotation to pod template for ODH/OpenShift TLS support
+	// Add OpenShift serving cert annotation to pod template for ODH/OpenShift TLS support.
+	// An InferenceGraph router that is not serving TLS has no certificate to inject.
+	routerServesTLS := resourceType != inferenceGraphResource || constants.InferenceGraphRouterServesTLS(podSpec)
 	for _, deployment := range r.DeploymentList {
+		if !routerServesTLS {
+			continue
+		}
 		if deployment.Spec.Template.Annotations == nil {
 			deployment.Spec.Template.Annotations = make(map[string]string)
 		}
@@ -310,7 +315,7 @@ func (r *DeploymentReconciler) customizeAuthProxy(ctx context.Context,
 			return false, fmt.Errorf("failed to refresh preserved SAR configmap: %w", err)
 		}
 	}
-	if (shouldAddAuthProxy && !authProxyReused) || resourceType == inferenceGraphResource {
+	if (shouldAddAuthProxy && !authProxyReused) || (resourceType == inferenceGraphResource && constants.InferenceGraphRouterServesTLS(podSpec)) {
 		mountServingSecretCMVolumeToDeployment(headDeployment, componentMeta, resourceType, isvcname, sarVolumeName)
 	}
 

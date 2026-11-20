@@ -44,7 +44,11 @@ type OpenShiftRouteReconciler struct {
 func (r *OpenShiftRouteReconciler) Reconcile(ctx context.Context, inferenceGraph *v1alpha1.InferenceGraph) (string, error) {
 	logger := ctrlLog.FromContext(ctx, "subreconciler", "OpenShiftRoute")
 
-	desiredRoute, err := r.buildOpenShiftRoute(inferenceGraph)
+	tlsEnabled, err := r.routerServesTLS(ctx, inferenceGraph)
+	if err != nil {
+		return "", err
+	}
+	desiredRoute, err := r.buildOpenShiftRoute(inferenceGraph, tlsEnabled)
 	if err != nil {
 		return "", err
 	}
@@ -90,7 +94,15 @@ func (r *OpenShiftRouteReconciler) Reconcile(ctx context.Context, inferenceGraph
 	return getRouteHostname(&actualRoute), err
 }
 
-func (r *OpenShiftRouteReconciler) buildOpenShiftRoute(inferenceGraph *v1alpha1.InferenceGraph) (v1.Route, error) {
+func (r *OpenShiftRouteReconciler) routerServesTLS(ctx context.Context, graph *v1alpha1.InferenceGraph) (bool, error) {
+	configured, err := readRouterTLSConfig(ctx, r.Client)
+	if err != nil {
+		return false, err
+	}
+	return routerTLSEnabled(graph, configured), nil
+}
+
+func (r *OpenShiftRouteReconciler) buildOpenShiftRoute(inferenceGraph *v1alpha1.InferenceGraph, tlsEnabled bool) (v1.Route, error) {
 	route := v1.Route{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
@@ -105,10 +117,14 @@ func (r *OpenShiftRouteReconciler) buildOpenShiftRoute(inferenceGraph *v1alpha1.
 			Port: &v1.RoutePort{
 				TargetPort: intstr.FromString(inferenceGraph.GetName()),
 			},
-			TLS: &v1.TLSConfig{
-				Termination: v1.TLSTerminationReencrypt,
-			},
 		},
+	}
+	// A router that is not serving TLS cannot be the backend of a reencrypt Route.
+	// Leave spec.tls unset so the Route is plain HTTP.
+	if tlsEnabled {
+		route.Spec.TLS = &v1.TLSConfig{
+			Termination: v1.TLSTerminationReencrypt,
+		}
 	}
 
 	err := controllerutil.SetControllerReference(inferenceGraph, &route, r.Scheme)

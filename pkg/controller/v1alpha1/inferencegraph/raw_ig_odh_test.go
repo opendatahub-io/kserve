@@ -127,8 +127,12 @@ func odhTestGraphJSON(t *testing.T, graph *v1alpha1.InferenceGraph) string {
 }
 
 func odhExpectedRouterPodSpec(args []string, env []corev1.EnvVar, serviceAccountName string, automountServiceAccountToken bool) *corev1.PodSpec {
+	return odhExpectedRouterPodSpecScheme(args, env, serviceAccountName, automountServiceAccountToken, corev1.URISchemeHTTPS)
+}
+
+func odhExpectedRouterPodSpecScheme(args []string, env []corev1.EnvVar, serviceAccountName string, automountServiceAccountToken bool, scheme corev1.URIScheme) *corev1.PodSpec {
 	readinessProbe := constants.GetRouterReadinessProbe()
-	readinessProbe.HTTPGet.Scheme = corev1.URISchemeHTTPS
+	readinessProbe.HTTPGet.Scheme = scheme
 
 	return &corev1.PodSpec{
 		Containers: []corev1.Container{
@@ -230,6 +234,31 @@ func TestCustomizeRouterPodSpec(t *testing.T) {
 					[]string{"--enable-tls", "--graph-json", graphJSON},
 					[]corev1.EnvVar{odhSSLCertFileEnv},
 					"default", false)
+			},
+		},
+		{
+			name:   "enable-tls false serves HTTP and still trusts the service CA",
+			graph:  odhTestGraph(map[string]string{constants.ODHKserveEnableTLS: "false"}, ""),
+			config: &odhTestRouterConfig,
+			expected: func(graphJSON string) *corev1.PodSpec {
+				return odhExpectedRouterPodSpecScheme(
+					[]string{"--graph-json", graphJSON},
+					[]corev1.EnvVar{odhSSLCertFileEnv},
+					"default", false, corev1.URISchemeHTTP)
+			},
+		},
+		{
+			name: "enable-tls false keeps auth and the service CA",
+			graph: odhTestGraph(map[string]string{
+				constants.ODHKserveEnableTLS: "false",
+				constants.ODHKserveRawAuth:   "true",
+			}, ""),
+			config: &odhTestRouterConfigWithHeaders,
+			expected: func(graphJSON string) *corev1.PodSpec {
+				return odhExpectedRouterPodSpecScheme(
+					[]string{"--graph-json", graphJSON, "--enable-auth", "--inferencegraph-name", odhTestGraphName},
+					[]corev1.EnvVar{odhSSLCertFileEnv, odhPropagateHeadersEnv},
+					odhTestGraphName+"-auth-verifier", true, corev1.URISchemeHTTP)
 			},
 		},
 	}
@@ -377,4 +406,90 @@ func TestCustomizeRouterPodSpecFailsClosedOnUnresolvableProfile(t *testing.T) {
 	podSpec := createInferenceGraphPodSpec(odhTestGraph(nil, ""), &odhTestRouterConfig)
 	err := customizeRouterPodSpec(context.Background(), unavailable, odhTestGraph(nil, ""), podSpec)
 	require.Error(t, err)
+}
+
+func TestRouterTLSEnabled(t *testing.T) {
+	on := true
+	off := false
+	tests := []struct {
+		name       string
+		annotation *string
+		configured *bool
+		want       bool
+	}{
+		{name: "no annotation and no config", want: true},
+		{name: "no annotation and config false", configured: &off, want: false},
+		{name: "no annotation and config true", configured: &on, want: true},
+		{name: "annotation false overrides config true", annotation: proto.String("false"), configured: &on, want: false},
+		{name: "annotation true overrides config false", annotation: proto.String("true"), configured: &off, want: true},
+		{name: "annotation false is case insensitive", annotation: proto.String(" FALSE "), want: false},
+		{name: "annotation true is case insensitive", annotation: proto.String(" TRUE "), configured: &off, want: true},
+		{name: "other annotation falls through to config false", annotation: proto.String("no"), configured: &off, want: false},
+		{name: "other annotation falls through to the default", annotation: proto.String(""), want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var annotations map[string]string
+			if tt.annotation != nil {
+				annotations = map[string]string{constants.ODHKserveEnableTLS: *tt.annotation}
+			}
+			require.Equal(t, tt.want, routerTLSEnabled(odhTestGraph(annotations, ""), tt.configured))
+		})
+	}
+	require.True(t, routerTLSEnabled(nil, nil))
+}
+
+func TestCustomizeRouterPodSpecHonorsRouterEnableTLS(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, configv1.AddToScheme(scheme))
+	reader := func(router string) client.Reader {
+		return fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&corev1.ConfigMap{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      constants.InferenceServiceConfigMapName,
+				Namespace: constants.KServeNamespace,
+			},
+			Data: map[string]string{"router": router},
+		}).Build()
+	}
+
+	t.Run("config false disables TLS", func(t *testing.T) {
+		podSpec := createInferenceGraphPodSpec(odhTestGraph(nil, ""), &odhTestRouterConfig)
+		require.NoError(t, customizeRouterPodSpec(context.Background(), reader(`{"enableTLS": false}`), odhTestGraph(nil, ""), podSpec))
+		require.NotContains(t, podSpec.Containers[0].Args, "--enable-tls")
+		require.Equal(t, corev1.URISchemeHTTP, podSpec.Containers[0].ReadinessProbe.HTTPGet.Scheme)
+	})
+
+	t.Run("annotation true overrides config false", func(t *testing.T) {
+		graph := odhTestGraph(map[string]string{constants.ODHKserveEnableTLS: "true"}, "")
+		podSpec := createInferenceGraphPodSpec(graph, &odhTestRouterConfig)
+		require.NoError(t, customizeRouterPodSpec(context.Background(), reader(`{"enableTLS": false}`), graph, podSpec))
+		require.Equal(t, "--enable-tls", podSpec.Containers[0].Args[0])
+		require.Equal(t, corev1.URISchemeHTTPS, podSpec.Containers[0].ReadinessProbe.HTTPGet.Scheme)
+	})
+
+	t.Run("invalid router document fails the reconcile", func(t *testing.T) {
+		podSpec := createInferenceGraphPodSpec(odhTestGraph(nil, ""), &odhTestRouterConfig)
+		err := customizeRouterPodSpec(context.Background(), reader(`{"enableTLS":`), odhTestGraph(nil, ""), podSpec)
+		require.Error(t, err)
+	})
+}
+
+func TestCustomizeRouterPodSpecSkipsProfileWhenTLSDisabled(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, configv1.AddToScheme(scheme))
+	unavailable := fakeclient.NewClientBuilder().WithScheme(scheme).WithObjects(&configv1.APIServer{
+		ObjectMeta: metav1.ObjectMeta{Name: "cluster"},
+		Spec: configv1.APIServerSpec{
+			TLSAdherence:       configv1.TLSAdherencePolicyStrictAllComponents,
+			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileCustomType},
+		},
+	}).Build()
+
+	graph := odhTestGraph(map[string]string{constants.ODHKserveEnableTLS: "false"}, "")
+	podSpec := createInferenceGraphPodSpec(graph, &odhTestRouterConfig)
+	require.NoError(t, customizeRouterPodSpec(context.Background(), unavailable, graph, podSpec))
+	require.NotContains(t, podSpec.Containers[0].Args, "--enable-tls")
+	require.NotContains(t, podSpec.Containers[0].Args, "--tls-min-version")
+	require.Equal(t, corev1.URISchemeHTTP, podSpec.Containers[0].ReadinessProbe.HTTPGet.Scheme)
 }
