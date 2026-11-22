@@ -2,6 +2,7 @@ package kservemodule
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -26,9 +27,11 @@ func TestReconcileOCSFAuditLoggingMetadataCreatesPolicy(t *testing.T) {
 	authorino := testAuthorino()
 	authorinoBefore := authorino.DeepCopy()
 	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
-	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true), testGatewayConfigMap(), authorino)
+	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testGatewayConfigMap(), authorino)
 
-	g.Expect(r.reconcileOCSFAuditLogging(context.Background(), kserve)).To(Succeed())
+	_, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(err).To(Succeed())
+	g.Expect(r.ocsfAuditLoggingCondition.reason).To(Equal(reasonTelemetryPolicyPending))
 
 	policy := &unstructured.Unstructured{}
 	policy.SetGroupVersionKind(telemetryPolicyGVK)
@@ -69,10 +72,11 @@ func TestReconcileOCSFAuditLoggingMetadataCreatesPolicy(t *testing.T) {
 func TestReconcileOCSFAuditLoggingRepairsDriftAndIsIdempotent(t *testing.T) {
 	g := NewWithT(t)
 	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
-	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true), testGatewayConfigMap())
+	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testGatewayConfigMap())
 	ctx := context.Background()
 
-	g.Expect(r.reconcileOCSFAuditLogging(ctx, kserve)).To(Succeed())
+	_, err := r.reconcileOCSFAuditLogging(ctx, kserve)
+	g.Expect(err).To(Succeed())
 	policy := &unstructured.Unstructured{}
 	policy.SetGroupVersionKind(telemetryPolicyGVK)
 	key := client.ObjectKey{Name: telemetryPolicyName, Namespace: "gateway-system"}
@@ -80,12 +84,14 @@ func TestReconcileOCSFAuditLoggingRepairsDriftAndIsIdempotent(t *testing.T) {
 	policy.Object["spec"].(map[string]any)["targetRef"].(map[string]any)["name"] = "drifted-gateway"
 	g.Expect(cli.Update(ctx, policy)).To(Succeed())
 
-	g.Expect(r.reconcileOCSFAuditLogging(ctx, kserve)).To(Succeed())
+	_, err = r.reconcileOCSFAuditLogging(ctx, kserve)
+	g.Expect(err).To(Succeed())
 	g.Expect(cli.Get(ctx, key, policy)).To(Succeed())
 	desired := desiredOCSFPolicy(kserve, "gateway-system", "shared-llm-gateway")
 	g.Expect(policy.Object["spec"]).To(Equal(desired.Object["spec"]))
 	stable := policy.DeepCopy()
-	g.Expect(r.reconcileOCSFAuditLogging(ctx, kserve)).To(Succeed())
+	_, err = r.reconcileOCSFAuditLogging(ctx, kserve)
+	g.Expect(err).To(Succeed())
 	g.Expect(cli.Get(ctx, key, policy)).To(Succeed())
 	g.Expect(policy.Object["spec"]).To(Equal(stable.Object["spec"]))
 }
@@ -103,16 +109,40 @@ func TestReconcileOCSFAuditLoggingRemovedDeletesOnlyOwnedPolicy(t *testing.T) {
 		"spec": map[string]any{"targetRef": map[string]any{"name": "user-gateway"}},
 	}}
 	user.SetGroupVersionKind(telemetryPolicyGVK)
-	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true), owned, user)
+	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), owned, user)
 
-	g.Expect(r.reconcileOCSFAuditLogging(context.Background(), kserve)).To(Succeed())
+	_, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(err).To(Succeed())
 	deleted := &unstructured.Unstructured{}
 	deleted.SetGroupVersionKind(telemetryPolicyGVK)
-	err := cli.Get(context.Background(), client.ObjectKeyFromObject(owned), deleted)
+	err = cli.Get(context.Background(), client.ObjectKeyFromObject(owned), deleted)
 	g.Expect(apierrors.IsNotFound(err)).To(BeTrue())
 	kept := &unstructured.Unstructured{}
 	kept.SetGroupVersionKind(telemetryPolicyGVK)
 	g.Expect(cli.Get(context.Background(), client.ObjectKeyFromObject(user), kept)).To(Succeed())
+}
+
+func TestReconcileOCSFAuditLoggingCleanupFailureMarksNotReady(t *testing.T) {
+	g := NewWithT(t)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testGatewayConfigMap())
+	r.Client = &failingListClient{Client: cli, err: errors.New("cleanup list failed")}
+
+	retry, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(retry).To(BeFalse())
+	g.Expect(err).To(MatchError(ContainSubstring("cleanup list failed")))
+	g.Expect(r.ocsfAuditLoggingCondition).NotTo(BeNil())
+	g.Expect(r.ocsfAuditLoggingCondition.reason).To(Equal(reasonAuditLoggingReconcileFailed))
+
+	condMgr := newConditionManager(kserve)
+	applyOCSFAuditLoggingCondition(condMgr, kserve, r.ocsfAuditLoggingCondition)
+	condition := condMgr.GetCondition(ConditionLLMISVCOCSFAuditLoggingReady)
+	g.Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(condition.Reason).To(Equal(reasonAuditLoggingReconcileFailed))
+
+	policy := &unstructured.Unstructured{}
+	policy.SetGroupVersionKind(telemetryPolicyGVK)
+	g.Expect(cli.Get(context.Background(), client.ObjectKey{Name: telemetryPolicyName, Namespace: "gateway-system"}, policy)).To(Succeed())
 }
 
 func TestReconcileOCSFAuditLoggingReportsMissingOrIncompatibleRHCL(t *testing.T) {
@@ -121,7 +151,7 @@ func TestReconcileOCSFAuditLoggingReportsMissingOrIncompatibleRHCL(t *testing.T)
 		crd  *apiextensionsv1.CustomResourceDefinition
 	}{
 		{name: "missing", crd: nil},
-		{name: "incompatible", crd: testTelemetryPolicyCRD(false)},
+		{name: "incompatible", crd: testTelemetryPolicyCRD(false, false)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			g := NewWithT(t)
@@ -131,23 +161,146 @@ func TestReconcileOCSFAuditLoggingReportsMissingOrIncompatibleRHCL(t *testing.T)
 				objects = append(objects, tt.crd)
 			}
 			r, _ := newOCSFReconciler(t, objects...)
-			g.Expect(r.reconcileOCSFAuditLogging(context.Background(), kserve)).To(Succeed())
+			_, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+			g.Expect(err).To(Succeed())
 			g.Expect(r.ocsfAuditLoggingCondition).NotTo(BeNil())
 			g.Expect(r.ocsfAuditLoggingCondition.reason).To(Equal(reasonRHCLDependencyUnavailable))
-			g.Expect(r.ocsfAuditLoggingCondition.message).To(ContainSubstring("RHCL 1.5.1 or later"))
+			g.Expect(r.ocsfAuditLoggingCondition.message).To(ContainSubstring("OCSF audit logging is unavailable"))
 			condMgr := newConditionManager(kserve)
 			applyOCSFAuditLoggingCondition(condMgr, kserve, r.ocsfAuditLoggingCondition)
 			var conditionReason, conditionMessage string
 			for _, condition := range kserve.Status.Conditions {
-				if condition.Type == ConditionAuditLoggingReady {
+				if condition.Type == ConditionLLMISVCOCSFAuditLoggingReady {
 					conditionReason = condition.Reason
 					conditionMessage = condition.Message
 				}
 			}
 			g.Expect(conditionReason).To(Equal(reasonRHCLDependencyUnavailable))
-			g.Expect(conditionMessage).To(ContainSubstring("RHCL 1.5.1 or later"))
+			g.Expect(conditionMessage).To(ContainSubstring("OCSF audit logging is unavailable"))
 		})
 	}
+}
+
+func TestAuditLoggingCRDCapabilities(t *testing.T) {
+	for _, tt := range []struct {
+		name                 string
+		telemetryOCSF        bool
+		telemetryFields      bool
+		authorinoFields      bool
+		wantOCSF, wantCustom bool
+	}{
+		{name: "neither schema supports logging"},
+		{name: "custom fields only", telemetryFields: true, authorinoFields: true, wantCustom: true},
+		{name: "OCSF and custom fields", telemetryOCSF: true, telemetryFields: true, authorinoFields: true, wantOCSF: true, wantCustom: true},
+		{name: "Authorino field missing", telemetryOCSF: true, telemetryFields: true, wantOCSF: true},
+		{name: "TelemetryPolicy fields missing", telemetryOCSF: true, authorinoFields: true, wantOCSF: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			g := NewWithT(t)
+			kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+			r, _ := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(tt.telemetryOCSF, tt.telemetryFields), testAuthorinoCRD(tt.authorinoFields))
+			capabilities := r.auditLoggingCRDCapabilities(context.Background())
+			g.Expect(capabilities.ocsfErr == nil).To(Equal(tt.wantOCSF))
+			g.Expect(capabilities.customFieldsErr == nil).To(Equal(tt.wantCustom))
+			condMgr := newConditionManager(kserve)
+			applyAuditLoggingCapabilityConditions(condMgr, kserve, capabilities)
+			g.Expect(condMgr.GetCondition(ConditionISVCAuditLoggingAvailable).Status).To(Equal(metav1.ConditionTrue))
+			g.Expect(condMgr.GetCondition(ConditionLLMISVCOCSFAuditLoggingAvailable).Status == metav1.ConditionTrue).To(Equal(tt.wantOCSF))
+			g.Expect(condMgr.GetCondition(ConditionLLMISVCCustomAuditFieldsAvailable).Status == metav1.ConditionTrue).To(Equal(tt.wantCustom))
+			g.Expect(condMgr.GetCondition(ConditionLLMISVCAuditLoggingAvailable).Status == metav1.ConditionTrue).To(Equal(tt.wantOCSF || tt.wantCustom))
+			if tt.wantCustom && !tt.wantOCSF {
+				g.Expect(condMgr.GetCondition(ConditionLLMISVCAuditLoggingAvailable).Reason).To(Equal("CustomFieldsOnly"))
+			}
+		})
+	}
+}
+
+func TestAuditLoggingCRDCapabilitiesRetriesTransientRead(t *testing.T) {
+	g := NewWithT(t)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testAuthorinoCRD(true))
+	r.apiReader = &failOnceReader{
+		Reader: cli,
+		key:    client.ObjectKey{Name: telemetryPolicyGVKName},
+		err:    errors.New("temporary API failure"),
+	}
+
+	capabilities := r.auditLoggingCRDCapabilities(context.Background())
+	g.Expect(capabilities.retry).To(BeTrue())
+	g.Expect(capabilities.ocsfErr).To(HaveOccurred())
+
+	capabilities = r.auditLoggingCRDCapabilities(context.Background())
+	g.Expect(capabilities.retry).To(BeFalse())
+	g.Expect(capabilities.ocsfErr).NotTo(HaveOccurred())
+	g.Expect(capabilities.customFieldsErr).NotTo(HaveOccurred())
+}
+
+func TestAuditLoggingCRDCapabilitiesDoesNotRetryUnavailableCRD(t *testing.T) {
+	g := NewWithT(t)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+	r, _ := newOCSFReconciler(t, kserve, testAuthorinoCRD(true))
+
+	capabilities := r.auditLoggingCRDCapabilities(context.Background())
+	g.Expect(capabilities.retry).To(BeFalse())
+	g.Expect(capabilities.ocsfErr).To(HaveOccurred())
+}
+
+func TestInferenceServiceAuditLoggingUnavailableWhenKServeRemoved(t *testing.T) {
+	g := NewWithT(t)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+	kserve.Spec.ManagementState = common.Removed
+	condMgr := newConditionManager(kserve)
+	applyAuditLoggingCapabilityConditions(condMgr, kserve, auditLoggingCapabilities{})
+	condition := condMgr.GetCondition(ConditionISVCAuditLoggingAvailable)
+	g.Expect(condition.Status).To(Equal(metav1.ConditionFalse))
+	g.Expect(condition.Reason).To(Equal("KServeRemoved"))
+}
+
+func TestOCSFPolicyStatusRequiresCurrentEnforcement(t *testing.T) {
+	g := NewWithT(t)
+	policy := desiredOCSFPolicy(testKserve(platformv1alpha1.AuditProfileMetadata), "gateway-system", "shared-llm-gateway")
+	policy.SetGeneration(2)
+	g.Expect(evaluateOCSFPolicyStatus(policy).reason).To(Equal(reasonTelemetryPolicyPending))
+	policy.Object["status"] = map[string]any{"conditions": []any{
+		map[string]any{"type": "Accepted", "status": "True", "observedGeneration": int64(2)},
+		map[string]any{"type": "Enforced", "status": "False", "observedGeneration": int64(2), "message": "unsupported OCSF configuration"},
+	}}
+	condition := evaluateOCSFPolicyStatus(policy)
+	g.Expect(condition.reason).To(Equal(reasonTelemetryPolicyNotEnforced))
+	g.Expect(condition.message).To(ContainSubstring("unsupported OCSF configuration"))
+	policy.Object["status"].(map[string]any)["conditions"].([]any)[1].(map[string]any)["status"] = "True"
+	g.Expect(evaluateOCSFPolicyStatus(policy)).To(BeNil())
+	policy.SetGeneration(3)
+	g.Expect(evaluateOCSFPolicyStatus(policy).reason).To(Equal(reasonTelemetryPolicyPending))
+}
+
+func TestReconcileOCSFAuditLoggingRetriesPolicyStatusRead(t *testing.T) {
+	g := NewWithT(t)
+	kserve := testKserve(platformv1alpha1.AuditProfileMetadata)
+	policy := desiredOCSFPolicy(kserve, "gateway-system", "shared-llm-gateway")
+	policy.SetGeneration(1)
+	policy.Object["status"] = map[string]any{"conditions": []any{
+		map[string]any{"type": "Accepted", "status": "True", "observedGeneration": int64(1)},
+		map[string]any{"type": "Enforced", "status": "True", "observedGeneration": int64(1)},
+	}}
+	r, cli := newOCSFReconciler(t, kserve, testTelemetryPolicyCRD(true, true), testGatewayConfigMap(), policy)
+	r.apiReader = &failOnceReader{
+		Reader: cli,
+		key:    client.ObjectKeyFromObject(policy),
+		err:    errors.New("temporary status read failure"),
+	}
+
+	retry, err := r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(retry).To(BeTrue())
+	g.Expect(r.ocsfAuditLoggingCondition.reason).To(Equal(reasonTelemetryPolicyPending))
+
+	// A retry reads the recovered status from the same policy without requiring
+	// any intervening policy update.
+	retry, err = r.reconcileOCSFAuditLogging(context.Background(), kserve)
+	g.Expect(err).NotTo(HaveOccurred())
+	g.Expect(retry).To(BeFalse())
+	g.Expect(r.ocsfAuditLoggingCondition).To(BeNil())
 }
 
 func TestOCSFAuditLoggingWatchesTelemetryPolicyCRD(t *testing.T) {
@@ -201,6 +354,9 @@ func TestOCSFAuditLoggingTelemetryPolicyWatchFiltersEvents(t *testing.T) {
 
 	statusOnly := desiredOCSFPolicy(testKserve(platformv1alpha1.AuditProfileMetadata), "gateway-system", "shared-llm-gateway")
 	g.Expect(predicates[0].Update(event.UpdateEvent{ObjectNew: statusOnly, ObjectOld: statusOnly.DeepCopy()})).To(BeFalse())
+	statusChanged := statusOnly.DeepCopy()
+	statusChanged.SetResourceVersion("2")
+	g.Expect(predicates[0].Update(event.UpdateEvent{ObjectNew: statusChanged, ObjectOld: statusOnly})).To(BeTrue())
 	generationChanged := statusOnly.DeepCopy()
 	generationChanged.SetGeneration(statusOnly.GetGeneration() + 1)
 	g.Expect(predicates[0].Update(event.UpdateEvent{ObjectNew: generationChanged, ObjectOld: statusOnly})).To(BeTrue())
@@ -232,6 +388,30 @@ func newOCSFReconciler(t *testing.T, objects ...client.Object) (*KserveModuleRec
 		apiReader:             cli,
 		applicationsNamespace: "opendatahub",
 	}, cli
+}
+
+type failingListClient struct {
+	client.Client
+	err error
+}
+
+func (c *failingListClient) List(context.Context, client.ObjectList, ...client.ListOption) error {
+	return c.err
+}
+
+type failOnceReader struct {
+	client.Reader
+	key    client.ObjectKey
+	err    error
+	failed bool
+}
+
+func (r *failOnceReader) Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+	if key == r.key && !r.failed {
+		r.failed = true
+		return r.err
+	}
+	return r.Reader.Get(ctx, key, obj, opts...)
 }
 
 func ExpectNoError(t *testing.T, err error) {
@@ -269,27 +449,32 @@ func testAuthorino() *unstructured.Unstructured {
 	return authorino
 }
 
-func testTelemetryPolicyCRD(withOCSF bool) *apiextensionsv1.CustomResourceDefinition {
+func testTelemetryPolicyCRD(withOCSF, withFields bool) *apiextensionsv1.CustomResourceDefinition {
 	schemaRoot := &apiextensionsv1.JSONSchemaProps{Type: "object", Properties: map[string]apiextensionsv1.JSONSchemaProps{
 		"spec": {Type: "object"},
 	}}
+	defaultProperties := map[string]apiextensionsv1.JSONSchemaProps{}
+	if withFields {
+		defaultProperties["fields"] = jsonSchemaObject(nil)
+	}
 	if withOCSF {
+		defaultProperties["ocsf"] = jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
+			"profile": jsonSchemaString(),
+			"actor": jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
+				"identity": jsonSchemaString(), "uid": jsonSchemaString(), "groups": jsonSchemaString(),
+			}),
+			"target": jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
+				"resourceType": jsonSchemaString(), "aiProvider": jsonSchemaString(),
+				"requestPath": jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
+					"namespaceSegment": jsonSchemaInteger(), "nameSegment": jsonSchemaInteger(),
+				}),
+			}),
+		})
+	}
+	if len(defaultProperties) > 0 {
 		schemaRoot.Properties["spec"] = jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
 			"logging": jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
-				"default": jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
-					"ocsf": jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
-						"profile": jsonSchemaString(),
-						"actor": jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
-							"identity": jsonSchemaString(), "uid": jsonSchemaString(), "groups": jsonSchemaString(),
-						}),
-						"target": jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
-							"resourceType": jsonSchemaString(), "aiProvider": jsonSchemaString(),
-							"requestPath": jsonSchemaObject(map[string]apiextensionsv1.JSONSchemaProps{
-								"namespaceSegment": jsonSchemaInteger(), "nameSegment": jsonSchemaInteger(),
-							}),
-						}),
-					}),
-				}),
+				"default": jsonSchemaObject(defaultProperties),
 			}),
 		})
 	}
@@ -303,6 +488,25 @@ func testTelemetryPolicyCRD(withOCSF bool) *apiextensionsv1.CustomResourceDefini
 			Names:    apiextensionsv1.CustomResourceDefinitionNames{Plural: "telemetrypolicies", Singular: "telemetrypolicy", Kind: "TelemetryPolicy"},
 			Scope:    apiextensionsv1.NamespaceScoped,
 			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{{Name: "v1alpha1", Served: true, Storage: true, Schema: &apiextensionsv1.CustomResourceValidation{OpenAPIV3Schema: schemaRoot}}},
+		},
+	}
+}
+
+func testAuthorinoCRD(withFields bool) *apiextensionsv1.CustomResourceDefinition {
+	specProperties := map[string]apiextensionsv1.JSONSchemaProps{}
+	if withFields {
+		specProperties["enableLoggingFields"] = apiextensionsv1.JSONSchemaProps{Type: "boolean"}
+	}
+	return &apiextensionsv1.CustomResourceDefinition{
+		ObjectMeta: metav1.ObjectMeta{Name: authorinoCRDName},
+		Status: apiextensionsv1.CustomResourceDefinitionStatus{Conditions: []apiextensionsv1.CustomResourceDefinitionCondition{{
+			Type: apiextensionsv1.Established, Status: apiextensionsv1.ConditionTrue,
+		}}},
+		Spec: apiextensionsv1.CustomResourceDefinitionSpec{
+			Group:    "operator.authorino.kuadrant.io",
+			Names:    apiextensionsv1.CustomResourceDefinitionNames{Plural: "authorinos", Singular: "authorino", Kind: "Authorino"},
+			Scope:    apiextensionsv1.NamespaceScoped,
+			Versions: []apiextensionsv1.CustomResourceDefinitionVersion{{Name: "v1beta1", Served: true, Storage: true, Schema: &apiextensionsv1.CustomResourceValidation{OpenAPIV3Schema: &apiextensionsv1.JSONSchemaProps{Type: "object", Properties: map[string]apiextensionsv1.JSONSchemaProps{"spec": jsonSchemaObject(specProperties)}}}}},
 		},
 	}
 }
