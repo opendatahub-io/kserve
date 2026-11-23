@@ -294,6 +294,12 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context) ([]*corev1.Service, e
 		case constants.CheckResultCreate:
 			opErr = r.client.Create(ctx, svc)
 		case constants.CheckResultUpdate:
+			// The desired Service is built fresh and has no resource version.
+			// Keep the allocated cluster IP so a port change, such as an
+			// InferenceGraph TLS toggle, can update the existing object.
+			svc.SetResourceVersion(existing.GetResourceVersion())
+			svc.Spec.ClusterIP = existing.Spec.ClusterIP
+			svc.Spec.ClusterIPs = existing.Spec.ClusterIPs
 			opErr = r.client.Update(ctx, svc)
 		case constants.CheckResultExisted:
 			if svc.Labels[constants.KServeManagedLabelKey] != existing.Labels[constants.KServeManagedLabelKey] {

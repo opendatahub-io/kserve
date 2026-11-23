@@ -3360,7 +3360,11 @@ func TestCustomizeDeploymentsInferenceGraphMountsServingCertWithoutProxy(t *test
 				Annotations: map[string]string{constants.ODHKserveRawAuth: "true"},
 				Labels:      tt.labels,
 			}
-			podSpec := &corev1.PodSpec{Containers: []corev1.Container{{Name: "my-graph", Image: "router:latest"}}}
+			podSpec := &corev1.PodSpec{Containers: []corev1.Container{{
+				Name:  "my-graph",
+				Image: "router:latest",
+				Args:  []string{"--enable-tls"},
+			}}}
 
 			// when
 			reconciler, err := NewDeploymentReconciler(t.Context(), client, nil, nil, meta, metav1.ObjectMeta{},
@@ -3377,7 +3381,37 @@ func TestCustomizeDeploymentsInferenceGraphMountsServingCertWithoutProxy(t *test
 			}
 			assert.Equal(t, []string{tlsVolumeName, constants.OauthProxySARCMName}, volumeNames)
 			assert.Zero(t, client.inferenceServiceGets, "no SAR ConfigMap is created for an InferenceGraph")
+			assert.Equal(t, "my-graph"+constants.ServingCertSecretSuffix,
+				reconciler.DeploymentList[0].Spec.Template.Annotations[constants.OpenshiftServingCertAnnotation])
 		})
+	}
+}
+
+func TestCustomizeDeploymentsInferenceGraphHTTPListenerSkipsServingCert(t *testing.T) {
+	client := &mockClientForAuthProxyDetection{deploymentNotFound: true}
+	meta := metav1.ObjectMeta{
+		Name:      "my-graph",
+		Namespace: "test-ns",
+		Labels:    map[string]string{constants.InferenceGraphLabel: "my-graph"},
+	}
+	podSpec := &corev1.PodSpec{Containers: []corev1.Container{{
+		Name:  "my-graph",
+		Image: "router:latest",
+		Args:  []string{"--graph-json", "{}"},
+	}}}
+
+	reconciler, err := NewDeploymentReconciler(t.Context(), client, nil, nil, meta, metav1.ObjectMeta{},
+		&v1beta1.ComponentExtensionSpec{}, podSpec, nil, nil)
+
+	require.NoError(t, err)
+	deployment := reconciler.DeploymentList[0]
+	require.Len(t, deployment.Spec.Template.Spec.Containers, 1)
+	assert.NotContains(t, deployment.Spec.Template.Annotations, constants.OpenshiftServingCertAnnotation)
+	for _, volume := range deployment.Spec.Template.Spec.Volumes {
+		assert.NotEqual(t, tlsVolumeName, volume.Name)
+	}
+	for _, mount := range deployment.Spec.Template.Spec.Containers[0].VolumeMounts {
+		assert.NotEqual(t, tlsVolumeName, mount.Name)
 	}
 }
 

@@ -157,7 +157,7 @@ finalization still attempts owned-policy cleanup.
 4. **Knative:** router Knative Service → propagate ksvc conditions/URL to graph status
 5. Force-stop annotation handling → status update
 
-Router image/resources from `router` key in `inferenceservice-config`.
+Router image/resources from `router` key in `inferenceservice-config`. ODH RawDeployment serves that router with TLS unless `security.opendatahub.io/enable-tls` is `"false"` or `router.enableTLS` is false.
 
 **ODH:** `distro/controller_rbac_odh.go`
 
