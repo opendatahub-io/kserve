@@ -60,11 +60,6 @@ jobs:
         run: |
           set -euo pipefail
 
-          # A change that can alter an image Konflux builds. Everything else
-          # (docs, unrelated tests) skips, but the skip is reported, never
-          # silent.
-          relevant='^(\.tekton/)|(^\.github/workflows/konflux-build-simulation\.ya?ml$)|(^\.github/actions/)|(^hack/konflux-sim/)|(Dockerfile)|(^\.dockerignore$)|(^go\.(mod|sum)$)|(^cmd/)|(^pkg/)|(^python/)|(^kserve-module/)'
-
           skip=false
           skip_title=false
           skip_label=false
@@ -85,7 +80,22 @@ jobs:
               git fetch origin "${BASE_SHA}" --depth=1
             fi
             changed="$(git diff --name-only "${BASE_SHA}...HEAD")"
-            if ! grep -Eq "${relevant}" <<< "${changed}"; then
+            # The match list is generated from the Dockerfiles' COPY lines, so
+            # a new build input cannot be forgotten. A hand-written filter is
+            # how a deleted LICENSE - which the root Dockerfile copies - skips
+            # every build.
+            relevant_paths="$(./hack/konflux-sim/generate-build-matrix.sh --relevant-paths)"
+            relevant=false
+            while IFS= read -r changed_file; do
+              [ -n "${changed_file}" ] || continue
+              while IFS= read -r prefix; do
+                [ -n "${prefix}" ] || continue
+                case "${changed_file}" in
+                  "${prefix}"*) relevant=true; break 2 ;;
+                esac
+              done <<< "${relevant_paths}"
+            done <<< "${changed}"
+            if [ "${relevant}" = "false" ]; then
               skip=true
             fi
           fi
@@ -160,16 +170,17 @@ jobs:
           SIM_IMAGE: konflux-sim/${{ matrix.name }}:${{ github.sha }}
           SIM_DOCKERFILE: ${{ matrix.dockerfile }}
           SIM_CONTEXT: ${{ matrix.context }}
-          SIM_BUILD_ARGS: ${{ join(matrix.build_args, ' ') }}
+          SIM_BUILD_ARGS: ${{ toJSON(matrix.build_args) }}
         run: |
           set -euo pipefail
 
           build_args=()
-          # Word splitting is intended: the generator only emits
-          # whitespace-free NAME=VALUE build args.
-          for arg in ${SIM_BUILD_ARGS}; do
+          # One JSON string per argument: a value with a space survives, and
+          # nothing is re-split by the shell.
+          while IFS= read -r arg; do
+            [ -n "${arg}" ] || continue
             build_args+=(--build-arg "${arg}")
-          done
+          done < <(jq -r '.[]' <<< "${SIM_BUILD_ARGS}")
 
           docker build "${build_args[@]}" \
             -f "${SIM_DOCKERFILE}" "${SIM_CONTEXT}" -t "${SIM_IMAGE}"
@@ -178,8 +189,9 @@ jobs:
         if: steps.gate.outputs.should-run == 'true'
         env:
           SIM_SMOKE: ${{ matrix.smoke }}
+          SIM_ENTRYPOINT: ${{ toJSON(matrix.entrypoint) }}
           SIM_IMAGE: konflux-sim/${{ matrix.name }}:${{ github.sha }}
-        run: hack/konflux-sim/smoke-test.sh "${SIM_SMOKE}" "${SIM_IMAGE}"
+        run: hack/konflux-sim/smoke-test.sh "${SIM_SMOKE}" "${SIM_IMAGE}" "${SIM_ENTRYPOINT}"
 
   summary:
     name: konflux-build-simulation
