@@ -20,6 +20,7 @@ package components
 
 import (
 	"context"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
 	"knative.dev/pkg/apis"
@@ -58,6 +59,19 @@ func markPredictorBuildFailure(isvc *v1beta1.InferenceService, err error, info *
 			if info.Message != "" {
 				message = info.Message
 			}
+		}
+		// Auto-selection records a generic model failure; give readiness the requested format.
+		if info.Reason == v1beta1.NoSupportingRuntime &&
+			isvc.Spec.Predictor.Model != nil && isvc.Spec.Predictor.Model.Runtime == nil {
+			modelFormat := isvc.Spec.Predictor.Model.ModelFormat
+			version := "<nil>"
+			if modelFormat.Version != nil {
+				version = *modelFormat.Version
+			}
+			message = fmt.Sprintf(
+				"No runtime found to support predictor with model format: {Name:%s Version:%s}",
+				modelFormat.Name, version,
+			)
 		}
 	}
 	isvc.Status.SetCondition(v1beta1.PredictorReady, &apis.Condition{

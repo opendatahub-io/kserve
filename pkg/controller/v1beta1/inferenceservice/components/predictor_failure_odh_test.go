@@ -39,12 +39,14 @@ import (
 func TestPredictorEarlyFailureConditions(t *testing.T) {
 	disabled := true
 	runtimeName := "test-runtime"
+	modelVersion := "1"
 	storageURI := "s3://model"
 	badStorageURI := "invalid://model"
 	badStoragePercentURI := "custom://bucket/model%20name"
 	tests := []struct {
 		name            string
 		runtime         *string
+		modelVersion    *string
 		storageURI      *string
 		objects         []client.Object
 		existingFailure *v1beta1.FailureInfo
@@ -55,7 +57,25 @@ func TestPredictorEarlyFailureConditions(t *testing.T) {
 		{
 			name:           "no supporting runtime",
 			expectedReason: string(v1beta1.NoSupportingRuntime),
-			expectedMsg:    "No runtime found to support specified framework/version",
+			expectedMsg:    "No runtime found to support predictor with model format: {Name:sklearn Version:<nil>}",
+		},
+		{
+			name:           "no supporting runtime with version",
+			modelVersion:   &modelVersion,
+			expectedReason: string(v1beta1.NoSupportingRuntime),
+			expectedMsg:    "No runtime found to support predictor with model format: {Name:sklearn Version:1}",
+		},
+		{
+			name:    "explicit runtime does not support model format",
+			runtime: &runtimeName,
+			objects: []client.Object{&v1alpha1.ServingRuntime{
+				ObjectMeta: metav1.ObjectMeta{Name: runtimeName, Namespace: "default"},
+				Spec: v1alpha1.ServingRuntimeSpec{SupportedModelFormats: []v1alpha1.SupportedModelFormat{
+					{Name: "tensorflow"},
+				}},
+			}},
+			expectedReason: string(v1beta1.NoSupportingRuntime),
+			expectedMsg:    "Specified runtime does not support specified framework/version",
 		},
 		{
 			name:            "runtime not recognized again",
@@ -118,7 +138,7 @@ func TestPredictorEarlyFailureConditions(t *testing.T) {
 				ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 				Spec: v1beta1.InferenceServiceSpec{Predictor: v1beta1.PredictorSpec{
 					Model: &v1beta1.ModelSpec{
-						ModelFormat:            v1beta1.ModelFormat{Name: "sklearn"},
+						ModelFormat:            v1beta1.ModelFormat{Name: "sklearn", Version: tc.modelVersion},
 						Runtime:                tc.runtime,
 						PredictorExtensionSpec: v1beta1.PredictorExtensionSpec{StorageURI: uri},
 					},
