@@ -640,12 +640,12 @@ func (ss *InferenceServiceStatus) SetCondition(conditionType apis.ConditionType,
 		return
 	}
 	messageFormat, messageArgs := platformConditionMessage(condition.Message)
-	switch {
-	case condition.Status == corev1.ConditionUnknown:
+	switch condition.Status {
+	case corev1.ConditionUnknown:
 		conditionSet.Manage(ss).MarkUnknown(conditionType, condition.Reason, messageFormat, messageArgs...)
-	case condition.Status == corev1.ConditionTrue:
+	case corev1.ConditionTrue:
 		conditionSet.Manage(ss).MarkTrueWithReason(conditionType, condition.Reason, messageFormat, messageArgs...)
-	case condition.Status == corev1.ConditionFalse:
+	case corev1.ConditionFalse:
 		conditionSet.Manage(ss).MarkFalse(conditionType, condition.Reason, messageFormat, messageArgs...)
 	}
 }
