@@ -41,6 +41,7 @@ func TestPredictorEarlyFailureConditions(t *testing.T) {
 	runtimeName := "test-runtime"
 	storageURI := "s3://model"
 	badStorageURI := "invalid://model"
+	badStoragePercentURI := "custom://bucket/model%20name"
 	tests := []struct {
 		name            string
 		runtime         *string
@@ -49,6 +50,7 @@ func TestPredictorEarlyFailureConditions(t *testing.T) {
 		existingFailure *v1beta1.FailureInfo
 		expectedReason  string
 		expectedMsg     string
+		expectedURI     string
 	}{
 		{
 			name:           "no supporting runtime",
@@ -76,6 +78,12 @@ func TestPredictorEarlyFailureConditions(t *testing.T) {
 			name:           "predictor spec build error",
 			storageURI:     &badStorageURI,
 			expectedReason: "PredictorSpecBuildError",
+		},
+		{
+			name:           "predictor spec build error preserves encoded storage URI",
+			storageURI:     &badStoragePercentURI,
+			expectedReason: "PredictorSpecBuildError",
+			expectedURI:    badStoragePercentURI,
 		},
 		{
 			name:            "predictor spec build error after model load failure",
@@ -121,6 +129,9 @@ func TestPredictorEarlyFailureConditions(t *testing.T) {
 
 			_, err := predictor.Reconcile(context.Background(), isvc)
 			require.Error(t, err)
+			if tc.expectedURI != "" {
+				require.Contains(t, err.Error(), tc.expectedURI)
+			}
 			for _, conditionType := range []apis.ConditionType{v1beta1.PredictorReady, apis.ConditionReady} {
 				condition := isvc.Status.GetCondition(conditionType)
 				require.NotNil(t, condition)
