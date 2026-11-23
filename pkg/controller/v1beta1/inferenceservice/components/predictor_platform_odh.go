@@ -19,12 +19,54 @@ limitations under the License.
 package components
 
 import (
+	"context"
+
+	corev1 "k8s.io/api/core/v1"
 	"knative.dev/pkg/apis"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers/deployment"
 )
+
+// buildPredictorResourcesWithPlatformStatus uses only failure information
+// produced by this build when reporting an early readiness failure. Preserve
+// previously recorded model failures when this attempt does not replace them.
+func (p *Predictor) buildPredictorResourcesWithPlatformStatus(ctx context.Context, isvc *v1beta1.InferenceService, multiNodeEnabled bool) (*predictorResources, error) {
+	previousFailure := isvc.Status.ModelStatus.LastFailureInfo
+	isvc.Status.ModelStatus.LastFailureInfo = nil
+	resources, err := p.buildPredictorResources(ctx, isvc, multiNodeEnabled)
+	currentFailure := isvc.Status.ModelStatus.LastFailureInfo
+	if currentFailure == nil {
+		isvc.Status.ModelStatus.LastFailureInfo = previousFailure
+	}
+	if err != nil {
+		markPredictorBuildFailure(isvc, err, currentFailure)
+	}
+	return resources, err
+}
+
+// markPredictorBuildFailure surfaces failures that return before a predictor
+// workload can report its own readiness condition.
+func markPredictorBuildFailure(isvc *v1beta1.InferenceService, err error, info *v1beta1.FailureInfo) {
+	reason := "PredictorSpecBuildError"
+	message := err.Error()
+	if info != nil {
+		switch info.Reason {
+		case v1beta1.NoSupportingRuntime, v1beta1.RuntimeNotRecognized, v1beta1.RuntimeDisabled, v1beta1.InvalidPredictorSpec:
+			reason = string(info.Reason)
+			if info.Message != "" {
+				message = info.Message
+			}
+		}
+	}
+	isvc.Status.SetCondition(v1beta1.PredictorReady, &apis.Condition{
+		Type:    v1beta1.PredictorReady,
+		Status:  corev1.ConditionFalse,
+		Reason:  reason,
+		Message: message,
+	})
+}
 
 // propagatePlatformWorkloadStatus sets the conditions recorded by the platform
 // customization of the predictor workload. When none is recorded, it clears an

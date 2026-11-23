@@ -217,10 +217,11 @@ func (p *Predictor) Reconcile(ctx context.Context, isvc *v1beta1.InferenceServic
 
 	// Reconcile modelConfig
 	if err := p.reconcileModelConfig(ctx, isvc); err != nil {
+		markPredictorBuildFailure(isvc, err, nil)
 		return ctrl.Result{}, err
 	}
 
-	res, err := p.buildPredictorResources(ctx, isvc, multiNodeEnabled)
+	res, err := p.buildPredictorResourcesWithPlatformStatus(ctx, isvc, multiNodeEnabled)
 	if err != nil {
 		return ctrl.Result{}, err
 	}
