@@ -15,18 +15,20 @@
 import base64
 import glob
 import gzip
+import ipaddress
 import json
 import mimetypes
 import os
 import re
 import shutil
+import socket
 import tarfile
 import tempfile
 import time
 import zipfile
 from pathlib import Path
 from typing import Dict
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 import requests
 
 from .logging import logger
@@ -51,6 +53,112 @@ _HTTP_PREFIX = "http(s)://"
 _HEADERS_SUFFIX = "-headers"
 _PVC_PREFIX = "/mnt/pvc"
 _HF_PREFIX = "hf://"
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+_SENSITIVE_REDIRECT_HEADERS = {"authorization", "cookie", "proxy-authorization"}
+
+
+def _resolve_http_storage_uri(uri: str) -> tuple:
+    parsed = urlparse(uri)
+    if parsed.scheme.lower() not in ("http", "https"):
+        return ()
+    host = parsed.hostname
+    normalized_host = (host or "").rstrip(".").lower()
+    if (
+        not normalized_host
+        or normalized_host
+        in {
+            "localhost",
+            "metadata",
+            "metadata.google.internal",
+            "kubernetes",
+            "kubernetes.default",
+            "kubernetes.default.svc",
+            "kubernetes.default.svc.cluster.local",
+            "host.docker.internal",
+            "host.containers.internal",
+        }
+        or normalized_host.endswith(
+            (".localhost", ".svc", ".cluster.local", ".internal")
+        )
+    ):
+        raise RuntimeError(f"HTTP storage URI targets a blocked host or IP: {uri}")
+    try:
+        addresses = {ipaddress.ip_address(normalized_host)}
+    except ValueError:
+        try:
+            addresses = {
+                ipaddress.ip_address(result[4][0])
+                for result in socket.getaddrinfo(normalized_host, parsed.port or 443)
+            }
+        except socket.gaierror as error:
+            raise RuntimeError(
+                f"Unable to safely resolve HTTP storage URI host: {uri}"
+            ) from error
+    if any(
+        address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_unspecified
+        or address in _SHARED_ADDRESS_SPACE
+        for address in addresses
+    ):
+        raise RuntimeError(f"HTTP storage URI targets a blocked host or IP: {uri}")
+    return tuple(str(address) for address in addresses)
+
+
+class _PinnedHTTPAdapter(requests.adapters.HTTPAdapter):
+    def __init__(self, uri: str, address: str):
+        parsed = urlparse(uri)
+        self._original_host = parsed.hostname
+        self._original_port = parsed.port
+        self._address = address
+        super().__init__()
+
+    def send(self, request, *args, **kwargs):
+        parsed = urlparse(request.url)
+        address = f"[{self._address}]" if ":" in self._address else self._address
+        port = f":{parsed.port}" if parsed.port is not None else ""
+        request.url = parsed._replace(netloc=f"{address}{port}").geturl()
+        original_host = self._original_host
+        if ":" in original_host:
+            original_host = f"[{original_host}]"
+        original_port = (
+            f":{self._original_port}" if self._original_port is not None else ""
+        )
+        request.headers["Host"] = f"{original_host}{original_port}"
+        return super().send(request, *args, **kwargs)
+
+    def build_connection_pool_key_attributes(self, request, verify, cert=None):
+        host_params, pool_kwargs = super().build_connection_pool_key_attributes(
+            request, verify, cert
+        )
+        if urlparse(request.url).scheme.lower() == "https":
+            pool_kwargs["server_hostname"] = self._original_host
+            pool_kwargs["assert_hostname"] = self._original_host
+        return host_params, pool_kwargs
+
+
+def _pinned_http_get(uri: str, **kwargs):
+    addresses = _resolve_http_storage_uri(uri)
+    last_error = None
+    for address in addresses:
+        try:
+            with requests.Session() as session:
+                session.mount(
+                    f"{urlparse(uri).scheme.lower()}://",
+                    _PinnedHTTPAdapter(uri, address),
+                )
+                return session.get(uri, **kwargs)
+        except (
+            requests.exceptions.ConnectionError,
+            requests.exceptions.Timeout,
+        ) as error:
+            last_error = error
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError(f"Unable to safely resolve HTTP storage URI host: {uri}")
+
 
 _HDFS_SECRET_DIRECTORY = "/var/secrets/kserve-hdfscreds"
 _HDFS_FILE_SECRETS = ["KERBEROS_KEYTAB", "TLS_CERT", "TLS_KEY", "TLS_CA"]
@@ -716,11 +824,45 @@ class Storage(object):
         headers_json = os.getenv(host_uri + _HEADERS_SUFFIX, "{}")
         headers = json.loads(headers_json)
 
-        with requests.get(uri, stream=True, headers=headers) as response:
-            if response.status_code != 200:
-                raise RuntimeError(
-                    "URI: %s returned a %s response code." % (uri, response.status_code)
-                )
+        response = _pinned_http_get(
+            uri,
+            stream=True,
+            headers=headers,
+            timeout=30,
+            allow_redirects=False,
+        )
+        redirects = 0
+        while response.status_code in (301, 302, 303, 307, 308):
+            redirects += 1
+            if redirects > 10:
+                response.close()
+                raise RuntimeError("Too many redirects while downloading model")
+            redirected_uri = urljoin(uri, response.headers["Location"])
+            response.close()
+            current = urlparse(uri)
+            redirected = urlparse(redirected_uri)
+            if (current.scheme, current.hostname, current.port) != (
+                redirected.scheme,
+                redirected.hostname,
+                redirected.port,
+            ):
+                headers = {
+                    name: value
+                    for name, value in headers.items()
+                    if name.lower() not in _SENSITIVE_REDIRECT_HEADERS
+                }
+            uri = redirected_uri
+            response = _pinned_http_get(
+                uri,
+                stream=True,
+                headers=headers,
+                timeout=30,
+                allow_redirects=False,
+            )
+        if response.status_code != 200:
+            raise RuntimeError(
+                "URI: %s returned a %s response code." % (uri, response.status_code)
+            )
             zip_content_types = (
                 "application/x-zip-compressed",
                 "application/zip",

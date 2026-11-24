@@ -44,7 +44,15 @@ import (
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 	"github.com/kserve/kserve/pkg/constants"
 	"github.com/kserve/kserve/pkg/modelconfig"
+
+	kserveutils "github.com/kserve/kserve/pkg/utils"
 )
+
+// These tests serve models from local HTTP servers on 127.0.0.1; opt in to
+// the loopback allowance in HTTP(S) storage URI validation (test-only).
+func init() {
+	kserveutils.AllowLoopbackStorageForTests(true)
+}
 
 var _ = Describe("Watcher", func() {
 	var modelDir string
