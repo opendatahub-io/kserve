@@ -14,6 +14,11 @@ label on the PR. The `summary` job ("Konflux build simulation") is the only
 check that needs to be required: it fails when any check that ran failed and
 passes when checks were correctly skipped.
 
+Note: the workflow runs on the default `pull_request` types only, so removing
+a skip control after a run has already reported skipped-green does **not**
+re-trigger it — re-run the workflow or push a commit to force a fresh
+evaluation.
+
 ## Checks
 
 | Script | Job | Failure class it catches |

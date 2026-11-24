@@ -33,11 +33,12 @@ on:
   pull_request:
     branches:
       - master
-    # The skip decision reads the PR title and labels, so it must
-    # re-evaluate when those change, not only when a new commit arrives:
-    # without these types, removing a skip control leaves the previous
-    # skipped-green summary standing.
-    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
+    # Deliberately the default types (opened/synchronize/reopened) only.
+    # 'edited'/'labeled'/'unlabeled' would re-run the full simulation on
+    # bot activity: CodeRabbit rewrites the PR body on every push, and
+    # tide adds lgtm/approved at merge time - each cancelling the
+    # in-flight run via the concurrency group. The trade-off: removing a
+    # skip control does NOT re-trigger; re-run the workflow or push.
 
 # One simulation per PR; a new push replaces the previous run, matching the
 # .tekton annotation pipelinesascode.tekton.dev/cancel-in-progress: "false"
