@@ -57,17 +57,37 @@ cat -- "${files[@]}" > "$workdir/params.txt"
 # Image-valued params only: values that contain a registry path and a tag or
 # digest. Skips the *-upstream-version entries (plain version strings) and any
 # non-image config.
+#
+# grep exits 1 on no-match, which is expected here (a params file with no
+# image entries), and 2 on real errors (bad regex, unreadable input); sort
+# fails nonzero on its own errors. Only the no-match case is nonfatal:
+# masking the rest (the old '|| true') let a partial images.txt produce a
+# false PASS (CWE-391).
+set +e
 grep -vE '^\s*#|^\s*$' "$workdir/params.txt" \
     | grep -E '^[a-zA-Z0-9_-]+=[^ ]*/[^ ]*(:[^ ]+|@sha256:[a-f0-9]{12,})$' \
-    | grep -v -- '-upstream-version=' | sort -u > "$workdir/images.txt" || true
+    | grep -v -- '-upstream-version=' | sort -u > "$workdir/images.txt"
+rc=$?
+set -e
+if [ "$rc" -gt 1 ]; then
+    echo "❌ image filter pipeline failed (exit $rc)"
+    exit 1
+fi
 
 # An image param with a registry path but no tag or digest would silently
 # drop out of the filter above while Kubernetes resolves it to :latest.
 # Reject it explicitly instead of skipping the lookup.
+set +e
 grep -vE '^\s*#|^\s*$' "$workdir/params.txt" \
     | grep -E '^[a-zA-Z0-9_-]+=[^ ]*/[^ ]+$' \
     | grep -vE '^[a-zA-Z0-9_-]+=[^ ]*/[^ ]*(:[^ ]+|@sha256:[a-f0-9]{12,})$' \
-    | grep -v -- '-upstream-version=' > "$workdir/untagged.txt" || true
+    | grep -v -- '-upstream-version=' > "$workdir/untagged.txt"
+rc=$?
+set -e
+if [ "$rc" -gt 1 ]; then
+    echo "❌ untagged-image filter pipeline failed (exit $rc)"
+    exit 1
+fi
 if [ -s "$workdir/untagged.txt" ]; then
     echo "❌ image param(s) without a tag or digest (Kubernetes would resolve :latest):"
     sed 's/^/   /' "$workdir/untagged.txt" >&2

@@ -213,6 +213,20 @@ jobs:
             sync-args: --extra confidential
             pip-specs: '["krbcontext==0.10", "hdfs~=2.6.0", "requests-kerberos==0.14.0", "tomli"]'
             needs-krb5: true
+            # The storage-initializer Dockerfile executes repo code after
+            # the install (COPY pyproject.toml; COPY third_party/
+            # pip-licenses.py; RUN python3 pip-licenses.py). Simulate that
+            # RUN against the finished venv, in the same directory shape
+            # the image has, so a change to pip-licenses.py or the root
+            # python/pyproject.toml breaks here instead of in the image
+            # build - python/** is not in the images filter, so without
+            # this nothing else covers it.
+            post-sync-dir: python
+            post-sync-cmd: >-
+              sim=$(mktemp -d) &&
+              cp pyproject.toml "$sim"/ &&
+              cp third_party/pip-licenses.py "$sim/pip-licenses.py" &&
+              cd "$sim" && mkdir -p third_party/library && python3 pip-licenses.py
           # kserve python server image: python 3.12, lock only.
           - project: python/kserve
             python-version: '3.12'
@@ -250,6 +264,8 @@ jobs:
         env:
           UV_PYTHON: ${{ matrix.python-version }}
           UV_SYNC_ARGS: ${{ matrix.sync-args }}
+          UV_POST_SYNC_CMD: ${{ matrix.post-sync-cmd }}
+          UV_POST_SYNC_DIR: ${{ matrix.post-sync-dir }}
         run: |
           mapfile -t specs < <(printf '%s' '${{ matrix.pip-specs }}' | jq -r '.[]')
           ./hack/konflux-sim/hermetic_python_preflight.sh '${{ matrix.project }}' "${specs[@]}"

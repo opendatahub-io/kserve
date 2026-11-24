@@ -50,6 +50,15 @@
 #   UV_PYTHON      interpreter for uv venv (default: python3). The Dockerfile
 #                  images pin their own (3.11 / 3.12); pass a matching one.
 #   UV_SYNC_ARGS   extra args for uv sync (e.g. "--extra confidential").
+#   UV_POST_SYNC_CMD  optional command run under bash -c after the install,
+#                  with the venv active (VIRTUAL_ENV set, venv/bin first on
+#                  PATH). Simulates a Dockerfile RUN step that executes repo
+#                  code after the dependency install - the
+#                  storage-initializer image runs third_party/pip-licenses.py
+#                  this way, and neither an install-only preflight nor the
+#                  path filters would catch a change that breaks it.
+#   UV_POST_SYNC_DIR  working directory for UV_POST_SYNC_CMD, relative to the
+#                  invocation directory (default: the project dir).
 #
 # The offline phase only proves the install where the target platform can be
 # installed: on macOS the cache is keyed for darwin, so only the warm phase
@@ -83,6 +92,24 @@ trap 'rm -rf "$workdir"' EXIT
 UV_CACHE_DIR=${UV_CACHE_DIR:-$workdir/uv-cache}
 export UV_CACHE_DIR
 
+orig_dir=$PWD
+
+# Dockerfile RUN simulation: execute repo code in the finished venv, the
+# way the image build does (storage-initializer: RUN python3 pip-licenses.py).
+post_sync() {
+    [ -n "${UV_POST_SYNC_CMD:-}" ] || return 0
+    local dir=${UV_POST_SYNC_DIR:-$project_dir}
+    case "$dir" in
+        /*) ;;
+        *) dir="$orig_dir/$dir" ;;
+    esac
+    echo "== post-sync step (Dockerfile RUN simulation): $UV_POST_SYNC_CMD"
+    (
+        cd "$dir"
+        VIRTUAL_ENV="$venv" PATH="$venv/bin:$PATH" bash -c "$UV_POST_SYNC_CMD"
+    )
+}
+
 venv="$workdir/venv"
 cd "$project_dir"
 
@@ -102,6 +129,7 @@ fi
 
 if [ "$(uname -s)" != "Linux" ]; then
     echo "SKIP: not Linux - only the warm phase ran on $(uname -s), no offline proof"
+    post_sync
     exit 0
 fi
 
@@ -112,5 +140,6 @@ sync_with_args --frozen --offline
 if [ $# -gt 0 ]; then
     VIRTUAL_ENV="$venv" "$uv_bin" pip install --offline --quiet "$@"
 fi
+post_sync
 
 echo "PASS: $project_dir installs with --offline from the warmed cache"

@@ -24,7 +24,7 @@ replays the original event and keeps the stale title and labels.
 | Script | Job | Failure class it catches |
 |---|---|---|
 | `hermetic_go_preflight.sh` | Hermetic Go build preflight | a Go module missing from the downstream prefetch cache, or go.mod/go.sum drift, that only fails with the network off (RHOAIENG-89178) |
-| `hermetic_python_preflight.sh` | Hermetic Python preflight | a uv.lock / pip spec that cannot be satisfied from the prefetch cache offline (RHOAIENG-13043, RHOAIENG-12260, RHOAIENG-13042/28024) |
+| `hermetic_python_preflight.sh` | Hermetic Python preflight | a uv.lock / pip spec that cannot be satisfied from the prefetch cache offline (RHOAIENG-13043, RHOAIENG-12260, RHOAIENG-13042/28024); for storage-initializer it also runs the Dockerfile's post-install `pip-licenses.py` step against the finished venv |
 | — (matrix in the workflow) | Image build | a Dockerfile / build-args change that breaks the image build itself (RHOAIENG-95421, RHOAIENG-46766), and build-args parity with `.tekton` (RHOAIENG-53489: the distro tag dropped downstream) |
 | `rendered_manifest_checks.sh` | Rendered manifest checks | a RoleBinding subject with no ServiceAccount in the applied union (feast-module RHOAIENG-100514/100515), a pod running as a ServiceAccount nothing creates, a duplicated env name the API server silently resolves to the last entry (RHOAIENG-57579) |
 | `manifest_path_contract.sh` | Rendered manifest checks | the image, the operator constants and the Deployment mount disagreeing on where the shipped manifests live (model-registry RHOAIENG-99568 shape) |
