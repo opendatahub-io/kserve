@@ -33,6 +33,11 @@ on:
   pull_request:
     branches:
       - master
+    # The skip decision reads the PR title and labels, so it must
+    # re-evaluate when those change, not only when a new commit arrives:
+    # without these types, removing a skip control leaves the previous
+    # skipped-green summary standing.
+    types: [opened, synchronize, reopened, edited, labeled, unlabeled]
 
 # One simulation per PR; a new push replaces the previous run, matching the
 # .tekton annotation pipelinesascode.tekton.dev/cancel-in-progress: "false"
@@ -42,9 +47,6 @@ concurrency:
   group: konflux-sim-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
-permissions:
-  contents: read
-
 jobs:
   # Single skip gate. Every other job keys off its outputs; nothing else
   # decides on its own whether to run.
@@ -52,6 +54,12 @@ jobs:
     name: Decide what to run
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Least privilege per job: the paths-filter step lists the PR's changed
+    # files through the REST API, which needs pull-requests: read (dorny's
+    # documented requirement); everything below only checks out code.
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       go: ${{ steps.result.outputs.go }}
       python: ${{ steps.result.outputs.python }}
@@ -76,8 +84,10 @@ jobs:
           # producer and fails the pipeline spuriously.
           title=$(printf '%s' "$PR_TITLE")
           labels=$(printf '%s' "$PR_LABELS")
+          # Exact JSON membership for the label: a substring search would
+          # also match e.g. a future 'do-not-skip-konflux-sim'.
           if grep -qF '[skip konflux-sim]' <<<"$title" \
-             || grep -q 'skip-konflux-sim' <<<"$labels"; then
+             || printf '%s' "$labels" | jq -e 'index("skip-konflux-sim") != null' >/dev/null; then
             echo 'skip=true' >>"$GITHUB_OUTPUT"
           else
             echo 'skip=false' >>"$GITHUB_OUTPUT"
@@ -110,6 +120,9 @@ jobs:
               - '.github/workflows/konflux-build-simulation.yml'
               - 'hack/konflux-sim/**'
             images:
+              # '**/*.Dockerfile' does not match a root-level 'Dockerfile'
+              # (the kserve-controller image) - list it explicitly.
+              - 'Dockerfile'
               - '**/*.Dockerfile'
               - '.tekton/**'
               - '.github/workflows/konflux-build-simulation.yml'
@@ -147,6 +160,8 @@ jobs:
     if: needs.gate.outputs.go == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -181,6 +196,8 @@ jobs:
     if: needs.gate.outputs.python == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -191,7 +208,7 @@ jobs:
           - project: python/storage
             python-version: '3.11'
             sync-args: --extra confidential
-            pip-specs: '["krbcontext==0.10", "hdfs~=2.6.0", "requests-kerberos==0.14.0"]'
+            pip-specs: '["krbcontext==0.10", "hdfs~=2.6.0", "requests-kerberos==0.14.0", "tomli"]'
             needs-krb5: true
           # kserve python server image: python 3.12, lock only.
           - project: python/kserve
@@ -244,6 +261,8 @@ jobs:
     if: needs.gate.outputs.images == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -326,6 +345,8 @@ jobs:
     if: needs.gate.outputs.manifests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -358,6 +379,8 @@ jobs:
     if: needs.gate.outputs.manifests == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -373,6 +396,8 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # Reads only the needs context; no permissions at all.
+    permissions: {}
     steps:
       - name: Assert results
         env:

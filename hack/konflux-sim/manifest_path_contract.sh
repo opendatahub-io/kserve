@@ -48,6 +48,14 @@ die() {
     fail=1
 }
 
+# Escape ERE metacharacters so extracted paths compare literally: with a
+# bare interpolation, workDir '/opt/manifests.v2' would regex-match
+# mountPath '/opt/manifests-v2' ('.' is a wildcard) and the contract
+# would pass on different paths.
+re_escape() {
+    printf '%s' "$1" | sed -e 's/[][\.^$*+?(){}|]/\\&/g'
+}
+
 # 1. Dockerfile: the manifests directory produced by get_kserve_manifests.sh
 #    is copied into the image at the template path (last token of a COPY line).
 template_dockerfile=$(grep -oE '^COPY[^#]* /opt/manifests-template/$' "$dockerfile" \
@@ -71,11 +79,12 @@ fi
 # 4. manager.yaml: the work dir must be a mounted volume - the container runs
 #    with readOnlyRootFilesystem, so an unmounted work dir makes the startup
 #    copy fail on every reconcile.
-mount=$(grep -oE "mountPath: ${workdir_reconciler}\$" "$manager_yaml" || true)
+workdir_re=$(re_escape "$workdir_reconciler")
+mount=$(grep -oE "mountPath: ${workdir_re}\$" "$manager_yaml" || true)
 if [ -z "$mount" ]; then
     die "$manager_yaml does not mount $workdir_reconciler (readOnlyRootFilesystem would break the startup copy)"
 fi
-volume_name=$(grep -B1 "mountPath: ${workdir_reconciler}\$" "$manager_yaml" | grep -oE 'name: [a-z-]+' | head -1 | cut -d' ' -f2)
+volume_name=$(grep -B1 "mountPath: ${workdir_re}\$" "$manager_yaml" | grep -oE 'name: [a-z-]+' | head -1 | cut -d' ' -f2)
 if [ -z "$volume_name" ] || ! grep -qE "^      - name: ${volume_name}$" "$manager_yaml"; then
     die "$manager_yaml mounts $workdir_reconciler as '$volume_name' but defines no such volume"
 fi

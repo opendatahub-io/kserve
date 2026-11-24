@@ -46,7 +46,7 @@ images. Two deliberate deviations, both noted in the workflow:
 # Python: <project-dir> [unlocked pip specs the Dockerfile installs]
 UV_PYTHON=3.11 UV_SYNC_ARGS="--extra confidential" \
   ./hack/konflux-sim/hermetic_python_preflight.sh python/storage \
-  krbcontext==0.10 'hdfs~=2.6.0' requests-kerberos==0.14.0
+  krbcontext==0.10 'hdfs~=2.6.0' requests-kerberos==0.14.0 tomli
 
 # Rendered manifest checks (KUSTOMIZE=bin/kustomize if you use make-managed tools)
 KUSTOMIZE=bin/kustomize ./hack/konflux-sim/rendered_manifest_checks.sh

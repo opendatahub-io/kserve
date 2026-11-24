@@ -49,12 +49,30 @@ fi
 workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 
+# Read every input file up front, fail closed: inside the filter pipeline
+# a missing file was masked by the '|| true' and the check could pass on
+# the files that remained.
+cat -- "${files[@]}" > "$workdir/params.txt"
+
 # Image-valued params only: values that contain a registry path and a tag or
 # digest. Skips the *-upstream-version entries (plain version strings) and any
 # non-image config.
-cat "${files[@]}" | grep -vE '^\s*#|^\s*$' \
+grep -vE '^\s*#|^\s*$' "$workdir/params.txt" \
     | grep -E '^[a-zA-Z0-9_-]+=[^ ]*/[^ ]*(:[^ ]+|@sha256:[a-f0-9]{12,})$' \
     | grep -v -- '-upstream-version=' | sort -u > "$workdir/images.txt" || true
+
+# An image param with a registry path but no tag or digest would silently
+# drop out of the filter above while Kubernetes resolves it to :latest.
+# Reject it explicitly instead of skipping the lookup.
+grep -vE '^\s*#|^\s*$' "$workdir/params.txt" \
+    | grep -E '^[a-zA-Z0-9_-]+=[^ ]*/[^ ]+$' \
+    | grep -vE '^[a-zA-Z0-9_-]+=[^ ]*/[^ ]*(:[^ ]+|@sha256:[a-f0-9]{12,})$' \
+    | grep -v -- '-upstream-version=' > "$workdir/untagged.txt" || true
+if [ -s "$workdir/untagged.txt" ]; then
+    echo "❌ image param(s) without a tag or digest (Kubernetes would resolve :latest):"
+    sed 's/^/   /' "$workdir/untagged.txt" >&2
+    exit 1
+fi
 
 if [ ! -s "$workdir/images.txt" ]; then
     echo "❌ no image params found in ${files[*]} - did the params.env format change?"

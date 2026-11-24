@@ -53,7 +53,14 @@ workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
 
 if [ $# -gt 0 ]; then
-    cat -- "$@" > "$workdir/union.yaml"
+    # '---' between the inputs for the same reason as the render loop
+    # below: concatenating bare YAML files glues the last document of one
+    # onto the first of the next and corrupts the parse.
+    : > "$workdir/union.yaml"
+    for f in "$@"; do
+        [ -s "$workdir/union.yaml" ] && printf -- '---\n' >> "$workdir/union.yaml"
+        cat -- "$f" >> "$workdir/union.yaml"
+    done
     echo "== checking pre-rendered input: $*"
 else
     # The union the operator applies together on OpenShift:
@@ -104,15 +111,29 @@ warnings = []
 docs = [d for d in yaml.safe_load_all(open(sys.argv[1])) if d and isinstance(d, dict)]
 
 def pod_spec(doc):
-    if doc.get("kind") == "CronJob":
+    kind = doc.get("kind")
+    if kind == "CronJob":
         return doc.get("spec", {}).get("jobTemplate", {}).get("spec", {}).get("template", {}).get("spec", {})
+    if kind == "Pod":
+        # a bare Pod's containers/serviceAccountName live on spec directly
+        return doc.get("spec", {})
     return doc.get("spec", {}).get("template", {}).get("spec", {})
+
+# Workload kinds whose pod specs are checked below. 'Pod' included: a
+# rendered bare Pod must not bypass the serviceAccountName and env checks.
+WORKLOAD_KINDS = ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob", "Pod")
 
 # --- collect the ServiceAccounts the union itself creates ---
 sa_set = set()
 for d in docs:
     if d.get("kind") == "ServiceAccount":
         sa_set.add((d["metadata"].get("namespace") or "", d["metadata"]["name"]))
+
+def sa_exists(ns, name):
+    # The built-in 'default' ServiceAccount exists in every live namespace,
+    # so an explicit reference to it resolves even when the union does not
+    # create it (omitting serviceAccountName means the same account).
+    return name == "default" or (ns, name) in sa_set
 
 # --- check 1: every ServiceAccount subject of every binding resolves ---
 subjects = 0
@@ -126,8 +147,15 @@ for d in docs:
         subjects += 1
         ns, name = s.get("namespace"), s["name"]
         if not ns:
-            failures.append(f"❌ {binding}: subject {name} has no namespace (invalid for kind ServiceAccount)")
-        elif (ns, name) not in sa_set:
+            if d["kind"] == "RoleBinding":
+                # A RoleBinding subject without a namespace resolves in the
+                # binding's own namespace; only ClusterRoleBinding subjects
+                # need the explicit namespace.
+                ns = d["metadata"].get("namespace") or ""
+            else:
+                failures.append(f"❌ {binding}: subject {name} has no namespace (invalid for kind ServiceAccount)")
+                continue
+        if not sa_exists(ns, name):
             if (ns, name) in KNOWN_STALE_SUBJECTS:
                 warnings.append(f"⚠️  {binding} binds to ServiceAccount {ns}/{name}, which the union does not create (known stale subject, see script header)")
             else:
@@ -137,20 +165,20 @@ print(f"   checked {subjects} ServiceAccount subjects against {len(sa_set)} crea
 # --- check 2: every explicit pod serviceAccountName resolves ---
 pod_sas = 0
 for d in docs:
-    if d.get("kind") not in ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"):
+    if d.get("kind") not in WORKLOAD_KINDS:
         continue
     ns = d["metadata"].get("namespace") or ""
     sa = pod_spec(d).get("serviceAccountName")
     if not sa:
         continue  # empty means the implicit 'default' SA, always present live
     pod_sas += 1
-    if (ns, sa) not in sa_set:
+    if not sa_exists(ns, sa):
         failures.append(f"❌ {d['kind']}/{d['metadata']['name']} in namespace {ns} runs as ServiceAccount {sa}, which the union does not create")
 print(f"   checked {pod_sas} explicit pod serviceAccountNames")
 
 # --- check 3: no duplicated env names per container ---
 for d in docs:
-    if d.get("kind") not in ("Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"):
+    if d.get("kind") not in WORKLOAD_KINDS:
         continue
     spec = pod_spec(d)
     for c in (spec.get("containers") or []) + (spec.get("initContainers") or []):

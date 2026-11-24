@@ -39,7 +39,7 @@
 #     project-dir  directory with pyproject.toml + uv.lock
 #     pip-spec     extra specs the Dockerfile installs outside the lock
 #                  (storage-initializer: krbcontext==0.10 hdfs~=2.6.0
-#                   requests-kerberos==0.14.0)
+#                   requests-kerberos==0.14.0 tomli)
 #
 # Environment:
 #   UV             uv binary (default: uv on PATH). Use the version pinned
@@ -61,8 +61,22 @@ set -euo pipefail
 project_dir=${1:?usage: hermetic_python_preflight.sh <project-dir> [pip-spec...]}
 shift || true
 uv_bin=${UV:-uv}
-sync_args=${UV_SYNC_ARGS:-}
 python=${UV_PYTHON:-python3}
+
+# Split UV_SYNC_ARGS once into an array so each option stays one argument
+# and pathname expansion cannot rewrite its value mid-word (the
+# 'config[1].toml' CWE-88 shape). The length guard keeps the empty-array
+# expansion safe under set -u on bash 3.2 (macOS /bin/bash).
+read -r -a sync_args <<<"${UV_SYNC_ARGS:-}"
+
+sync_with_args() {
+    # shellcheck disable=SC2034  # VIRTUAL_ENV is consumed by uv
+    if [ "${#sync_args[@]}" -gt 0 ]; then
+        VIRTUAL_ENV="$venv" "$uv_bin" sync --active "$@" "${sync_args[@]}" --quiet
+    else
+        VIRTUAL_ENV="$venv" "$uv_bin" sync --active "$@" --quiet
+    fi
+}
 
 workdir=$(mktemp -d)
 trap 'rm -rf "$workdir"' EXIT
@@ -74,7 +88,13 @@ cd "$project_dir"
 
 echo "== network phase: warming uv cache at $UV_CACHE_DIR"
 "$uv_bin" venv "$venv" --python "$python" --quiet
-VIRTUAL_ENV="$venv" "$uv_bin" sync --active --frozen $sync_args --quiet
+# --locked, not --frozen, in the warm phase: the Dockerfiles run a plain
+# `uv sync`, which re-resolves when pyproject and uv.lock have drifted.
+# --frozen would install the stale lock happily and pass, hiding exactly
+# the lock/metadata drift (RHOAIENG-47258/52913 shape) this preflight
+# exists to catch. The offline phase stays --frozen: it only proves the
+# warmed cache can rebuild the venv.
+sync_with_args --locked
 if [ $# -gt 0 ]; then
     echo "   plus unlocked pip specs: $*"
     VIRTUAL_ENV="$venv" "$uv_bin" pip install --quiet "$@"
@@ -88,7 +108,7 @@ fi
 echo "== offline phase: rebuilding the venv from the warmed cache only"
 rm -rf "$venv"
 "$uv_bin" venv "$venv" --python "$python" --quiet
-VIRTUAL_ENV="$venv" "$uv_bin" sync --active --frozen --offline $sync_args --quiet
+sync_with_args --frozen --offline
 if [ $# -gt 0 ]; then
     VIRTUAL_ENV="$venv" "$uv_bin" pip install --offline --quiet "$@"
 fi
