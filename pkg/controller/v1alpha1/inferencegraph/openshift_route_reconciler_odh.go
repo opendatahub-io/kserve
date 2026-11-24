@@ -41,11 +41,10 @@ type OpenShiftRouteReconciler struct {
 	Client client.Client
 }
 
-func (r *OpenShiftRouteReconciler) Reconcile(ctx context.Context, inferenceGraph *v1alpha1.InferenceGraph) (string, error) {
+func (r *OpenShiftRouteReconciler) Reconcile(ctx context.Context, inferenceGraph *v1alpha1.InferenceGraph, tlsEnabled bool) (string, error) {
 	logger := ctrlLog.FromContext(ctx, "subreconciler", "OpenShiftRoute")
 
-	tlsEnabled, err := r.routerServesTLS(ctx, inferenceGraph)
-	if err != nil {
+	if err := authenticatedRouterRequiresTLS(inferenceGraph, tlsEnabled); err != nil {
 		return "", err
 	}
 	desiredRoute, err := r.buildOpenShiftRoute(inferenceGraph, tlsEnabled)

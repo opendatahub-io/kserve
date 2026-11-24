@@ -21,6 +21,7 @@ package inferencegraph
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"google.golang.org/protobuf/proto"
@@ -59,9 +60,13 @@ func customizeRouterPodSpec(ctx context.Context, reader client.Reader, graph *v1
 	if err != nil {
 		return err
 	}
+	tlsEnabled := routerTLSEnabled(graph, configured)
+	if err := authenticatedRouterRequiresTLS(graph, tlsEnabled); err != nil {
+		return err
+	}
 
 	router := &podSpec.Containers[0]
-	if routerTLSEnabled(graph, configured) {
+	if tlsEnabled {
 		router.Args = append([]string{"--enable-tls"}, router.Args...)
 		// Fail closed: a router serving against an unresolvable profile policy is
 		// worse than failing this reconciliation and surfacing the error.
@@ -119,6 +124,18 @@ func routerTLSEnabled(graph *v1alpha1.InferenceGraph, configured *bool) bool {
 		return *configured
 	}
 	return true
+}
+
+// authenticatedRouterRequiresTLS rejects a RawDeployment router that would
+// accept bearer tokens on a plaintext listener or Route.
+func authenticatedRouterRequiresTLS(graph *v1alpha1.InferenceGraph, tlsEnabled bool) error {
+	if tlsEnabled || graph == nil {
+		return nil
+	}
+	if graph.GetAnnotations()[constants.ODHKserveRawAuth] == "true" {
+		return fmt.Errorf("authenticated InferenceGraph routers require TLS")
+	}
+	return nil
 }
 
 // readRouterTLSConfig reads router.enableTLS from inferenceservice-config.

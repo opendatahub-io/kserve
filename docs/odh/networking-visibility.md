@@ -78,8 +78,11 @@ metadata:
 ```
 
 The cluster default is `router.enableTLS` in the `inferenceservice-config`
-ConfigMap. The annotation overrides that field. When the annotation is absent
-and `enableTLS` is omitted, TLS stays enabled. `"true"` forces TLS on.
+ConfigMap. A `security.opendatahub.io/enable-tls` value of `"true"` or
+`"false"` overrides that field; any other annotation value is ignored. When
+the annotation is absent and `enableTLS` is omitted, TLS stays enabled.
+`"true"` forces TLS on. A graph with `security.opendatahub.io/enable-auth:
+"true"` cannot turn TLS off, so bearer tokens are not sent in cleartext.
 The router pods roll only when the effective setting changes, so existing
 graphs stay on HTTPS across an upgrade. The router still mounts the OpenShift
 service CA so it can call HTTPS nodes.

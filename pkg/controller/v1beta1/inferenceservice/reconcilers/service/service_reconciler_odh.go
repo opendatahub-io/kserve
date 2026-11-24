@@ -178,6 +178,17 @@ func getArgValue(args []string, flag string) (string, bool) {
 	return lastVal, found
 }
 
+// preserveServiceIdentity keeps the identity of an existing Service so a port
+// change, such as an InferenceGraph TLS toggle, can update that object.
+func preserveServiceIdentity(desired, existing *corev1.Service) {
+	if desired == nil || existing == nil {
+		return
+	}
+	desired.SetResourceVersion(existing.GetResourceVersion())
+	desired.Spec.ClusterIP = existing.Spec.ClusterIP
+	desired.Spec.ClusterIPs = existing.Spec.ClusterIPs
+}
+
 // customizeHeadSvc applies ODH-specific customizations to headless (head node) services:
 // - Adds the OpenShift serving certificate annotation using the predictor service name
 func customizeHeadSvc(svc *corev1.Service, predictorSvcName string) {

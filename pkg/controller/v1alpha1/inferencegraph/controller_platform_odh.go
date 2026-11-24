@@ -111,7 +111,7 @@ func (r *InferenceGraphReconciler) reconcileRawPlatformNetworking(ctx context.Co
 		if err != nil {
 			return nil, errors.Wrapf(err, "fails to resolve InferenceGraph router TLS")
 		}
-		hostname, err := routeReconciler.Reconcile(ctx, graph)
+		hostname, err := routeReconciler.Reconcile(ctx, graph, tlsEnabled)
 		url.Host = hostname
 		if tlsEnabled {
 			url.Scheme = "https"

@@ -247,20 +247,6 @@ func TestCustomizeRouterPodSpec(t *testing.T) {
 					"default", false, corev1.URISchemeHTTP)
 			},
 		},
-		{
-			name: "enable-tls false keeps auth and the service CA",
-			graph: odhTestGraph(map[string]string{
-				constants.ODHKserveEnableTLS: "false",
-				constants.ODHKserveRawAuth:   "true",
-			}, ""),
-			config: &odhTestRouterConfigWithHeaders,
-			expected: func(graphJSON string) *corev1.PodSpec {
-				return odhExpectedRouterPodSpecScheme(
-					[]string{"--graph-json", graphJSON, "--enable-auth", "--inferencegraph-name", odhTestGraphName},
-					[]corev1.EnvVar{odhSSLCertFileEnv, odhPropagateHeadersEnv},
-					odhTestGraphName+"-auth-verifier", true, corev1.URISchemeHTTP)
-			},
-		},
 	}
 
 	for _, tt := range scenarios {
@@ -275,6 +261,19 @@ func TestCustomizeRouterPodSpec(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCustomizeRouterPodSpecRejectsAuthWithoutTLS(t *testing.T) {
+	graph := odhTestGraph(map[string]string{
+		constants.ODHKserveEnableTLS: "false",
+		constants.ODHKserveRawAuth:   "true",
+	}, "")
+	podSpec := createInferenceGraphPodSpec(graph, &odhTestRouterConfig)
+	original := podSpec.DeepCopy()
+
+	err := customizeRouterPodSpec(context.Background(), nil, graph, podSpec)
+	require.ErrorContains(t, err, "require TLS")
+	require.Equal(t, original, podSpec)
 }
 
 func TestCustomizeRouterPodSpecToleratesMissingPodSpec(t *testing.T) {
@@ -458,6 +457,13 @@ func TestCustomizeRouterPodSpecHonorsRouterEnableTLS(t *testing.T) {
 		require.NoError(t, customizeRouterPodSpec(context.Background(), reader(`{"enableTLS": false}`), odhTestGraph(nil, ""), podSpec))
 		require.NotContains(t, podSpec.Containers[0].Args, "--enable-tls")
 		require.Equal(t, corev1.URISchemeHTTP, podSpec.Containers[0].ReadinessProbe.HTTPGet.Scheme)
+	})
+
+	t.Run("config false with auth enabled is rejected", func(t *testing.T) {
+		graph := odhTestGraph(map[string]string{constants.ODHKserveRawAuth: "true"}, "")
+		podSpec := createInferenceGraphPodSpec(graph, &odhTestRouterConfig)
+		err := customizeRouterPodSpec(context.Background(), reader(`{"enableTLS": false}`), graph, podSpec)
+		require.ErrorContains(t, err, "require TLS")
 	})
 
 	t.Run("annotation true overrides config false", func(t *testing.T) {

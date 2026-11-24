@@ -25,7 +25,10 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/constants"
@@ -324,6 +327,47 @@ func TestCustomizeServiceInferenceGraphHTTPListener(t *testing.T) {
 	}}})
 	assert.Equal(t, int32(443), tlsSvc.Spec.Ports[0].Port)
 	assert.Equal(t, "test-ig"+constants.ServingCertSecretSuffix, tlsSvc.Annotations[constants.OpenshiftServingCertAnnotation])
+}
+
+func TestPreserveServiceIdentityOnUpdate(t *testing.T) {
+	scheme := runtime.NewScheme()
+	require.NoError(t, corev1.AddToScheme(scheme))
+	require.NoError(t, v1beta1.AddToScheme(scheme))
+
+	existing := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:            "model",
+			Namespace:       "default",
+			ResourceVersion: "7",
+		},
+		Spec: corev1.ServiceSpec{
+			ClusterIP:  "10.0.0.8",
+			ClusterIPs: []string{"10.0.0.8"},
+			Ports:      []corev1.ServicePort{{Name: "http", Port: 80}},
+			Selector:   map[string]string{"app": "model"},
+		},
+	}
+	cl := fake.NewClientBuilder().WithScheme(scheme).WithObjects(existing).Build()
+	desired := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "default"},
+		Spec: corev1.ServiceSpec{
+			Ports:    []corev1.ServicePort{{Name: "https", Port: 443}},
+			Selector: map[string]string{"app": "model"},
+		},
+	}
+	reconciler := &ServiceReconciler{client: cl, ServiceList: []*corev1.Service{desired}}
+	require.NoError(t, reconciler.SetControllerReferences(&v1beta1.InferenceService{
+		ObjectMeta: metav1.ObjectMeta{Name: "model", Namespace: "default", UID: "model"},
+	}, scheme))
+
+	_, err := reconciler.Reconcile(t.Context())
+	require.NoError(t, err)
+
+	actual := &corev1.Service{}
+	require.NoError(t, cl.Get(t.Context(), client.ObjectKeyFromObject(existing), actual))
+	assert.Equal(t, int32(443), actual.Spec.Ports[0].Port)
+	assert.Equal(t, "10.0.0.8", actual.Spec.ClusterIP)
+	assert.Equal(t, []string{"10.0.0.8"}, actual.Spec.ClusterIPs)
 }
 
 func TestCustomizeHeadSvcAddsServingCertAnnotation(t *testing.T) {
