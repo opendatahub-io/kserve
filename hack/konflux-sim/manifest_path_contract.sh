@@ -84,7 +84,7 @@ mount=$(grep -oE "mountPath: ${workdir_re}\$" "$manager_yaml" || true)
 if [ -z "$mount" ]; then
     die "$manager_yaml does not mount $workdir_reconciler (readOnlyRootFilesystem would break the startup copy)"
 fi
-volume_name=$(grep -B1 "mountPath: ${workdir_re}\$" "$manager_yaml" | grep -oE 'name: [a-z-]+' | head -1 | cut -d' ' -f2)
+volume_name=$(grep -E -B1 "mountPath: ${workdir_re}\$" "$manager_yaml" | grep -oE 'name: [a-z-]+' | head -1 | cut -d' ' -f2)
 if [ -z "$volume_name" ] || ! grep -qE "^      - name: ${volume_name}$" "$manager_yaml"; then
     die "$manager_yaml mounts $workdir_reconciler as '$volume_name' but defines no such volume"
 fi

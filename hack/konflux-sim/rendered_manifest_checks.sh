@@ -58,7 +58,12 @@ if [ $# -gt 0 ]; then
     # onto the first of the next and corrupts the parse.
     : > "$workdir/union.yaml"
     for f in "$@"; do
-        [ -s "$workdir/union.yaml" ] && printf -- '---\n' >> "$workdir/union.yaml"
+        if [ -s "$workdir/union.yaml" ]; then
+            # a document marker must start a line - if the previous input
+            # did not end with a newline, add one before the separator
+            [ -n "$(tail -c 1 "$workdir/union.yaml")" ] && printf '\n' >> "$workdir/union.yaml"
+            printf -- '---\n' >> "$workdir/union.yaml"
+        fi
         cat -- "$f" >> "$workdir/union.yaml"
     done
     echo "== checking pre-rendered input: $*"
@@ -77,7 +82,12 @@ else
         # '---' between the renders: concatenating bare kustomize outputs
         # glues the last document of one onto the first of the next and
         # silently corrupts the parse.
-        [ -s "$workdir/union.yaml" ] && printf -- '---\n' >> "$workdir/union.yaml"
+        if [ -s "$workdir/union.yaml" ]; then
+            # a document marker must start a line - if the previous render
+            # did not end with a newline, add one before the separator
+            [ -n "$(tail -c 1 "$workdir/union.yaml")" ] && printf '\n' >> "$workdir/union.yaml"
+            printf -- '---\n' >> "$workdir/union.yaml"
+        fi
         "$kustomize_bin" build "$overlay" >> "$workdir/union.yaml"
     done
     echo "   rendered $(grep -c '^kind:' "$workdir/union.yaml" || true) resources"

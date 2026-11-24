@@ -38,7 +38,9 @@ on:
     # bot activity: CodeRabbit rewrites the PR body on every push, and
     # tide adds lgtm/approved at merge time - each cancelling the
     # in-flight run via the concurrency group. The trade-off: removing a
-    # skip control does NOT re-trigger; re-run the workflow or push.
+    # skip control does NOT re-trigger. Push a commit: a workflow re-run
+    # replays the original event payload, so it keeps the stale title
+    # and labels.
 
 # One simulation per PR; a new push replaces the previous run, matching the
 # .tekton annotation pipelinesascode.tekton.dev/cancel-in-progress: "false"

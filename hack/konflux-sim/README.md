@@ -16,8 +16,8 @@ passes when checks were correctly skipped.
 
 Note: the workflow runs on the default `pull_request` types only, so removing
 a skip control after a run has already reported skipped-green does **not**
-re-trigger it — re-run the workflow or push a commit to force a fresh
-evaluation.
+re-trigger it. Push a commit to force a fresh evaluation: a workflow re-run
+replays the original event and keeps the stale title and labels.
 
 ## Checks
 
