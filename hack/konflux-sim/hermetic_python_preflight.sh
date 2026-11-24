@@ -50,15 +50,14 @@
 #   UV_PYTHON      interpreter for uv venv (default: python3). The Dockerfile
 #                  images pin their own (3.11 / 3.12); pass a matching one.
 #   UV_SYNC_ARGS   extra args for uv sync (e.g. "--extra confidential").
-#   UV_POST_SYNC_CMD  optional command run under bash -c after the install,
-#                  with the venv active (VIRTUAL_ENV set, venv/bin first on
-#                  PATH). Simulates a Dockerfile RUN step that executes repo
-#                  code after the dependency install - the
-#                  storage-initializer image runs third_party/pip-licenses.py
-#                  this way, and neither an install-only preflight nor the
-#                  path filters would catch a change that breaks it.
-#   UV_POST_SYNC_DIR  working directory for UV_POST_SYNC_CMD, relative to the
-#                  invocation directory (default: the project dir).
+#   UV_POST_SYNC_OP  optional named Dockerfile RUN step to simulate after
+#                  the install, with the venv active (VIRTUAL_ENV set,
+#                  venv/bin first on PATH). A named operation, not a
+#                  command string: the caller selects by name and the
+#                  staging lives in this script, so no shell source is
+#                  ever passed through an environment variable.
+#                  storage-licenses: the storage-initializer image's
+#                  RUN python3 pip-licenses.py.
 #
 # The offline phase only proves the install where the target platform can be
 # installed: on macOS the cache is keyed for darwin, so only the warm phase
@@ -95,19 +94,37 @@ export UV_CACHE_DIR
 orig_dir=$PWD
 
 # Dockerfile RUN simulation: execute repo code in the finished venv, the
-# way the image build does (storage-initializer: RUN python3 pip-licenses.py).
+# way the image build does. Named operations only - the workflow picks a
+# name and the staging lives here, so no caller-supplied shell source is
+# ever evaluated (CWE-78 shape).
 post_sync() {
-    [ -n "${UV_POST_SYNC_CMD:-}" ] || return 0
-    local dir=${UV_POST_SYNC_DIR:-$project_dir}
-    case "$dir" in
-        /*) ;;
-        *) dir="$orig_dir/$dir" ;;
+    [ -n "${UV_POST_SYNC_OP:-}" ] || return 0
+    case "$UV_POST_SYNC_OP" in
+        storage-licenses)
+            # storage-initializer image:
+            #   COPY pyproject.toml pyproject.toml
+            #   COPY third_party/pip-licenses.py pip-licenses.py
+            #   RUN mkdir -p third_party/library && python3 pip-licenses.py
+            # Stage the same directory shape the image has (so the run
+            # writes licenses into a throwaway dir, not the checkout) and
+            # execute the script against the finished venv.
+            echo "== post-sync step (Dockerfile RUN simulation): $UV_POST_SYNC_OP"
+            local sim
+            sim=$(mktemp -d)
+            (
+                cd "$orig_dir/python"
+                cp pyproject.toml "$sim"/
+                cp third_party/pip-licenses.py "$sim/pip-licenses.py"
+                cd "$sim"
+                mkdir -p third_party/library
+                VIRTUAL_ENV="$venv" PATH="$venv/bin:$PATH" python3 pip-licenses.py
+            )
+            ;;
+        *)
+            echo "❌ unknown UV_POST_SYNC_OP: $UV_POST_SYNC_OP" >&2
+            return 1
+            ;;
     esac
-    echo "== post-sync step (Dockerfile RUN simulation): $UV_POST_SYNC_CMD"
-    (
-        cd "$dir"
-        VIRTUAL_ENV="$venv" PATH="$venv/bin:$PATH" bash -c "$UV_POST_SYNC_CMD"
-    )
 }
 
 venv="$workdir/venv"

@@ -58,19 +58,18 @@ cat -- "${files[@]}" > "$workdir/params.txt"
 # digest. Skips the *-upstream-version entries (plain version strings) and any
 # non-image config.
 #
-# grep exits 1 on no-match, which is expected here (a params file with no
-# image entries), and 2 on real errors (bad regex, unreadable input); sort
-# fails nonzero on its own errors. Only the no-match case is nonfatal:
-# masking the rest (the old '|| true') let a partial images.txt produce a
-# false PASS (CWE-391).
+# Per-stage status checks (CWE-391): a single $? under pipefail reports the
+# RIGHTMOST nonzero status, so a late no-match (1) can hide an earlier grep
+# error (2), and sort itself can exit 1 on its own errors. grep stages may
+# exit 0 or 1 (no-match is expected); sort must exit 0.
 set +e
 grep -vE '^\s*#|^\s*$' "$workdir/params.txt" \
     | grep -E '^[a-zA-Z0-9_-]+=[^ ]*/[^ ]*(:[^ ]+|@sha256:[a-f0-9]{12,})$' \
     | grep -v -- '-upstream-version=' | sort -u > "$workdir/images.txt"
-rc=$?
+st=("${PIPESTATUS[@]}")
 set -e
-if [ "$rc" -gt 1 ]; then
-    echo "❌ image filter pipeline failed (exit $rc)"
+if [ "${st[0]}" -gt 1 ] || [ "${st[1]}" -gt 1 ] || [ "${st[2]}" -gt 1 ] || [ "${st[3]}" -ne 0 ]; then
+    echo "❌ image filter pipeline failed (stage statuses: ${st[*]})"
     exit 1
 fi
 
@@ -82,12 +81,14 @@ grep -vE '^\s*#|^\s*$' "$workdir/params.txt" \
     | grep -E '^[a-zA-Z0-9_-]+=[^ ]*/[^ ]+$' \
     | grep -vE '^[a-zA-Z0-9_-]+=[^ ]*/[^ ]*(:[^ ]+|@sha256:[a-f0-9]{12,})$' \
     | grep -v -- '-upstream-version=' > "$workdir/untagged.txt"
-rc=$?
+st=("${PIPESTATUS[@]}")
 set -e
-if [ "$rc" -gt 1 ]; then
-    echo "❌ untagged-image filter pipeline failed (exit $rc)"
-    exit 1
-fi
+for s in "${st[@]}"; do
+    if [ "$s" -gt 1 ]; then
+        echo "❌ untagged-image filter pipeline failed (stage statuses: ${st[*]})"
+        exit 1
+    fi
+done
 if [ -s "$workdir/untagged.txt" ]; then
     echo "❌ image param(s) without a tag or digest (Kubernetes would resolve :latest):"
     sed 's/^/   /' "$workdir/untagged.txt" >&2
