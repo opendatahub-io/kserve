@@ -21,9 +21,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"k8s.io/utils/ptr"
 
 	"github.com/kserve/kserve/pkg/apis/serving/v1alpha1"
 )
+
+func testRouterTimeouts() *v1alpha1.InfereceGraphRouterTimeouts {
+	return &v1alpha1.InfereceGraphRouterTimeouts{
+		ServerRead:  ptr.To[int64](60),
+		ServerWrite: ptr.To[int64](60),
+		ServerIdle:  ptr.To[int64](60),
+	}
+}
 
 func TestRouterTLSConfigDefaults(t *testing.T) {
 	// Empty flags keep the Go serving defaults: TLS 1.2 minimum, no explicit
@@ -85,23 +94,34 @@ func TestRouterTLSConfigRejectsInvalidInput(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestNewRouterServerRequiresCertPathsWhenTLSEnabled(t *testing.T) {
+	_, err := newRouterServer(routerTLSSettings{Enabled: true}, testRouterTimeouts())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "tls-cert-file")
+}
+
+func TestNewRouterServerWithoutTLS(t *testing.T) {
+	server, err := newRouterServer(routerTLSSettings{}, testRouterTimeouts())
+	require.NoError(t, err)
+	require.Nil(t, server.TLSConfig)
+	require.Nil(t, server.TLSNextProto)
+}
+
 func TestRouterDisablesAutomaticHTTP2Setup(t *testing.T) {
 	// The router is HTTP/1.1 only: the server must carry a non-nil, empty
 	// TLSNextProto so net/http does not auto-configure HTTP/2. The automatic
 	// setup appends h2 to the ALPN list and fails the listener when the
 	// enforced cipher list has no HTTP/2-compatible AES-128-GCM suite.
-	prevTls, prevTimeouts := *enableTlsFlag, routerTimeouts
-	*enableTlsFlag = true
-	sixty := int64(60)
-	routerTimeouts = &v1alpha1.InfereceGraphRouterTimeouts{ServerRead: &sixty, ServerWrite: &sixty, ServerIdle: &sixty}
-	defer func() {
-		*enableTlsFlag = prevTls
-		routerTimeouts = prevTimeouts
-	}()
-
-	server, err := newRouterServer()
+	server, err := newRouterServer(routerTLSSettings{
+		Enabled:          true,
+		MinVersion:       "VersionTLS13",
+		CurvePreferences: "4588,29",
+		CertFile:         "/tmp/tls.crt",
+		KeyFile:          "/tmp/tls.key",
+	}, testRouterTimeouts())
 	require.NoError(t, err)
 	require.NotNil(t, server.TLSNextProto)
 	require.Empty(t, server.TLSNextProto)
+	require.Equal(t, []tls.CurveID{tls.X25519MLKEM768, tls.X25519}, server.TLSConfig.CurvePreferences)
 	require.Equal(t, []string{"http/1.1"}, server.TLSConfig.NextProtos)
 }
