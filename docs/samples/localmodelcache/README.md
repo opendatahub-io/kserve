@@ -46,6 +46,13 @@ the applications or user namespace. Shared-PVC imports that use `pvcRef`
 continue to run in the cache's user namespace and keep their existing credential
 location.
 
+The ODH module supports increasing or decreasing `spec.modelCache.cacheSize` by
+replacing the shared agent PV/PVC and briefly restarting node agents and their
+shared-claim permission jobs. Cached files and existing inference workloads are
+preserved; existing per-model claims retain their original capacity metadata.
+The size is declarative, not a disk resize or enforced quota. Keep the existing
+cache nodes and backing directories available throughout the change.
+
 The standalone examples below continue to use `kserve-localmodel-jobs`; that is
 the default job namespace for those examples and is separate from the ODH module
 configuration.

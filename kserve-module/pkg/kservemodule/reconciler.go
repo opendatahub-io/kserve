@@ -401,6 +401,9 @@ func (r *KserveModuleReconciler) reconcile(ctx context.Context, kserve *platform
 		if err := r.prepareModelCacheCutover(ctx, modelCacheResources); err != nil {
 			return map[string]error{ModelCacheComponentName: fmt.Errorf("preparing ModelCache namespace cutover: %w", err)}
 		}
+		if err := r.prepareModelCacheResize(ctx, kserve); err != nil {
+			return map[string]error{ModelCacheComponentName: fmt.Errorf("preparing ModelCache capacity change: %w", err)}
+		}
 	}
 
 	owned, unowned := splitByOwnership(allResources)
