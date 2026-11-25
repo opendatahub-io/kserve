@@ -7,8 +7,15 @@ import (
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+
+	"github.com/opendatahub-io/odh-platform-utilities/api/common"
+
+	platformv1alpha1 "github.com/opendatahub-io/kserve-module/pkg/apis/v1alpha1"
 )
 
 // Deterministic regression guard for RHOAIENG-88471.
@@ -47,7 +54,7 @@ func crdMeta(name string) *apiextensionsv1.CustomResourceDefinition {
 	return &apiextensionsv1.CustomResourceDefinition{ObjectMeta: metav1.ObjectMeta{Name: name}}
 }
 
-func TestDynamicWatchCRDNames_IncludesSelfInstalledServingCRDs(t *testing.T) {
+func TestDynamicWatchCRDNames_IncludesServingCRDs(t *testing.T) {
 	g := NewWithT(t)
 	names := reconcilerWithDynamicWatches().dynamicWatchCRDNames()
 
@@ -64,17 +71,19 @@ func TestCRDResourceName_MatchesExistenceCheckDerivation(t *testing.T) {
 		To(Equal("llminferenceserviceconfigs.serving.kserve.io"))
 }
 
-// TestCRDWatchPredicate_EnqueuesForSelfInstalledCRD is the core guard: the
-// predicate the CRD watch actually uses must fire for a serving.kserve.io CRD
-// this module installs itself. If the wiring regresses to crdNamePredicate(nil),
-// this fails.
-func TestCRDWatchPredicate_EnqueuesForSelfInstalledCRD(t *testing.T) {
+// TestCRDWatchPredicate_EnqueuesForDynamicWatchCRDs is the core guard: the
+// predicate the CRD watch actually uses must fire for serving.kserve.io CRDs
+// this module installs, including the optional ModelCache CRD.
+func TestCRDWatchPredicate_EnqueuesForDynamicWatchCRDs(t *testing.T) {
 	g := NewWithT(t)
 	pred := reconcilerWithDynamicWatches().crdWatchPredicate()
 
 	preset := crdMeta("llminferenceserviceconfigs.serving.kserve.io")
 	g.Expect(pred.Create(event.CreateEvent{Object: preset})).To(BeTrue(),
 		"installing the self-shipped LLMInferenceServiceConfig CRD must enqueue a reconcile")
+	g.Expect(pred.Create(event.CreateEvent{
+		Object: crdMeta("localmodelnodegroups.serving.kserve.io"),
+	})).To(BeTrue(), "enabling ModelCache must enqueue a reconcile to register its watch")
 
 	// Dependency CRDs (matched by exact name and by suffix) must still enqueue.
 	g.Expect(pred.Create(event.CreateEvent{
@@ -90,10 +99,8 @@ func TestCRDWatchPredicate_EnqueuesForSelfInstalledCRD(t *testing.T) {
 	})).To(BeFalse())
 }
 
-// TestDynamicWatches_SelfInstalledFlags pins which watches gate the happy path.
-// The reconcile requeues until every selfInstalled watch registers; that must
-// cover exactly the CRDs this module installs itself (serving.kserve.io) and not
-// external/optional CRDs, which would otherwise requeue forever when absent.
+// TestDynamicWatches_SelfInstalledFlags pins which watches always gate the happy
+// path. The ModelCache watch gates only when ModelCache is enabled.
 func TestDynamicWatches_SelfInstalledFlags(t *testing.T) {
 	g := NewWithT(t)
 	selfInstalled := map[string]bool{}
@@ -102,9 +109,38 @@ func TestDynamicWatches_SelfInstalledFlags(t *testing.T) {
 	}
 
 	g.Expect(selfInstalled).To(HaveKeyWithValue("llminferenceserviceconfigs.serving.kserve.io", true))
-	g.Expect(selfInstalled).To(HaveKeyWithValue("localmodelnodegroups.serving.kserve.io", true))
+	// ModelCache is optional, so an absent LocalModelNodeGroup CRD cannot
+	// keep the reconciler requeuing when ModelCache is disabled.
+	g.Expect(selfInstalled).To(HaveKeyWithValue("localmodelnodegroups.serving.kserve.io", false))
 	// External operator CRD: must not hold up the happy path when absent.
 	g.Expect(selfInstalled).To(HaveKeyWithValue("leaderworkersetoperators.operator.openshift.io", false))
+}
+
+func TestRegisterDynamicWatches_AbsentModelCacheCRDRespectsManagementState(t *testing.T) {
+	g := NewWithT(t)
+	scheme := runtime.NewScheme()
+	g.Expect(apiextensionsv1.AddToScheme(scheme)).To(Succeed())
+
+	r := reconcilerWithDynamicWatches()
+	r.apiReader = fake.NewClientBuilder().WithScheme(scheme).Build()
+	r.controller = &struct{ controller.Controller }{}
+	for _, watch := range r.dynamicWatches {
+		if watch.gvk != localModelNodeGroupGVK {
+			watch.registered = true
+		}
+	}
+
+	disabled := &platformv1alpha1.Kserve{}
+	g.Expect(r.registerDynamicWatches(t.Context(), disabled)).To(BeFalse())
+	removed := &platformv1alpha1.Kserve{Spec: platformv1alpha1.KserveSpec{
+		ModelCache: &platformv1alpha1.ModelCacheSpec{ManagementState: common.Removed},
+	}}
+	g.Expect(r.registerDynamicWatches(t.Context(), removed)).To(BeFalse())
+
+	enabled := &platformv1alpha1.Kserve{Spec: platformv1alpha1.KserveSpec{
+		ModelCache: &platformv1alpha1.ModelCacheSpec{ManagementState: common.Managed},
+	}}
+	g.Expect(r.registerDynamicWatches(t.Context(), enabled)).To(BeTrue())
 }
 
 // TestRegisterDynamicWatches_NilControllerNotPending guards that registration
@@ -113,7 +149,7 @@ func TestDynamicWatches_SelfInstalledFlags(t *testing.T) {
 func TestRegisterDynamicWatches_NilControllerNotPending(t *testing.T) {
 	g := NewWithT(t)
 	r := reconcilerWithDynamicWatches() // r.controller is nil
-	g.Expect(r.registerDynamicWatches(t.Context())).To(BeFalse())
+	g.Expect(r.registerDynamicWatches(t.Context(), &platformv1alpha1.Kserve{})).To(BeFalse())
 }
 
 // TestCRDNamePredicate_WithoutDynamicWatchNames_IsTheBug documents that the
