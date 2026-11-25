@@ -1,0 +1,29 @@
+//go:build !distro
+
+/*
+Copyright 2026 The KServe Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package pod
+
+import (
+	corev1 "k8s.io/api/core/v1"
+)
+
+// withPlatformStorageInitializerDefaults returns the expected pod spec unchanged in
+// upstream builds. Distribution builds add what their storage initializer hook injects.
+func withPlatformStorageInitializerDefaults(spec corev1.PodSpec) corev1.PodSpec {
+	return spec
+}

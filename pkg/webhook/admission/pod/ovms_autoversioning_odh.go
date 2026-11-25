@@ -34,6 +34,7 @@ import (
 // postInjectStorageInitializer runs at the end of InjectStorageInitializer, after
 // CommonStorageInitialization succeeded. Pods without a storage URI annotation never reach it.
 func (mi *StorageInitializerInjector) postInjectStorageInitializer(pod *corev1.Pod) error {
+	mi.defaultODHCustomCABundle(pod)
 	return mi.InjectOVMSAutoVersioning(pod)
 }
 
