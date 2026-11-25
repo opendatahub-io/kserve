@@ -472,6 +472,14 @@ rules:
 - apiGroups:
   - serving.kserve.io
   resources:
+  - llminferenceservices
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - serving.kserve.io
+  resources:
   - localmodelcaches
   - localmodelnamespacecaches
   verbs:
