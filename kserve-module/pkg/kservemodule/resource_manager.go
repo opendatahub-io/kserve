@@ -129,7 +129,24 @@ func (r *KserveModuleReconciler) defaultCleanup(ctx context.Context, comp compon
 		log.Info("manifest directory not found, nothing to clean up", "component", comp.name, "path", renderPath)
 		return nil
 	}
-	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.getApplicationsNamespace()))
+
+	// ModelCache is the one component whose managed resources moved from the
+	// applications namespace to a dedicated namespace.  When the feature is
+	// disabled during an upgrade, the normal cleanup render targets the new
+	// namespace and cannot discover the old workloads, namespaced manifests, or
+	// controller-created download volumes.  Run the same ordered cutover used
+	// by the managed path before deleting the current render.
+	if comp.name == ModelCacheComponentName {
+		oldResources, err := kustomize.Render(renderPath, nil,
+			kustomize.WithNamespace(r.getApplicationsNamespace()))
+		if err != nil {
+			return fmt.Errorf("rendering old ModelCache manifests for cleanup: %w", err)
+		}
+		if err := r.prepareModelCacheCutover(ctx, oldResources); err != nil {
+			return fmt.Errorf("preparing old ModelCache namespace cleanup: %w", err)
+		}
+	}
+	resources, err := kustomize.Render(renderPath, nil, kustomize.WithNamespace(r.componentNamespace(comp)))
 	if err != nil {
 		return fmt.Errorf("rendering %s manifests for cleanup: %w", comp.name, err)
 	}

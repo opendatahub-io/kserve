@@ -106,8 +106,10 @@ func (r *LLMISVCReconciler) attachModelArtifacts(ctx context.Context, serviceAcc
 		return nil
 	}
 
+	nativeModelExpress := containerName == mainContainerName && config.ModelExpress.native()
+
 	// Rewrite model URI to use cached PVC when local model cache is active
-	if _, ok := llmSvc.Labels[constants.LocalModelLabel]; ok {
+	if _, ok := llmSvc.Labels[constants.LocalModelLabel]; ok && !nativeModelExpress {
 		sourceUri, ok := llmSvc.Annotations[constants.LocalModelSourceUriAnnotationKey]
 		if !ok {
 			return fmt.Errorf("LLMInferenceService %s/%s: annotation %s not found", llmSvc.Namespace, llmSvc.Name, constants.LocalModelSourceUriAnnotationKey)
@@ -180,11 +182,18 @@ func (r *LLMISVCReconciler) attachModelArtifacts(ctx context.Context, serviceAcc
 		}
 
 	case constants.HfURIPrefix:
-		if len(loraPairs) == 0 {
+		switch {
+		case nativeModelExpress && len(loraPairs) > 0:
+			if err := r.attachMultiStorageDownloads(ctx, serviceAccount, llmSvc, curr, podSpec, config.StorageConfig, config.CredentialConfig, containerName, loraPairs); err != nil {
+				return err
+			}
+		case nativeModelExpress:
+			extractAndStripStorageInitializer(podSpec)
+		case len(loraPairs) == 0:
 			if err := r.attachHfModelArtifact(ctx, serviceAccount, llmSvc, modelUri, curr, podSpec, config.StorageConfig, config.CredentialConfig, containerName, modelPath); err != nil {
 				return err
 			}
-		} else {
+		default:
 			pairs := append([]storageDownloadPair{{uri: modelUri, path: constants.DefaultModelLocalMountPath}}, loraPairs...)
 			if err := r.attachMultiStorageDownloads(ctx, serviceAccount, llmSvc, curr, podSpec, config.StorageConfig, config.CredentialConfig, containerName, pairs); err != nil {
 				return err
@@ -195,6 +204,11 @@ func (r *LLMISVCReconciler) attachModelArtifacts(ctx context.Context, serviceAcc
 		if len(loraPairs) == 0 {
 			if err := r.attachS3ModelArtifact(ctx, serviceAccount, llmSvc, modelUri, curr, podSpec, config.StorageConfig, config.CredentialConfig, containerName, modelPath); err != nil {
 				return err
+			}
+			if nativeModelExpress {
+				if err := attachModelExpressObjectStore(podSpec, containerName, modelUri); err != nil {
+					return err
+				}
 			}
 		} else {
 			pairs := append([]storageDownloadPair{{uri: modelUri, path: constants.DefaultModelLocalMountPath}}, loraPairs...)
@@ -368,13 +382,7 @@ func (r *LLMISVCReconciler) attachHfModelArtifact(ctx context.Context, serviceAc
 		}
 
 		currentInitContainer := utils.GetInitContainerWithName(&curr, constants.StorageInitializerContainerName)
-
-		// Add HF default env vars when the init container is new or already has HF_ env vars
-		// from a previous reconciliation. Skip only when upgrading from an older operator version
-		// that didn't set these vars, to avoid unnecessary pod restarts.
-		if currentInitContainer == nil || slices.ContainsFunc(currentInitContainer.Env, func(e corev1.EnvVar) bool {
-			return strings.HasPrefix(e.Name, "HF_")
-		}) {
+		if addsDefaultHFEnv(currentInitContainer, initContainer.Args) {
 			utils.AddDefaultHuggingFaceEnvVars(initContainer)
 		}
 
@@ -384,6 +392,21 @@ func (r *LLMISVCReconciler) attachHfModelArtifact(ctx context.Context, serviceAc
 	}
 
 	return nil
+}
+
+// addsDefaultHFEnv reports whether the storage-initializer gets the default Hugging
+// Face download environment variables. It returns true when there is no live init
+// container, when the live container downloads a different set of arguments, or when
+// the live container already carries an HF_ variable. A live container that runs the
+// same downloads without any HF_ variable keeps that environment, so a controller
+// upgrade does not restart its pod.
+func addsDefaultHFEnv(current *corev1.Container, args []string) bool {
+	if current == nil || !slices.Equal(current.Args, args) {
+		return true
+	}
+	return slices.ContainsFunc(current.Env, func(e corev1.EnvVar) bool {
+		return strings.HasPrefix(e.Name, "HF_")
+	})
 }
 
 // attachStorageInitializer configures a PodSpec to use KServe storage-initializer for
@@ -568,9 +591,7 @@ func (r *LLMISVCReconciler) attachMultiStorageDownloads(
 		return strings.HasPrefix(p.uri, constants.HfURIPrefix)
 	})
 	currentInit := utils.GetInitContainerWithName(&curr, constants.StorageInitializerContainerName)
-	if needHF && (currentInit == nil || slices.ContainsFunc(currentInit.Env, func(e corev1.EnvVar) bool {
-		return strings.HasPrefix(e.Name, "HF_")
-	})) {
+	if needHF && addsDefaultHFEnv(currentInit, initPtr.Args) {
 		utils.AddDefaultHuggingFaceEnvVars(initPtr)
 	}
 

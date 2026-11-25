@@ -163,6 +163,21 @@ func TestCustomizeServiceAuthProxyPort(t *testing.T) {
 			args:           []string{constants.ArgumentHttpPort, "not-a-port"},
 			wantTargetPort: constants.TransformerHTTPSPort,
 		},
+		{
+			name:           "zero --http_port falls back to the HTTPS port",
+			args:           []string{constants.ArgumentHttpPort, "0"},
+			wantTargetPort: constants.TransformerHTTPSPort,
+		},
+		{
+			name:           "negative --http_port falls back to the HTTPS port",
+			args:           []string{constants.ArgumentHttpPort, "-1"},
+			wantTargetPort: constants.TransformerHTTPSPort,
+		},
+		{
+			name:           "oversized --http_port falls back to the HTTPS port",
+			args:           []string{constants.ArgumentHttpPort + "=65536"},
+			wantTargetPort: constants.TransformerHTTPSPort,
+		},
 	}
 	for _, tc := range targetPortCases {
 		t.Run(tc.name, func(t *testing.T) {

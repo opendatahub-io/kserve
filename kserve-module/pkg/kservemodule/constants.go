@@ -11,8 +11,14 @@ var (
 
 	llmISVCConfigListGVK = llmISVCConfigGVK.GroupVersion().WithKind(llmISVCConfigKind + "List")
 
+	clusterServingRuntimeGK = schema.GroupKind{
+		Group: "serving.kserve.io",
+		Kind:  "ClusterServingRuntime",
+	}
+
 	unownedGroupKinds = map[schema.GroupKind]struct{}{
 		llmISVCConfigGVK.GroupKind(): {},
+		clusterServingRuntimeGK:     {},
 	}
 )
 
@@ -67,6 +73,7 @@ const (
 	configHashAnnotationKey           = "kserve-module/config-hash"
 	oauthProxyConfigKeyName           = "oauthProxy"
 	openshiftConfigKeyName            = "openshiftConfig"
+	llmisvcConfigKeyName              = "llmisvc"
 
 	// KServe-owned RHCL TelemetryPolicy for LLMInferenceService OCSF audit events.
 	telemetryPolicyGVKName         = "telemetrypolicies.extensions.kuadrant.io"

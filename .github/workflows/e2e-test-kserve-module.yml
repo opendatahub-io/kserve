@@ -5,10 +5,12 @@ on:
     branches: [master, release*, stable]
     paths:
       - "kserve-module/**"
+      - ".github/workflows/e2e-test-kserve-module.yml"
   pull_request:
     branches: [master, release*, stable]
     paths:
       - "kserve-module/**"
+      - ".github/workflows/e2e-test-kserve-module.yml"
   workflow_dispatch:
     inputs:
       base_ref:
@@ -58,11 +60,45 @@ jobs:
     with:
       image-name: kserve-module-controller
       image-tag: e2e
+      image-pull-policy: IfNotPresent
     permissions:
       contents: read
 
+  build-llmisvc-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+
+      - name: Free up disk space
+        uses: ./.github/actions/free-up-disk-space
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      - name: Build PR LLMISVC controller image
+        env:
+          KO_DOCKER_REPO: kserve
+          TAG: ${{ github.sha }}
+        run: |
+          make docker-build-llmisvc
+          docker save "kserve/llmisvc-controller:${TAG}" \
+            -o "${RUNNER_TEMP}/llmisvc-controller.tar"
+
+      - name: Upload PR LLMISVC controller image
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: llmisvc-controller
+          path: ${{ runner.temp }}/llmisvc-controller.tar
+          retention-days: 1
+          if-no-files-found: error
+
   e2e-test:
-    needs: [resolve-base-ref, build-image-base, build-image]
+    needs: [resolve-base-ref, build-image-base, build-image, build-llmisvc-image]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -72,6 +108,8 @@ jobs:
       BASE_IMG_TAG: ${{ needs.build-image-base.outputs.image-tag }}
       IMG_NAME: ${{ needs.build-image.outputs.image-name }}
       IMG_TAG: ${{ needs.build-image.outputs.image-tag }}
+      LLMISVC_IMG_NAME: kserve/llmisvc-controller
+      LLMISVC_IMG_TAG: ${{ github.sha }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -92,12 +130,20 @@ jobs:
           name: ${{ env.IMG_NAME }}
           path: /tmp/upgrade-image
 
+      - name: Download PR LLMISVC controller image
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: llmisvc-controller
+          path: /tmp/llmisvc-image
+
       - name: Load controller images
         run: |
           docker image load -i /tmp/base-image/${{ env.BASE_IMG_NAME }}.tar
           docker image load -i /tmp/upgrade-image/${{ env.IMG_NAME }}.tar
+          docker image load -i /tmp/llmisvc-image/llmisvc-controller.tar
           minikube image load ${{ env.BASE_IMG_NAME }}:${{ env.BASE_IMG_TAG }}
           minikube image load ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+          minikube image load ${{ env.LLMISVC_IMG_NAME }}:${{ env.LLMISVC_IMG_TAG }}
 
       - name: Verify base and upgrade images differ
         run: |
@@ -139,11 +185,27 @@ jobs:
       - name: Roll module controller to upgrade image
         env:
           KSERVE_MODULE_UPGRADE_IMAGE: ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+          LLMISVC_CONTROLLER_IMAGE: ${{ env.LLMISVC_IMG_NAME }}:${{ env.LLMISVC_IMG_TAG }}
         run: make e2e-roll-kserve-module PLATFORM=xks E2E_IMG=${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+
+      - name: Verify PR LLMISVC controller is running
+        env:
+          LLMISVC_CONTROLLER_IMAGE: ${{ env.LLMISVC_IMG_NAME }}:${{ env.LLMISVC_IMG_TAG }}
+        run: |
+          kubectl wait deployment/llmisvc-controller-manager -n opendatahub \
+            --for="jsonpath={.spec.template.spec.containers[0].image}=${LLMISVC_CONTROLLER_IMAGE}" \
+            --timeout=300s
+          kubectl rollout status deployment/llmisvc-controller-manager \
+            -n opendatahub --timeout=300s
+          pull_policy=$(kubectl get deployment/llmisvc-controller-manager \
+            -n opendatahub -o jsonpath='{.spec.template.spec.containers[0].imagePullPolicy}')
+          test "${pull_policy}" = IfNotPresent
+          kubectl wait kserve/default-kserve --for=condition=Ready --timeout=300s
 
       - name: Run post-upgrade tests (Part A + Part B)
         env:
           KSERVE_MODULE_UPGRADE_IMAGE: ${{ env.IMG_NAME }}:${{ env.IMG_TAG }}
+          LLMISVC_CONTROLLER_IMAGE: ${{ env.LLMISVC_IMG_NAME }}:${{ env.LLMISVC_IMG_TAG }}
         run: make e2e-kserve-module PYTEST_ARGS='-m post_upgrade --post-upgrade'
 
       - name: Run E2E tests

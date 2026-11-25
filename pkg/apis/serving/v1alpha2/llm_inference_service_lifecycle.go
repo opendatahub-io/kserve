@@ -44,7 +44,7 @@ const (
 
 	// WorkloadReady is True when all workload sub-conditions (MainWorkloadReady,
 	// WorkerWorkloadReady, PrefillWorkloadReady, PrefillWorkerWorkloadReady,
-	// ScalingReady, PrefillScalingReady) that are present are True.
+	// ScalingReady, PrefillScalingReady, PVCEvictorReady) that are present are True.
 	// Aggregated by DetermineWorkloadReadiness. Always present.
 	WorkloadReady apis.ConditionType = "WorkloadsReady"
 
@@ -90,6 +90,11 @@ const (
 	// Only present when autoscaling is configured for the prefill workload in
 	// P/D disaggregated serving topologies; cleared (unset) otherwise.
 	PrefillScalingReady apis.ConditionType = "PrefillScalingReady"
+
+	// PVCEvictorReady is True when all shared PVC evictor Deployments required by
+	// this service have available replicas. Only present when pvc.ref evictors
+	// are configured.
+	PVCEvictorReady apis.ConditionType = "PVCEvictorReady"
 )
 
 // Router sub-conditions rolled up into RouterReady.
@@ -155,10 +160,19 @@ const (
 	// DisaggregatedSet backend, by default through its P/D presets or in its own
 	// spec.annotations, runs on it. False when the service keeps its current
 	// workloads, with reason FeatureGateDisabled, CRDNotInstalled,
-	// NoPrefillWorkload, AutoscalingNotSupported or ReplicasMismatch.
+	// NoPrefillWorkload, RoleScalerNotInstalled or ReplicasMismatch.
 	// Independent of the Ready rollup - the current workloads keep serving.
 	// Only present when the backend is requested; absent means not requested.
 	DisaggregatedSetUsed apis.ConditionType = "DisaggregatedSetUsed"
+)
+
+const (
+	// ModelExpressReady is True when ModelExpress is configured into the engine
+	// pods. False in native mode means the workload is not rendered; False in
+	// layered mode means the workload renders without ModelExpress.
+	// Independent of the Ready rollup.
+	// Only present when serving.kserve.io/exp-modelexpress-mode is set.
+	ModelExpressReady apis.ConditionType = "ModelExpressReady"
 )
 
 var llmInferenceServiceCondSet = apis.NewLivingConditionSet(
@@ -223,6 +237,18 @@ func (in *LLMInferenceService) MarkPrefillWorkerWorkloadUnset() {
 	_ = in.GetConditionSet().Manage(in.GetStatus()).ClearCondition(PrefillWorkerWorkloadReady)
 }
 
+func (in *LLMInferenceService) MarkModelExpressReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(ModelExpressReady)
+}
+
+func (in *LLMInferenceService) MarkModelExpressNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(ModelExpressReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) MarkModelExpressUnset() {
+	_ = in.GetConditionSet().Manage(in.GetStatus()).ClearCondition(ModelExpressReady)
+}
+
 func (in *LLMInferenceService) MarkScalingReady() {
 	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(ScalingReady)
 }
@@ -247,6 +273,18 @@ func (in *LLMInferenceService) MarkPrefillScalingUnset() {
 	_ = in.GetConditionSet().Manage(in.GetStatus()).ClearCondition(PrefillScalingReady)
 }
 
+func (in *LLMInferenceService) MarkPVCEvictorReady() {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkTrue(PVCEvictorReady)
+}
+
+func (in *LLMInferenceService) MarkPVCEvictorNotReady(reason, messageFormat string, messageA ...interface{}) {
+	in.GetConditionSet().Manage(in.GetStatus()).MarkFalse(PVCEvictorReady, reason, messageFormat, messageA...)
+}
+
+func (in *LLMInferenceService) MarkPVCEvictorUnset() {
+	_ = in.GetConditionSet().Manage(in.GetStatus()).ClearCondition(PVCEvictorReady)
+}
+
 // DetermineWorkloadReadiness rolls up sub-conditions into the top-level WorkloadsReady
 // condition. Any sub-condition that is False blocks overall readiness.
 //
@@ -263,6 +301,7 @@ func (in *LLMInferenceService) DetermineWorkloadReadiness() {
 		in.GetStatus().GetCondition(PrefillWorkerWorkloadReady),
 		in.GetStatus().GetCondition(ScalingReady),
 		in.GetStatus().GetCondition(PrefillScalingReady),
+		in.GetStatus().GetCondition(PVCEvictorReady),
 	}
 
 	for _, cond := range subConditions {

@@ -1,0 +1,30 @@
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: tls-scanner-sklearn-v1
+  labels:
+    networking.kserve.io/visibility: exposed
+    tests.kserve.io/tls-scanner-fixture: "true"
+  annotations:
+    security.opendatahub.io/enable-auth: "true"
+    serving.kserve.io/autoscalerClass: external
+    serving.kserve.io/deploymentMode: Standard
+spec:
+  predictor:
+    minReplicas: 1
+    maxReplicas: 1
+    model:
+      modelFormat:
+        name: sklearn
+        version: "1"
+      protocolVersion: v1
+      resources:
+        limits:
+          cpu: 100m
+          memory: 512Mi
+        requests:
+          cpu: 50m
+          memory: 128Mi
+      runtime: kserve-sklearnserver
+      storageUri: gs://kfserving-examples/models/sklearn/1.0/model

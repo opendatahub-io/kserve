@@ -42,4 +42,8 @@ jobs:
             - name: vet + compile (incl. test files)
               env:
                   GOFLAGS: ${{ matrix.tags != '' && format('-tags={0}', matrix.tags) || '' }}
+                  # go keeps every linked test binary (~9 GB) in its temp dir until it exits;
+                  # ubuntu-26.04 mounts /tmp as a tmpfs with a smaller per-user quota.
+                  # https://github.com/actions/runner-images/issues/14777
+                  GOTMPDIR: ${{ runner.temp }}
               run: go test -vet=all -c -o /dev/null ./...

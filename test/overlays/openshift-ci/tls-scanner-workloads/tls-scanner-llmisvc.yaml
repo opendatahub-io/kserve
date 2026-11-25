@@ -1,0 +1,10 @@
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: tls-scanner-llm
+  labels:
+    tests.kserve.io/tls-scanner-fixture: "true"
+spec:
+  baseRefs:
+    - name: tls-scanner-llm-config

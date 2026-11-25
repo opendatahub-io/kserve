@@ -173,7 +173,22 @@ class TestModelExpressLifecycle:
                 assert AUTH_DELEGATOR_FINALIZER in finalizers, \
                     f"operator should add {AUTH_DELEGATOR_FINALIZER}, got {finalizers!r}"
 
-            wait_for(assert_finalizer_held, timeout=TIMEOUT_120S, interval=5)
+            # The finalizer is added only at the end of a successful reconcile,
+            # and the operator requeues config-class errors after 120s. Waiting
+            # 120s here leaves no room for a retry, so use the cold-start timeout.
+            try:
+                wait_for(assert_finalizer_held, timeout=TIMEOUT_300S, interval=5)
+            except AssertionError as exc:
+                # The operator writes the reconcile failure into the CR status
+                # (Ready=False, reason=<error class>), so surface it rather than
+                # only the missing finalizer.
+                conditions = get_jsonpath(
+                    kubectl, "modelexpressserver", MXS_NAME,
+                    "{.status.conditions}", namespace=MXS_NAMESPACE,
+                )
+                raise AssertionError(
+                    f"{exc}; ModelExpressServer conditions: {conditions}"
+                ) from exc
 
             _set_state(kubectl, "Removed")
 

@@ -102,7 +102,7 @@ func (r *KernelCacheNodeReconciler) isRelevantJob(obj client.Object) bool {
 
 func (r *KernelCacheNodeReconciler) inferenceServiceConfigMapPredicate() predicate.Funcs {
 	return predicate.NewPredicateFuncs(func(obj client.Object) bool {
-		return obj.GetNamespace() == constants.KServeNamespace && obj.GetName() == constants.InferenceServiceConfigMapName
+		return obj.GetNamespace() == inferenceServiceConfigNamespace() && obj.GetName() == constants.InferenceServiceConfigMapName
 	})
 }
 

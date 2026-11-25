@@ -28,3 +28,9 @@ func (m *MockDeployer) LastCall() *deploy.DeployInput {
 	}
 	return &m.Calls[len(m.Calls)-1]
 }
+
+func (m *MockDeployer) GetCalls() []deploy.DeployInput {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]deploy.DeployInput(nil), m.Calls...)
+}

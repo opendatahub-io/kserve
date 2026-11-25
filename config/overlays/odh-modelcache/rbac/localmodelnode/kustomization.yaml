@@ -3,3 +3,5 @@ kind: Kustomization
 resources:
 - role.yaml
 - clusterrolebinding.yaml
+- cabundle_read_role.yaml
+- cabundle_read_rolebinding.yaml

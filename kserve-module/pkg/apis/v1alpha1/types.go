@@ -103,6 +103,25 @@ type KserveSpec struct {
 	// Enabled by default.
 	EnableLLMInferenceServiceConsoleDashboards *bool `json:"enableLLMInferenceServiceConsoleDashboards,omitempty"`
 
+	// EnableLLMInferenceServiceStrictNetworkPolicy enables the restrictive
+	// (least-privilege) per-LLMInferenceService NetworkPolicies that isolate
+	// workload, scheduler and tokenizer Pods. Disabled by default: a single
+	// per-service allow-all NetworkPolicy is created instead, for seamless
+	// upgrades from releases that did not restrict pod traffic.
+	EnableLLMInferenceServiceStrictNetworkPolicy *bool `json:"enableLLMInferenceServiceStrictNetworkPolicy,omitempty"`
+
+	// EnableLLMInferenceServiceDisaggregatedSet sets the disaggregatedSet feature
+	// gate of the LLMInferenceService controller. When enabled, prefill/decode
+	// LLMInferenceServices whose merged spec.annotations set
+	// serving.kserve.io/enable-disaggregated-set to "true", as the prefill/decode
+	// presets do, run both roles as one DisaggregatedSet. Requires the
+	// DisaggregatedSet CRD from LWS v0.9.0 or later. Enabling it replaces the
+	// Deployments or LeaderWorkerSets of running prefill/decode services, and each
+	// service is unavailable until its new pods are ready; disabling it moves them
+	// back the same way. A service keeps its workloads by setting the annotation
+	// to "false" in its own spec.annotations. Disabled when unset.
+	EnableLLMInferenceServiceDisaggregatedSet *bool `json:"enableLLMInferenceServiceDisaggregatedSet,omitempty"`
+
 	// Enables hardware-aware creation of accelerator LLMInferenceServiceConfig presets:
 	// presets for an accelerator are only created when a matching resource is present in
 	// some node's status.allocatable or is published by a DRA ResourceSlice driver listed

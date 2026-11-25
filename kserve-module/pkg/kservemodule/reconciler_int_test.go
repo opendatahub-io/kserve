@@ -797,11 +797,11 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			}).WithContext(ctx).Should(Succeed())
 
-			lastCall := mockDeployer().LastCall()
-			Expect(lastCall).NotTo(BeNil())
-			for _, res := range lastCall.Resources {
-				Expect(res.GetName()).NotTo(Equal("model-serving-llms-cluster-health"),
-					"console dashboard ConfigMaps should not be deployed when namespace does not exist")
+			for _, call := range mockDeployer().GetCalls() {
+				for _, res := range call.Resources {
+					Expect(res.GetName()).NotTo(Equal("model-serving-llms-cluster-health"),
+						"console dashboard ConfigMaps should not be deployed when namespace does not exist")
+				}
 			}
 		})
 
@@ -815,15 +815,17 @@ var _ = Describe("KserveModule Reconciler", func() {
 			triggerReconcile(ctx, cr, "console-dashboards-with-ns")
 
 			Eventually(func(g Gomega) {
-				lastCall := mockDeployer().LastCall()
-				g.Expect(lastCall).NotTo(BeNil())
+				calls := mockDeployer().GetCalls()
+				g.Expect(calls).NotTo(BeEmpty())
 
 				hasDashboard := false
-				for _, res := range lastCall.Resources {
-					if res.GetKind() == "ConfigMap" && res.GetName() == "model-serving-llms-cluster-health" {
-						g.Expect(res.GetNamespace()).To(Equal("openshift-config-managed"))
-						hasDashboard = true
-						break
+				for _, call := range calls {
+					for _, res := range call.Resources {
+						if res.GetKind() == "ConfigMap" && res.GetName() == "model-serving-llms-cluster-health" {
+							g.Expect(res.GetNamespace()).To(Equal("openshift-config-managed"))
+							hasDashboard = true
+							break
+						}
 					}
 				}
 				g.Expect(hasDashboard).To(BeTrue(), "console dashboard ConfigMap should be in deployed resources")
@@ -831,6 +833,8 @@ var _ = Describe("KserveModule Reconciler", func() {
 		})
 
 		It("does not include console dashboard resources when explicitly disabled", func(ctx SpecContext) {
+			callsBefore := len(mockDeployer().GetCalls())
+
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
 					return err
@@ -841,17 +845,21 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) {
-				lastCall := mockDeployer().LastCall()
-				g.Expect(lastCall).NotTo(BeNil())
+				calls := mockDeployer().GetCalls()
+				g.Expect(len(calls)).To(BeNumerically(">", callsBefore))
 
-				for _, res := range lastCall.Resources {
-					g.Expect(res.GetName()).NotTo(Equal("model-serving-llms-cluster-health"),
-						"console dashboard ConfigMaps should not be deployed when explicitly disabled")
+				for _, call := range calls[callsBefore:] {
+					for _, res := range call.Resources {
+						g.Expect(res.GetName()).NotTo(Equal("model-serving-llms-cluster-health"),
+							"console dashboard ConfigMaps should not be deployed when explicitly disabled")
+					}
 				}
 			}).WithContext(ctx).Should(Succeed())
 		})
 
 		It("re-enables console dashboard resources when flag is set back to true", func(ctx SpecContext) {
+			callsBefore := len(mockDeployer().GetCalls())
+
 			err := retry.RetryOnConflict(retry.DefaultRetry, func() error {
 				if err := testEnv.Client.Get(ctx, client.ObjectKeyFromObject(cr), cr); err != nil {
 					return err
@@ -862,15 +870,17 @@ var _ = Describe("KserveModule Reconciler", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Eventually(func(g Gomega) {
-				lastCall := mockDeployer().LastCall()
-				g.Expect(lastCall).NotTo(BeNil())
+				calls := mockDeployer().GetCalls()
+				g.Expect(len(calls)).To(BeNumerically(">", callsBefore))
 
 				hasDashboard := false
-				for _, res := range lastCall.Resources {
-					if res.GetKind() == "ConfigMap" && res.GetName() == "model-serving-llms-cluster-health" {
-						g.Expect(res.GetNamespace()).To(Equal("openshift-config-managed"))
-						hasDashboard = true
-						break
+				for _, call := range calls[callsBefore:] {
+					for _, res := range call.Resources {
+						if res.GetKind() == "ConfigMap" && res.GetName() == "model-serving-llms-cluster-health" {
+							g.Expect(res.GetNamespace()).To(Equal("openshift-config-managed"))
+							hasDashboard = true
+							break
+						}
 					}
 				}
 				g.Expect(hasDashboard).To(BeTrue(), "console dashboard ConfigMap should be deployed after re-enabling")
@@ -976,6 +986,45 @@ var _ = Describe("KserveModule Reconciler", func() {
 				g.Expect(d["cpuRequest"]).To(Equal("100m"))
 				g.Expect(d["cpuLimit"]).To(Equal("200m"))
 				g.Expect(d["image"]).To(Equal("registry.example.com/oauth-proxy:latest"))
+			}).WithContext(ctx).Should(Succeed())
+		})
+	})
+
+	Context("CSR version stamping", Ordered, func() {
+		var cr *platformv1alpha1.Kserve
+
+		BeforeAll(func(ctx SpecContext) {
+			testEnv.Reconciler.Deployer = &fixture.MockDeployer{}
+
+			cr = fixture.KserveCR(fixture.WithAnnotation("platform.opendatahub.io/version", "3.6.0"))
+			Expect(testEnv.Client.Create(ctx, cr)).To(Succeed())
+
+			DeferCleanup(func(ctx SpecContext) {
+				deleteAndWaitGone(ctx, cr)
+			})
+		})
+
+		It("stamps CSR names with the version prefix and deploys them unowned", func(ctx SpecContext) {
+			triggerReconcile(ctx, cr, "csr-stamp")
+
+			Eventually(func(g Gomega) {
+				calls := mockDeployer().GetCalls()
+				g.Expect(len(calls)).To(BeNumerically(">=", 2), "expected both owned and unowned deploy calls")
+
+				found := false
+				for _, call := range calls {
+					if call.Owner != nil {
+						continue
+					}
+					for _, res := range call.Resources {
+						if res.GetKind() == "ClusterServingRuntime" {
+							g.Expect(res.GetName()).To(Equal("v3-6-0-csr-kserve-vllm-cuda"))
+							g.Expect(res.GetOwnerReferences()).To(BeEmpty())
+							found = true
+						}
+					}
+				}
+				g.Expect(found).To(BeTrue(), "versioned CSR not found in unowned deploy call")
 			}).WithContext(ctx).Should(Succeed())
 		})
 	})

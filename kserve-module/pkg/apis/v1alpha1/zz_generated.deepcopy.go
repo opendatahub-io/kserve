@@ -111,6 +111,16 @@ func (in *KserveSpec) DeepCopyInto(out *KserveSpec) {
 		*out = new(bool)
 		**out = **in
 	}
+	if in.EnableLLMInferenceServiceStrictNetworkPolicy != nil {
+		in, out := &in.EnableLLMInferenceServiceStrictNetworkPolicy, &out.EnableLLMInferenceServiceStrictNetworkPolicy
+		*out = new(bool)
+		**out = **in
+	}
+	if in.EnableLLMInferenceServiceDisaggregatedSet != nil {
+		in, out := &in.EnableLLMInferenceServiceDisaggregatedSet, &out.EnableLLMInferenceServiceDisaggregatedSet
+		*out = new(bool)
+		**out = **in
+	}
 	if in.EnableHardwareAwarePresets != nil {
 		in, out := &in.EnableHardwareAwarePresets, &out.EnableHardwareAwarePresets
 		*out = new(bool)

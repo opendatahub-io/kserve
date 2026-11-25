@@ -17,6 +17,7 @@ limitations under the License.
 package v1alpha2
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -520,6 +521,38 @@ func TestValidateLoRAModelRoutingStrategyAnnotation(t *testing.T) {
 	}
 }
 
+func TestValidateRouteRuleNamingAnnotation(t *testing.T) {
+	validator := &LLMInferenceServiceValidator{}
+	for _, tt := range []struct {
+		name    string
+		value   *string
+		wantErr bool
+	}{
+		{name: "absent defers to the ConfigMap", value: nil},
+		{name: "empty defers to the ConfigMap", value: ptr.To("")},
+		{name: "preset", value: ptr.To("preset")},
+		{name: "unique", value: ptr.To("unique")},
+		{name: "trimmed and case-insensitive like the consumer", value: ptr.To(" Unique ")},
+		{name: "unsupported value is rejected at admission", value: ptr.To("suffixed"), wantErr: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newBaseLLMInferenceServiceV1Alpha2()
+			if tt.value != nil {
+				svc.Spec.Annotations = map[string]string{constants.RouteRuleNamingAnnotationKey: *tt.value}
+			}
+
+			_, err := validator.ValidateCreate(t.Context(), svc)
+
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, constants.RouteRuleNamingAnnotationKey)
+			require.ErrorContains(t, err, "Unsupported value")
+		})
+	}
+}
+
 func TestValidateManagedDRAAnnotations(t *testing.T) {
 	validator := &LLMInferenceServiceValidator{}
 
@@ -991,6 +1024,22 @@ func TestValidateKVCacheOffloading(t *testing.T) {
 		assert.Equal(t, field.ErrorTypeInvalid, errs[0].Type)
 	})
 
+	t.Run("pvc.spec rejects ReadOnlyMany", func(t *testing.T) {
+		errs := validator.validateKVCacheOffloading(makeSvc(&KVCacheOffloadingSpec{
+			CPU: resource.MustParse("10Gi"),
+			Secondary: []SecondaryTierSpec{{FileSystem: &FileSystemTierSpec{
+				PVC: &PVCTierSpec{
+					Spec: &corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadOnlyMany},
+					},
+				},
+			}}},
+		}))
+		require.Len(t, errs, 1)
+		assert.Equal(t, field.ErrorTypeInvalid, errs[0].Type)
+		assert.Contains(t, errs[0].Field, "accessModes")
+	})
+
 	t.Run("prefill kvCacheOffloading is also validated", func(t *testing.T) {
 		svc := &LLMInferenceService{
 			Spec: LLMInferenceServiceSpec{
@@ -1240,6 +1289,62 @@ func TestValidateDisaggregatedSetAnnotation(t *testing.T) {
 			require.Len(t, errs, 1)
 			assert.Equal(t, field.ErrorTypeNotSupported, errs[0].Type)
 			assert.Equal(t, "spec.annotations["+constants.LLMDisaggregatedSetAnnotationKey+"]", errs[0].Field)
+		})
+	}
+}
+
+func TestValidateModelExpress(t *testing.T) {
+	validator := &LLMInferenceServiceValidator{}
+	uriField := field.NewPath("spec", "model", "uri").String()
+
+	parse := func(t *testing.T, uri string) apis.URL {
+		t.Helper()
+		u, err := apis.ParseURL(uri)
+		require.NoError(t, err)
+		return *u
+	}
+
+	tests := []struct {
+		name        string
+		annotations map[string]string
+		modelURI    string
+		loraURIs    []string
+		wantFields  []string
+	}{
+		{name: "disabled", modelURI: "oci://registry/model:tag"},
+		{name: "native s3", annotations: map[string]string{constants.ModelExpressModeAnnotationKey: "native"}, modelURI: "s3://bucket/llama"},
+		{name: "native hf with remote adapter", annotations: map[string]string{constants.ModelExpressModeAnnotationKey: "native"}, modelURI: "hf://org/model", loraURIs: []string{"s3://bucket/adapter"}},
+		{name: "layered pvc", annotations: map[string]string{constants.ModelExpressModeAnnotationKey: "layered"}, modelURI: "pvc://models/llama"},
+		{name: "native pvc rejected", annotations: map[string]string{constants.ModelExpressModeAnnotationKey: "native"}, modelURI: "pvc://models/llama", wantFields: []string{uriField}},
+		{name: "native s3 with hf adapter rejected", annotations: map[string]string{constants.ModelExpressModeAnnotationKey: "native"}, modelURI: "s3://bucket/llama", loraURIs: []string{"hf://org/adapter"}, wantFields: []string{uriField}},
+		{name: "native with preset-supplied uri skips the source check", annotations: map[string]string{constants.ModelExpressModeAnnotationKey: "native"}},
+		{
+			name:        "annotation errors short-circuit the source check",
+			annotations: map[string]string{constants.ModelExpressModeAnnotationKey: "turbo"},
+			modelURI:    "pvc://models/llama",
+			wantFields:  []string{field.NewPath("metadata", "annotations").Key(constants.ModelExpressModeAnnotationKey).String()},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := newBaseLLMInferenceServiceV1Alpha2()
+			svc.Annotations = tt.annotations
+			svc.Spec.Model.URI = apis.URL{}
+			if tt.modelURI != "" {
+				svc.Spec.Model.URI = parse(t, tt.modelURI)
+			}
+			if len(tt.loraURIs) > 0 {
+				svc.Spec.Model.LoRA = &LoRASpec{}
+				for i, uri := range tt.loraURIs {
+					svc.Spec.Model.LoRA.Adapters = append(svc.Spec.Model.LoRA.Adapters, LLMModelSpec{Name: ptr.To("a" + strconv.Itoa(i)), URI: parse(t, uri)})
+				}
+			}
+
+			errs := validator.validateModelExpress(svc)
+			require.Len(t, errs, len(tt.wantFields), "errors: %v", errs)
+			for i, e := range errs {
+				assert.Equal(t, tt.wantFields[i], e.Field)
+			}
 		})
 	}
 }

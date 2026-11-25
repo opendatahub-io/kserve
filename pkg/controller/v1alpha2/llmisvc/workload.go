@@ -51,7 +51,7 @@ import (
 // where changing them would roll the pods. A key can only join before it ships:
 // dropping one that pod templates already carry changes their hash and rolls
 // every workload that has it on upgrade.
-var nonPropagatedSpecAnnotations = []string{AnnotationModelBasedRoutingEnabled, AnnotationModelBasedRoutingOnly, AnnotationLoRAModelRoutingStrategy, constants.LLMDisaggregatedSetAnnotationKey}
+var nonPropagatedSpecAnnotations = []string{AnnotationModelBasedRoutingEnabled, AnnotationModelBasedRoutingOnly, AnnotationLoRAModelRoutingStrategy, AnnotationRouteRuleNaming, constants.LLMDisaggregatedSetAnnotationKey}
 
 // sidecarSSRFProtectionRules defines RBAC rules for the routing sidecar
 // These permissions are needed to discover and monitor inference pools and pods.
@@ -75,6 +75,11 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 		llmSvc.MarkMainWorkloadNotReady("Stopped", "Service is stopped")
 	}
 
+	if err := r.reconcileModelExpress(ctx, llmSvc, config); err != nil {
+		llmSvc.MarkMainWorkloadNotReady("ModelExpressNotReady", err.Error())
+		return fmt.Errorf("failed to reconcile ModelExpress: %w", err)
+	}
+
 	if err := r.preparePlatformWorkload(ctx, llmSvc, config); err != nil {
 		llmSvc.MarkMainWorkloadNotReady("PreparePlatformWorkloadError", "%s", err.Error())
 		return fmt.Errorf("failed to prepare platform workload: %w", err)
@@ -83,6 +88,11 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 	disaggregatedSetDecision := r.decideDisaggregatedSet(llmSvc, config)
 	r.markDisaggregatedSetDecision(ctx, llmSvc, disaggregatedSetDecision)
 	useDisaggregatedSet := useDisaggregatedSetWorkload(llmSvc, disaggregatedSetDecision)
+
+	if err := r.reconcileSingleNodeMainServiceAccount(ctx, llmSvc, config); err != nil {
+		llmSvc.MarkMainWorkloadNotReady("ReconcileSingleNodeWorkloadError", err.Error())
+		return fmt.Errorf("failed to reconcile single node service account: %w", err)
+	}
 
 	// A DisaggregatedSet computes its revision from its own roles.
 	if !useDisaggregatedSet {
@@ -100,7 +110,7 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 
 	// Reconcile platform-specific workload permissions (e.g. SCC RoleBindings)
 	// before creating workloads so pods can start with the correct permissions.
-	if err := r.reconcileWorkloadPlatformPermissions(ctx, llmSvc); err != nil {
+	if err := r.reconcileWorkloadPlatformPermissions(ctx, llmSvc, config); err != nil {
 		llmSvc.MarkMainWorkloadNotReady("ReconcileWorkloadPermissionsError", err.Error())
 		return fmt.Errorf("failed to reconcile workload platform permissions: %w", err)
 	}
@@ -132,7 +142,12 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 
 	if useDisaggregatedSet {
 		// After the other workloads, which clear the conditions of the workloads they delete.
-		propagateDisaggregatedSetStatus(llmSvc, disaggregatedSet)
+		targets, err := r.disaggregatedRoleTargets(ctx, disaggregatedSet)
+		if err != nil {
+			llmSvc.MarkMainWorkloadNotReady("ReconcileDisaggregatedSetError", err.Error())
+			return fmt.Errorf("failed to get disaggregated set replica targets: %w", err)
+		}
+		propagateDisaggregatedSetStatus(llmSvc, disaggregatedSet, targets)
 	}
 
 	// Create Service to expose workload pods
@@ -143,7 +158,7 @@ func (r *LLMISVCReconciler) reconcileWorkload(ctx context.Context, llmSvc *v1alp
 
 	// Reconcile the KEDA ScaledObject when scaling is configured.
 	// A missing CRD is a hard error: the LLMISVC is misconfigured and deployment is blocked.
-	if err := r.reconcileScaling(ctx, llmSvc, config); err != nil {
+	if err := r.reconcileScaling(ctx, llmSvc, config, useDisaggregatedSet); err != nil {
 		if meta.IsNoMatchError(err) {
 			r.Eventf(llmSvc, corev1.EventTypeWarning, "ScalingCRDNotFound",
 				"Required scaling CRD not installed: %v", err)

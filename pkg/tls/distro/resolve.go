@@ -21,12 +21,16 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"net"
+	"strings"
+	"syscall"
 	"time"
 
 	configv1 "github.com/openshift/api/config/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/runtime"
+	utilnet "k8s.io/apimachinery/pkg/util/net"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -37,18 +41,74 @@ import (
 
 var log = ctrl.Log.WithName("tls")
 
-var openSSLToGoCipher = map[string]uint16{
-	"TLS_AES_128_GCM_SHA256":               tls.TLS_AES_128_GCM_SHA256,
-	"TLS_AES_256_GCM_SHA384":               tls.TLS_AES_256_GCM_SHA384,
-	"TLS_CHACHA20_POLY1305_SHA256":         tls.TLS_CHACHA20_POLY1305_SHA256,
-	"ECDHE-ECDSA-AES128-GCM-SHA256":        tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-	"ECDHE-RSA-AES128-GCM-SHA256":          tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-	"ECDHE-ECDSA-AES256-GCM-SHA384":        tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-	"ECDHE-RSA-AES256-GCM-SHA384":          tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-	"ECDHE-ECDSA-CHACHA20-POLY1305-SHA256": tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-	"ECDHE-RSA-CHACHA20-POLY1305-SHA256":   tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-	"ECDHE-ECDSA-CHACHA20-POLY1305":        tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-	"ECDHE-RSA-CHACHA20-POLY1305":          tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+// openSSLToIANACipher converts OpenShift profile cipher names (OpenSSL style) to
+// IANA names for lookup in the runtime-supported cipher tables. TLS 1.3 suite
+// names are already IANA and resolve without an alias.
+var openSSLToIANACipher = map[string]string{
+	"ECDHE-ECDSA-AES128-GCM-SHA256":        "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256",
+	"ECDHE-RSA-AES128-GCM-SHA256":          "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+	"ECDHE-ECDSA-AES256-GCM-SHA384":        "TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384",
+	"ECDHE-RSA-AES256-GCM-SHA384":          "TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384",
+	"ECDHE-ECDSA-CHACHA20-POLY1305":        "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+	"ECDHE-RSA-CHACHA20-POLY1305":          "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+	"ECDHE-ECDSA-CHACHA20-POLY1305-SHA256": "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256",
+	"ECDHE-RSA-CHACHA20-POLY1305-SHA256":   "TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+	"ECDHE-ECDSA-AES128-SHA256":            "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256",
+	"ECDHE-RSA-AES128-SHA256":              "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA256",
+	"ECDHE-ECDSA-AES128-SHA":               "TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA",
+	"ECDHE-RSA-AES128-SHA":                 "TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA",
+	"ECDHE-ECDSA-AES256-SHA":               "TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA",
+	"ECDHE-RSA-AES256-SHA":                 "TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA",
+	"AES128-GCM-SHA256":                    "TLS_RSA_WITH_AES_128_GCM_SHA256",
+	"AES256-GCM-SHA384":                    "TLS_RSA_WITH_AES_256_GCM_SHA384",
+	"AES128-SHA256":                        "TLS_RSA_WITH_AES_128_CBC_SHA256",
+	"AES128-SHA":                           "TLS_RSA_WITH_AES_128_CBC_SHA",
+	"AES256-SHA":                           "TLS_RSA_WITH_AES_256_CBC_SHA",
+	"DES-CBC3-SHA":                         "TLS_RSA_WITH_3DES_EDE_CBC_SHA",
+}
+
+// goCipherSuites is every cipher the runtime can negotiate, keyed by IANA name.
+// RC4 is excluded because RFC 7465 prohibits it.
+var goCipherSuites = func() map[string]uint16 {
+	suites := make(map[string]uint16)
+	for _, cs := range tls.CipherSuites() {
+		suites[cs.Name] = cs.ID
+	}
+	for _, cs := range tls.InsecureCipherSuites() {
+		if !strings.Contains(cs.Name, "RC4") {
+			suites[cs.Name] = cs.ID
+		}
+	}
+	return suites
+}()
+
+var openSSLToGoCipher = func() map[string]uint16 {
+	result := make(map[string]uint16, len(goCipherSuites)+len(openSSLToIANACipher))
+	for name, id := range goCipherSuites {
+		result[name] = id
+	}
+	for openSSL, iana := range openSSLToIANACipher {
+		if id, ok := goCipherSuites[iana]; ok {
+			result[openSSL] = id
+		}
+	}
+	return result
+}()
+
+// goCipherID resolves a profile cipher name to a Go cipher ID usable at minVersion.
+// TLS 1.3-only suites (0x1300-0x13ff) cannot be negotiated for TLS <= 1.2 handshakes.
+func goCipherID(name string, minVersion uint16) (uint16, bool) {
+	if iana, ok := openSSLToIANACipher[name]; ok {
+		name = iana
+	}
+	id, ok := goCipherSuites[name]
+	if !ok {
+		return 0, false
+	}
+	if minVersion < tls.VersionTLS13 && id >= 0x1300 && id <= 0x13ff {
+		return 0, false
+	}
+	return id, true
 }
 
 var intermediateCiphers = []uint16{
@@ -92,10 +152,14 @@ func Resolve(ctx context.Context, cfg *rest.Config, tlsMinVersion, tlsCipherSuit
 	scheme := runtime.NewScheme()
 	if err := configv1.Install(scheme); err != nil {
 		log.Info("Unable to install OpenShift config scheme, using hardened defaults", "error", err)
-		return intermediateResult(false, false), nil
+		return intermediateResult(false), nil
 	}
 
-	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
+	// Bound the bootstrap client's requests, including REST mapper discovery,
+	// which the resolve context does not cover.
+	bootstrapCfg := rest.CopyConfig(cfg)
+	bootstrapCfg.Timeout = 10 * time.Second
+	k8sClient, err := client.New(bootstrapCfg, client.Options{Scheme: scheme})
 	if err != nil {
 		return Result{}, fmt.Errorf("creating bootstrap client for TLS profile: %w", err)
 	}
@@ -112,6 +176,7 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 	}
 	var permanentErr error
 	var fetched bool
+	var objectMissing bool
 	retryErr := wait.ExponentialBackoffWithContext(ctx, backoff, func(ctx context.Context) (bool, error) {
 		if err := k8sClient.Get(ctx, client.ObjectKey{Name: apiServerName}, apiServer); err != nil {
 			switch {
@@ -120,17 +185,18 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 				return true, nil
 			case apierrors.IsNotFound(err):
 				log.Info("APIServer resource not found, using hardened defaults")
+				// Bootstrap race: the object can be created later, so the API
+				// is marked available and the watcher registers.
+				objectMissing = true
 				return true, nil
 			case apierrors.IsForbidden(err), apierrors.IsUnauthorized(err):
-				log.Info("APIServer TLS profile forbidden; using hardened defaults",
-					"hint", "ensure ClusterRole grants get/list/watch on config.openshift.io/apiservers",
+				hint := "ensure ClusterRole grants get/list/watch on config.openshift.io/apiservers"
+				log.Info("APIServer TLS profile authorization failed",
+					"hint", hint,
 					"error", err)
-				return true, nil
-			case apierrors.IsServiceUnavailable(err),
-				apierrors.IsTimeout(err),
-				apierrors.IsServerTimeout(err),
-				apierrors.IsTooManyRequests(err),
-				errors.Is(err, context.DeadlineExceeded):
+				permanentErr = fmt.Errorf("reading APIServer TLS profile: %w; %s", err, hint)
+				return false, permanentErr
+			case isTransientAPIServerError(err):
 				log.Info("Transient API error reading TLS profile, retrying", "error", err)
 				return false, nil
 			default:
@@ -146,13 +212,21 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 	}
 	if retryErr != nil {
 		log.Info("Failed to fetch TLS profile after retries, using Intermediate fallback", "error", retryErr)
-		return intermediateResult(false, true), nil
+		return intermediateResult(true), nil
 	}
 	if !fetched {
-		return intermediateResult(false, false), nil
+		if objectMissing {
+			// NotFound on an OpenShift cluster: preserve the defaults but keep
+			// the API watchable so creation of the APIServer is caught.
+			return intermediateResult(true), nil
+		}
+		return intermediateResult(false), nil
 	}
 
 	settings := settingsFromAPIServer(apiServer)
+	if !isKnownTLSAdherence(settings.Adherence) {
+		log.Info("Unknown TLS adherence policy, treating it as StrictAllComponents", "adherence", settings.Adherence)
+	}
 	profile := apiServer.Spec.TLSSecurityProfile
 	if !shouldHonorClusterTLSProfile(apiServer.Spec.TLSAdherence) {
 		profile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}
@@ -160,14 +234,25 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 	if profile == nil {
 		profile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}
 	}
-
-	minVersion, ciphers := parseProfile(profile)
-	minVersion, ciphers = finalizeClusterTLSOpts(minVersion, ciphers)
-	if ciphers != nil && len(ciphers) == 0 {
-		return Result{}, fmt.Errorf("custom TLS profile specified ciphers but none are supported by Go (profile type: %s, ciphers: %v)",
-			profile.Type,
-			profile.Custom.Ciphers)
+	switch profile.Type {
+	case "", configv1.TLSProfileIntermediateType, configv1.TLSProfileModernType, configv1.TLSProfileOldType:
+	case configv1.TLSProfileCustomType:
+		if profile.Custom == nil {
+			return Result{}, fmt.Errorf("TLS profile type %q has no Custom settings", profile.Type)
+		}
+		if _, ok := ocpTLSVersionMap[profile.Custom.MinTLSVersion]; !ok {
+			return Result{}, fmt.Errorf("TLS profile type %q has unsupported minTLSVersion %q", profile.Type, profile.Custom.MinTLSVersion)
+		}
+	default:
+		log.Info("Unknown TLS profile type, using Intermediate fallback", "type", profile.Type)
+		profile = &configv1.TLSSecurityProfile{Type: configv1.TLSProfileIntermediateType}
 	}
+
+	minVersion, ciphers, err := parseProfile(profile)
+	if err != nil {
+		return Result{}, err
+	}
+	minVersion, ciphers = finalizeClusterTLSOpts(minVersion, ciphers)
 
 	log.Info("Resolved TLS configuration from cluster security profile",
 		"adherence", settings.Adherence,
@@ -182,6 +267,39 @@ func resolveClusterProfile(ctx context.Context, k8sClient client.Reader) (Result
 	}, nil
 }
 
+func isTransientAPIServerError(err error) bool {
+	// Explicitly transient API statuses first.
+	if apierrors.IsServiceUnavailable(err) ||
+		apierrors.IsTimeout(err) ||
+		apierrors.IsServerTimeout(err) ||
+		apierrors.IsTooManyRequests(err) ||
+		apierrors.IsInternalError(err) ||
+		errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	// Reject other API-status errors before checking transport predicates.
+	var statusErr *apierrors.StatusError
+	if errors.As(err, &statusErr) {
+		return false
+	}
+	// Transport-level errors for non-API-status failures.
+	var netErr net.Error
+	return utilnet.IsConnectionRefused(err) ||
+		utilnet.IsConnectionReset(err) ||
+		isBrokenPipe(err) ||
+		utilnet.IsProbableEOF(err) ||
+		utilnet.IsHTTP2ConnectionLost(err) ||
+		(errors.As(err, &netErr) && netErr.Timeout())
+}
+
+// isBrokenPipe reports whether the error wraps EPIPE, which occurs when a
+// keep-alive connection is closed between requests; a retry on a fresh
+// connection succeeds.
+func isBrokenPipe(err error) bool {
+	var errno syscall.Errno
+	return errors.As(err, &errno) && errno == syscall.EPIPE
+}
+
 func finalizeClusterTLSOpts(minVersion uint16, ciphers []uint16) (uint16, []uint16) {
 	if minVersion >= tls.VersionTLS13 && len(ciphers) > 0 {
 		log.Info("Ignoring cipher suites for TLS 1.3 cluster profile; Go manages TLS 1.3 ciphers internally")
@@ -190,10 +308,10 @@ func finalizeClusterTLSOpts(minVersion uint16, ciphers []uint16) (uint16, []uint
 	return minVersion, ciphers
 }
 
-func intermediateResult(fetched, apiAvailable bool) Result {
+func intermediateResult(apiAvailable bool) Result {
 	return Result{
 		TLSOpts:        tlsOptsFrom(tls.VersionTLS12, intermediateCiphers),
-		ProfileFetched: fetched,
+		ProfileFetched: false,
 		APIAvailable:   apiAvailable,
 		InitialSettings: Settings{
 			ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileIntermediateType],
@@ -220,50 +338,54 @@ func resolveProfileSpec(profile *configv1.TLSSecurityProfile) *configv1.TLSProfi
 	}
 }
 
-func parseProfile(profile *configv1.TLSSecurityProfile) (uint16, []uint16) {
+// parseProfile resolves the honored profile to Go TLS values. Named profiles come
+// from configv1.TLSProfiles; Custom from its spec. Malformed values error instead
+// of silently substituting Intermediate.
+func parseProfile(profile *configv1.TLSSecurityProfile) (uint16, []uint16, error) {
 	if profile == nil {
-		return tls.VersionTLS12, intermediateCiphers
+		return tls.VersionTLS12, intermediateCiphers, nil
 	}
 
 	switch profile.Type {
 	case configv1.TLSProfileIntermediateType, "":
-		return tls.VersionTLS12, intermediateCiphers
+		return tls.VersionTLS12, intermediateCiphers, nil
 	case configv1.TLSProfileModernType:
-		return tls.VersionTLS13, nil
+		return tls.VersionTLS13, nil, nil
 	case configv1.TLSProfileOldType:
-		return tls.VersionTLS10, nil
+		return parseSpecCiphers(configv1.TLSProfiles[configv1.TLSProfileOldType])
 	case configv1.TLSProfileCustomType:
 		if profile.Custom == nil {
-			log.Info("Custom TLS profile type specified but custom block is nil, falling back to Intermediate")
-			return tls.VersionTLS12, intermediateCiphers
+			return 0, nil, fmt.Errorf("TLS profile type %q has no Custom settings", profile.Type)
 		}
-		return parseCustomProfile(profile.Custom)
+		return parseSpecCiphers(&profile.Custom.TLSProfileSpec)
 	default:
 		log.Info("Unknown TLS profile type, falling back to Intermediate", "type", profile.Type)
-		return tls.VersionTLS12, intermediateCiphers
+		return tls.VersionTLS12, intermediateCiphers, nil
 	}
 }
 
-func parseCustomProfile(custom *configv1.CustomTLSProfile) (uint16, []uint16) {
-	minVersion, ok := ocpTLSVersionMap[custom.MinTLSVersion]
+// parseSpecCiphers maps a profile spec's minimum version and cipher names to Go
+// values, pruning cipher names the runtime cannot negotiate. The configured
+// minimum is honored exactly: Go 1.22+ defaults the server minimum to TLS 1.2
+// only when tls.Config.MinVersion is unset; the explicit minimum needs no GODEBUG.
+func parseSpecCiphers(spec *configv1.TLSProfileSpec) (uint16, []uint16, error) {
+	minVersion, ok := ocpTLSVersionMap[spec.MinTLSVersion]
 	if !ok {
-		log.Info("Unknown minTLSVersion in custom profile, defaulting to TLS 1.2", "minTLSVersion", custom.MinTLSVersion)
-		minVersion = tls.VersionTLS12
+		return 0, nil, fmt.Errorf("unsupported minTLSVersion %q", spec.MinTLSVersion)
 	}
 
-	if len(custom.Ciphers) == 0 {
-		return minVersion, nil
-	}
-
-	ciphers := make([]uint16, 0, len(custom.Ciphers))
-	for _, name := range custom.Ciphers {
-		if id, ok := openSSLToGoCipher[name]; ok {
+	var ciphers []uint16
+	for _, name := range spec.Ciphers {
+		if id, ok := goCipherID(name, minVersion); ok {
 			ciphers = append(ciphers, id)
 		} else {
-			log.Info("Dropping unsupported cipher from custom TLS profile", "cipher", name)
+			log.Info("Dropping cipher not negotiable by Go", "cipher", name, "minTLSVersion", spec.MinTLSVersion)
 		}
 	}
-	return minVersion, ciphers
+	if len(spec.Ciphers) > 0 && len(ciphers) == 0 {
+		return 0, nil, fmt.Errorf("no usable ciphers at min version %s (ciphers: %v)", spec.MinTLSVersion, spec.Ciphers)
+	}
+	return minVersion, ciphers, nil
 }
 
 func tlsOptsFrom(minVersion uint16, ciphers []uint16) []func(*tls.Config) {

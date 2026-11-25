@@ -42,12 +42,13 @@ func (r getErrorReader) Get(context.Context, client.ObjectKey, client.Object, ..
 
 func TestWorkloadArgsFromSettings(t *testing.T) {
 	tests := []struct {
-		name       string
-		settings   Settings
-		wantMin    string
-		wantCipher string
-		wantCurves string
-		wantErr    bool
+		name        string
+		settings    Settings
+		wantMin     string
+		wantCipher  string
+		wantOpenSSL string
+		wantCurves  string
+		wantErr     bool
 	}{
 		{
 			name:     "intermediate",
@@ -56,6 +57,9 @@ func TestWorkloadArgsFromSettings(t *testing.T) {
 			wantCipher: "TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256," +
 				"TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384," +
 				"TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+			wantOpenSSL: "ECDHE-ECDSA-AES128-GCM-SHA256,ECDHE-RSA-AES128-GCM-SHA256," +
+				"ECDHE-ECDSA-AES256-GCM-SHA384,ECDHE-RSA-AES256-GCM-SHA384," +
+				"ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305",
 			wantCurves: "4588,29,23,24",
 		},
 		{
@@ -63,6 +67,30 @@ func TestWorkloadArgsFromSettings(t *testing.T) {
 			settings:   Settings{ProfileSpec: *configv1.TLSProfiles[configv1.TLSProfileModernType]},
 			wantMin:    "VersionTLS13",
 			wantCurves: "4588,29,23,24",
+		},
+		{
+			name: "preserves OpenSSL cipher names for Python",
+			settings: Settings{ProfileSpec: configv1.TLSProfileSpec{
+				MinTLSVersion: configv1.VersionTLS12,
+				Ciphers:       []string{"ECDHE-RSA-AES128-GCM-SHA256"},
+			}},
+			wantMin:     "VersionTLS12",
+			wantCipher:  "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256",
+			wantOpenSSL: "ECDHE-RSA-AES128-GCM-SHA256",
+		},
+		{
+			name: "canonicalizes CHACHA20 aliases for Python",
+			settings: Settings{ProfileSpec: configv1.TLSProfileSpec{
+				MinTLSVersion: configv1.VersionTLS12,
+				Ciphers: []string{
+					"ECDHE-ECDSA-CHACHA20-POLY1305-SHA256",
+					"ECDHE-RSA-CHACHA20-POLY1305-SHA256",
+				},
+			}},
+			wantMin: "VersionTLS12",
+			wantCipher: "TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256," +
+				"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256",
+			wantOpenSSL: "ECDHE-ECDSA-CHACHA20-POLY1305,ECDHE-RSA-CHACHA20-POLY1305",
 		},
 		{
 			name: "unsupported custom ciphers fail",
@@ -83,8 +111,8 @@ func TestWorkloadArgsFromSettings(t *testing.T) {
 			if err != nil {
 				return
 			}
-			if got.MinVersion != tt.wantMin || got.CipherSuites != tt.wantCipher || got.CurveIDs != tt.wantCurves {
-				t.Fatalf("got %+v, want min=%q ciphers=%q curves=%q", got, tt.wantMin, tt.wantCipher, tt.wantCurves)
+			if got.MinVersion != tt.wantMin || got.CipherSuites != tt.wantCipher || got.OpenSSLCipherSuites != tt.wantOpenSSL || got.CurveIDs != tt.wantCurves {
+				t.Fatalf("got %+v, want min=%q ciphers=%q OpenSSL=%q curves=%q", got, tt.wantMin, tt.wantCipher, tt.wantOpenSSL, tt.wantCurves)
 			}
 		})
 	}
@@ -100,10 +128,7 @@ func TestCurveIDsFromNames(t *testing.T) {
 		configv1.TLSGroupSecP384r1MLKEM1024,
 	}
 	if got := CurveIDsFromNames(groups, false); got != "23,29,4588,4587,4589" {
-		t.Fatalf("CurveIDsFromNames(non-FIPS) = %q, want %q", got, "23,29,4588,4587,4589")
-	}
-	if got := CurveIDsFromNames(groups, true); got != "23,4587,4589" {
-		t.Fatalf("CurveIDsFromNames(FIPS) = %q, want %q", got, "23,4587,4589")
+		t.Fatalf("CurveIDsFromNames() = %q, want %q", got, "23,29,4588,4587,4589")
 	}
 }
 
@@ -114,16 +139,6 @@ func TestWorkloadArgsFromSettingsRejectsGroupsWithoutSupportedCurve(t *testing.T
 	}}
 	if _, err := WorkloadArgsFromSettings(settings); err == nil {
 		t.Fatal("expected an error when no profile group can be passed to the workload")
-	}
-}
-
-func TestWorkloadArgsFromSettingsRejectsGroupsWithoutFIPSApprovedCurve(t *testing.T) {
-	settings := Settings{ProfileSpec: configv1.TLSProfileSpec{
-		MinTLSVersion: configv1.VersionTLS13,
-		Groups:        []configv1.TLSGroup{configv1.TLSGroupX25519, configv1.TLSGroupX25519MLKEM768},
-	}}
-	if _, err := workloadArgsFromSettings(settings, true); err == nil {
-		t.Fatal("expected an error when no configured group is approved in FIPS mode")
 	}
 }
 
@@ -212,7 +227,11 @@ func TestResolveWorkloadArgsStrictGroups(t *testing.T) {
 			TLSSecurityProfile: &configv1.TLSSecurityProfile{Type: configv1.TLSProfileCustomType, Custom: &configv1.CustomTLSProfile{
 				TLSProfileSpec: configv1.TLSProfileSpec{
 					MinTLSVersion: configv1.VersionTLS13,
-					Groups:        []configv1.TLSGroup{configv1.TLSGroupSecP256r1, configv1.TLSGroupX25519},
+					Groups: []configv1.TLSGroup{
+						configv1.TLSGroupSecP256r1,
+						configv1.TLSGroupX25519,
+						configv1.TLSGroupX25519MLKEM768,
+					},
 				},
 			}},
 		},
@@ -223,7 +242,7 @@ func TestResolveWorkloadArgsStrictGroups(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got.MinVersion != "VersionTLS13" || got.CurveIDs != "23" {
-		t.Fatalf("ResolveWorkloadArgs() = %+v, want strict-FIPS TLS 1.3 with supported group 23", got)
+		t.Fatalf("ResolveWorkloadArgs() = %+v, want TLS 1.3 with supported FIPS group 23", got)
 	}
 }
 

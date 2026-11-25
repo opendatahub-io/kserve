@@ -25,6 +25,9 @@ KUADRANT_READY_MAX_ATTEMPTS="${KUADRANT_READY_MAX_ATTEMPTS:-2}"
 KUADRANT_POST_DELETE_SLEEP="${KUADRANT_POST_DELETE_SLEEP:-15}"
 # Per-attempt timeout for oc wait on Kuadrant Ready (two attempts default; use 10m on very slow clusters).
 KUADRANT_READY_TIMEOUT="${KUADRANT_READY_TIMEOUT:-5m}"
+# TokenReview and SubjectAccessReview can exceed Kuadrant's 200ms default auth RPC
+# timeout on hosted clusters. Give Authorino time to complete both API calls.
+KUADRANT_AUTH_SERVICE_TIMEOUT="${KUADRANT_AUTH_SERVICE_TIMEOUT:-5s}"
 # Authorino operand log level. Unset means: "info" when LLMInferenceService audit logging is enabled (the
 # identity fields are emitted at info level), otherwise "debug", the pre-existing CI setting. Set it to
 # force either, e.g. AUTHORINO_LOG_LEVEL=debug when diagnosing auth failures with audit logging on.
@@ -70,6 +73,10 @@ metadata:
   namespace: ${KUADRANT_NS}
 spec:
   channel: ${RHCL_CHANNEL}
+  config:
+    env:
+    - name: AUTH_SERVICE_TIMEOUT
+      value: "${KUADRANT_AUTH_SERVICE_TIMEOUT}"
   installPlanApproval: Automatic
   name: ${RHCL_NAME}
   source: redhat-operators

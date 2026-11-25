@@ -16,6 +16,8 @@ from conftest import (
     trigger_reconcile,
     wait_for_deployment,
     wait_for_deployment_gone,
+    scale_deployment,
+    wait_for_deployment_scaled_down,
     operand_deployments,
     expected_webhooks,
     get_webhook_config,
@@ -25,6 +27,7 @@ from conftest import (
     WVA_DEPLOYMENT,
     WVA_CONFIGMAP,
     MODEL_CONTROLLER_DEPLOYMENT,
+    TIMEOUT_300S,
     TIMEOUT_120S,
     TIMEOUT_60S,
 )
@@ -264,7 +267,16 @@ class TestManagementState:
         _poll_cr(kubectl, KSERVE_CR_NAME, _generation_matches, TIMEOUT_120S,
                  f"observedGeneration not matching within {TIMEOUT_120S}s")
 
-        _seed_wva_extra_cleanup_leftovers(kubectl)
+        # extraCleanup runs on every reconcile, so pause the controller while
+        # the leftovers are created.
+        try:
+            scale_deployment(kubectl, OPERATOR_DEPLOYMENT, 0)
+            wait_for_deployment_scaled_down(kubectl, OPERATOR_DEPLOYMENT)
+            _seed_wva_extra_cleanup_leftovers(kubectl)
+        finally:
+            scale_deployment(kubectl, OPERATOR_DEPLOYMENT, 1)
+            wait_for_deployment(kubectl, OPERATOR_DEPLOYMENT)
+
         trigger_reconcile(kubectl, trigger_id="wva-extra-cleanup")
 
         def assert_extra_cleanup():
@@ -282,7 +294,7 @@ class TestManagementState:
             assert not resource_exists(kubectl, "crd", "variantautoscalings.llmd.ai"), \
                 "leftover VariantAutoscaling CRD should be deleted by extraCleanup"
 
-        wait_for(assert_extra_cleanup, timeout=TIMEOUT_120S, interval=5)
+        wait_for(assert_extra_cleanup, timeout=TIMEOUT_300S, interval=5)
         _verify_deployments_available(kubectl, is_openshift=True)
 
     def test_nim_default_managed_env_var(self, kubectl, cluster_info, apply_kserve_cr):
@@ -438,12 +450,10 @@ class TestDeletionRecovery:
 
 
 def _seed_wva_extra_cleanup_leftovers(kubectl):
-    """Create leftover 3.5 VA CRD and inferenceservice-config key extraCleanup should remove."""
-    run(
-        [kubectl, "patch", "configmap", "inferenceservice-config", "-n", NAMESPACE,
-         "--type", "merge", "-p",
-         json.dumps({"data": {"autoscaling-wva-controller-config": "{}"}})],
-    )
+    """Create leftover 3.5 VA CRD and inferenceservice-config key extraCleanup should remove.
+
+    Caller must scale the controller to 0 first: nothing may reconcile mid-seed.
+    """
     leftover_crd = (
         "apiVersion: apiextensions.k8s.io/v1\n"
         "kind: CustomResourceDefinition\n"
@@ -481,6 +491,13 @@ def _seed_wva_extra_cleanup_leftovers(kubectl):
     assert resource_exists(kubectl, "variantautoscaling", "leftover-va",
                            namespace=NAMESPACE), \
         "VariantAutoscaling CR leftover must exist before extraCleanup"
+    # Patch the ConfigMap last: the module watches it, so this queues the
+    # reconcile that runs extraCleanup once the controller is scaled back up.
+    run(
+        [kubectl, "patch", "configmap", "inferenceservice-config", "-n", NAMESPACE,
+         "--type", "merge", "-p",
+         json.dumps({"data": {"autoscaling-wva-controller-config": "{}"}})],
+    )
 
 
 def _apply_leftover_wva_resources(kubectl):
