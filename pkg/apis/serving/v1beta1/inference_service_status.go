@@ -636,14 +636,17 @@ func (ss *InferenceServiceStatus) PropagateStatus(component ComponentType, servi
 }
 
 func (ss *InferenceServiceStatus) SetCondition(conditionType apis.ConditionType, condition *apis.Condition) {
-	switch {
-	case condition == nil:
-	case condition.Status == corev1.ConditionUnknown:
-		conditionSet.Manage(ss).MarkUnknown(conditionType, condition.Reason, condition.Message)
-	case condition.Status == corev1.ConditionTrue:
-		conditionSet.Manage(ss).MarkTrueWithReason(conditionType, condition.Reason, condition.Message)
-	case condition.Status == corev1.ConditionFalse:
-		conditionSet.Manage(ss).MarkFalse(conditionType, condition.Reason, condition.Message)
+	if condition == nil {
+		return
+	}
+	messageFormat, messageArgs := platformConditionMessage(condition.Message)
+	switch condition.Status {
+	case corev1.ConditionUnknown:
+		conditionSet.Manage(ss).MarkUnknown(conditionType, condition.Reason, messageFormat, messageArgs...)
+	case corev1.ConditionTrue:
+		conditionSet.Manage(ss).MarkTrueWithReason(conditionType, condition.Reason, messageFormat, messageArgs...)
+	case corev1.ConditionFalse:
+		conditionSet.Manage(ss).MarkFalse(conditionType, condition.Reason, messageFormat, messageArgs...)
 	}
 }
 

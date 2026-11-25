@@ -19,9 +19,17 @@ limitations under the License.
 package components
 
 import (
+	"context"
+
 	"github.com/kserve/kserve/pkg/apis/serving/v1beta1"
 	"github.com/kserve/kserve/pkg/controller/v1beta1/inferenceservice/reconcilers"
 )
+
+func markPredictorBuildFailure(_ *v1beta1.InferenceService, _ error, _ *v1beta1.FailureInfo) {}
+
+func (p *Predictor) buildPredictorResourcesWithPlatformStatus(ctx context.Context, isvc *v1beta1.InferenceService, multiNodeEnabled bool) (*predictorResources, error) {
+	return p.buildPredictorResources(ctx, isvc, multiNodeEnabled)
+}
 
 // propagatePlatformWorkloadStatus is a hook for surfacing the outcome of platform-specific workload
 // customization (e.g. DeploymentReconciler.PlatformConditions) on the InferenceService status. It runs
