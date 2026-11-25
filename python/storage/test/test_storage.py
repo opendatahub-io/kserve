@@ -18,15 +18,41 @@ import tempfile
 import binascii
 import unittest.mock as mock
 import mimetypes
+import socket
 from pathlib import Path
 
 import pytest
 
 from kserve_storage import Storage
+from kserve_storage.kserve_storage import _resolve_http_storage_uri
 
 STORAGE_MODULE = "kserve_storage.kserve_storage"
 HTTPS_URI_TARGZ = "https://foo.bar/model.tar.gz"
 HTTPS_URI_TARGZ_WITH_QUERY = HTTPS_URI_TARGZ + "?foo=bar"
+
+
+@pytest.mark.parametrize(
+    "uri",
+    [
+        "http://127.0.0.1/model",
+        "http://169.254.169.254/latest/meta-data",
+        "http://10.0.0.1/model",
+        "https://kubernetes.default.svc/api",
+    ],
+)
+def test_http_storage_uri_rejects_internal_targets(uri):
+    with pytest.raises(RuntimeError, match="blocked host or IP"):
+        _resolve_http_storage_uri(uri)
+
+
+def test_http_storage_uri_rejects_private_dns(monkeypatch):
+    monkeypatch.setattr(
+        "kserve_storage.kserve_storage.socket.getaddrinfo",
+        lambda *_args: [(2, 1, 6, "", ("169.254.169.254", 443))],
+    )
+    with pytest.raises(RuntimeError, match="blocked host or IP"):
+        _resolve_http_storage_uri("https://evil.example/model")
+
 
 # *.tar.gz contains a single empty file model.pth
 FILE_TAR_GZ_RAW = binascii.unhexlify(
