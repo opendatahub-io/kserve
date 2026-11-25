@@ -1,0 +1,430 @@
+# Konflux build simulation: PR-time checks that reproduce, in GitHub
+# Actions, the failure classes the downstream (red-hat-data-services)
+# Konflux builds hit - because the midstream .tekton PR pipelines are NOT
+# hermetic (odh-konflux-central multi-arch-container-build defaults:
+# hermetic "false", no prefetch-input) and only surface them days later.
+#
+# What is simulated, per check:
+#   - Hermetic Go build preflight: module prefetch + GOPROXY=off build of
+#     every binary the .tekton PipelineRuns ship (RHOAIENG-89178 shape).
+#   - Hermetic Python preflight: uv cache warm + --offline reinstall for the
+#     uv-based images, including the unlocked pip specs the
+#     storage-initializer Dockerfile installs (RHOAIENG-13043 shape).
+#   - Image build matrix: same dockerfile/path-context/build-args as the
+#     .tekton pull PipelineRuns (RHOAIENG-95421/53489 shape).
+#   - Rendered manifest checks: RBAC subject resolution and duplicate env
+#     names on the rendered union the module operator applies
+#     (RHOAIENG-100514/57579 shape), plus the manifest path contract
+#     (RHOAIENG-99568 shape).
+#   - Rendered image availability: every image param in the overlays exists
+#     in its registry (RHOAIENG-88996/69531 shape).
+#
+# Skipping: put `[skip konflux-sim]` in the PR title or the
+# `skip-konflux-sim` label on the PR. Only the `summary` job should be a
+# required check: it fails when any check that ran failed and passes when
+# checks were correctly skipped by the gate.
+#
+# The scripts live in hack/konflux-sim/ and are documented in
+# hack/konflux-sim/README.md.
+
+name: Konflux Build Simulation
+
+on:
+  pull_request:
+    branches:
+      - master
+    # Deliberately the default types (opened/synchronize/reopened) only.
+    # 'edited'/'labeled'/'unlabeled' would re-run the full simulation on
+    # bot activity: CodeRabbit rewrites the PR body on every push, and
+    # tide adds lgtm/approved at merge time - each cancelling the
+    # in-flight run via the concurrency group. The trade-off: removing a
+    # skip control does NOT re-trigger. Push a commit: a workflow re-run
+    # replays the original event payload, so it keeps the stale title
+    # and labels.
+
+# One simulation per PR; a new push replaces the previous run, matching the
+# .tekton annotation pipelinesascode.tekton.dev/cancel-in-progress: "false"
+# is NOT set there - Konflux keeps up to 3 runs - but a full simulation is
+# expensive enough that cancelling the stale one is the kinder default.
+concurrency:
+  group: konflux-sim-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Single skip gate. Every other job keys off its outputs; nothing else
+  # decides on its own whether to run.
+  gate:
+    name: Decide what to run
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Least privilege per job: the paths-filter step lists the PR's changed
+    # files through the REST API, which needs pull-requests: read (dorny's
+    # documented requirement); everything below only checks out code.
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      go: ${{ steps.result.outputs.go }}
+      python: ${{ steps.result.outputs.python }}
+      images: ${{ steps.result.outputs.images }}
+      manifests: ${{ steps.result.outputs.manifests }}
+      skip: ${{ steps.skip.outputs.skip }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Fetch full history for path filtering
+        run: git fetch --unshallow origin
+
+      - name: Check for explicit skip
+        id: skip
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          # Capture-then-match: never pipe a producer straight into a
+          # reader that may exit early - under pipefail that SIGPIPEs the
+          # producer and fails the pipeline spuriously.
+          title=$(printf '%s' "$PR_TITLE")
+          labels=$(printf '%s' "$PR_LABELS")
+          # Exact JSON membership for the label: a substring search would
+          # also match e.g. a future 'do-not-skip-konflux-sim'.
+          if grep -qF '[skip konflux-sim]' <<<"$title" \
+             || printf '%s' "$labels" | jq -e 'index("skip-konflux-sim") != null' >/dev/null; then
+            echo 'skip=true' >>"$GITHUB_OUTPUT"
+          else
+            echo 'skip=false' >>"$GITHUB_OUTPUT"
+          fi
+
+      - name: Filter changed paths
+        uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
+        id: filter
+        if: steps.skip.outputs.skip == 'false'
+        with:
+          filters: |
+            go:
+              - '**/*.go'
+              - 'go.mod'
+              - 'go.sum'
+              - 'kserve-module/go.mod'
+              - 'kserve-module/go.sum'
+              - 'Dockerfile'
+              - 'agent.Dockerfile'
+              - 'router.Dockerfile'
+              - 'llmisvc-controller.Dockerfile'
+              - 'localmodel.Dockerfile'
+              - 'localmodel-agent.Dockerfile'
+              - 'kserve-kueue-controller.Dockerfile'
+              - 'kserve-module-controller.Dockerfile'
+              - '.github/workflows/konflux-build-simulation.yml'
+              - 'hack/konflux-sim/**'
+            python:
+              - 'python/**'
+              - '.github/workflows/konflux-build-simulation.yml'
+              - 'hack/konflux-sim/**'
+            images:
+              # '**/*.Dockerfile' does not match a root-level 'Dockerfile'
+              # (the kserve-controller image) - list it explicitly.
+              - 'Dockerfile'
+              - '**/*.Dockerfile'
+              - '.tekton/**'
+              - '.github/workflows/konflux-build-simulation.yml'
+              - 'hack/konflux-sim/**'
+            manifests:
+              - 'config/**'
+              - 'kserve-module/config/**'
+              - 'kserve-module/cmd/**'
+              - 'kserve-module/pkg/**'
+              - 'kserve-module/hack/**'
+              - '.github/workflows/konflux-build-simulation.yml'
+              - 'hack/konflux-sim/**'
+
+      - name: Combine skip and relevance
+        id: result
+        env:
+          SKIP: ${{ steps.skip.outputs.skip }}
+          FILTERS: ${{ toJSON(steps.filter.outputs) }}
+        run: |
+          for check in go python images manifests; do
+            if [ "$SKIP" = "true" ]; then
+              echo "$check=false" >>"$GITHUB_OUTPUT"
+            else
+              # jq, not eval: the filter output is data, not shell code.
+              echo "$check=$(printf '%s' "$FILTERS" | jq -r --arg k "$check" '.[$k] // "false"')" >>"$GITHUB_OUTPUT"
+            fi
+          done
+
+  # Downstream Konflux builds Go with the network off, every module served
+  # from the cachi2 prefetch cache. Simulate: fill an isolated module cache,
+  # then build every shipped binary with GOPROXY=off.
+  go-preflight:
+    name: Hermetic Go build preflight
+    needs: gate
+    if: needs.gate.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      # Root go.mod pins the newest Go of the repo's two modules; the
+      # preflight exports GOTOOLCHAIN=local so exactly this toolchain is
+      # used and nothing is auto-downloaded mid-build.
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          # The preflight populates and uses its own isolated GOMODCACHE.
+          cache: false
+      - name: Root module - every Konflux binary, distro tags
+        run: |
+          ./hack/konflux-sim/hermetic_go_preflight.sh . \
+            'cmd/manager|manager|distro' \
+            'cmd/agent|agent|distro' \
+            'cmd/router|router|distro' \
+            'cmd/llmisvc|manager|distro' \
+            'cmd/localmodel|localmodel-manager|distro' \
+            'cmd/localmodelnode|localmodelnode-agent|distro'
+      - name: kserve-module - module operator, no build tags
+        run: |
+          ./hack/konflux-sim/hermetic_go_preflight.sh kserve-module 'cmd/kserve-module|module-manager|'
+
+  # Downstream Konflux installs the uv-based images' dependencies from the
+  # cachi2 prefetch cache with the network off. Simulate: warm an isolated
+  # uv cache, delete the venv, reinstall with --offline.
+  python-preflight:
+    name: Hermetic Python preflight (${{ matrix.project }})
+    needs: gate
+    if: needs.gate.outputs.python == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # storage-initializer image: python 3.11, confidential extra, and
+          # the unlocked pip specs its Dockerfile installs on top of the
+          # lock (RHOAIENG-13043: one of these was missing downstream).
+          - project: python/storage
+            python-version: '3.11'
+            sync-args: --extra confidential
+            pip-specs: '["krbcontext==0.10", "hdfs~=2.6.0", "requests-kerberos==0.14.0", "tomli"]'
+            needs-krb5: true
+            # The storage-initializer Dockerfile executes repo code after
+            # the install (COPY pyproject.toml; COPY third_party/
+            # pip-licenses.py; RUN python3 pip-licenses.py). Simulate that
+            # RUN against the finished venv, so a change to pip-licenses.py
+            # or the root python/pyproject.toml breaks here instead of in
+            # the image build - python/** is not in the images filter, so
+            # without this nothing else covers it.
+            post-sync-op: storage-licenses
+          # kserve python server image: python 3.12, lock only.
+          - project: python/kserve
+            python-version: '3.12'
+            sync-args: ''
+            pip-specs: '[]'
+            needs-krb5: false
+          # autogluon server image: python 3.12, lock only.
+          - project: python/autogluonserver
+            python-version: '3.12'
+            sync-args: ''
+            pip-specs: '[]'
+            needs-krb5: false
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/free-up-disk-space
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      # pykerberos (via requests-kerberos) builds from source; the
+      # storage-initializer Dockerfile installs krb5-devel for the same
+      # reason.
+      - name: Install native build deps
+        if: matrix.needs-krb5
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libkrb5-dev
+      - name: Install uv at the pinned version
+        run: |
+          uv_version=$(grep -E '^UV_VERSION=' kserve-deps.env | cut -d= -f2)
+          pip install "uv==${uv_version}"
+          uv --version
+      - name: Warm cache, then prove the offline install
+        env:
+          UV_PYTHON: ${{ matrix.python-version }}
+          UV_SYNC_ARGS: ${{ matrix.sync-args }}
+          UV_POST_SYNC_OP: ${{ matrix.post-sync-op }}
+        run: |
+          mapfile -t specs < <(printf '%s' '${{ matrix.pip-specs }}' | jq -r '.[]')
+          ./hack/konflux-sim/hermetic_python_preflight.sh '${{ matrix.project }}' "${specs[@]}"
+
+  # Same dockerfile / path-context / build-args as the .tekton pull
+  # PipelineRuns, so a change that breaks the Konflux image build breaks
+  # here first. Not hermetic (neither is the midstream Konflux pipeline);
+  # the hermetic Go/Python preflights cover the offline dimension.
+  image-build:
+    name: Image build (${{ matrix.name }})
+    needs: gate
+    if: needs.gate.outputs.images == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: kserve-controller
+            dockerfile: Dockerfile
+            context: .
+            build-args: '["GOTAGS=distro"]'
+          - name: kserve-agent
+            dockerfile: agent.Dockerfile
+            context: .
+            build-args: '["GOTAGS=distro"]'
+          - name: kserve-router
+            dockerfile: router.Dockerfile
+            context: .
+            build-args: '["GOTAGS=distro"]'
+          - name: kserve-storage-initializer
+            dockerfile: python/storage-initializer.Dockerfile
+            context: python
+            build-args: '[]'
+          - name: odh-kserve-autogluon-server
+            dockerfile: python/autogluon.Dockerfile
+            context: python
+            build-args: '[]'
+          # Final stage FROM is auth-gated on registry.redhat.io (the
+          # Konflux tenant has Red Hat registry credentials, this workflow
+          # does not), so only the builder stage is simulated. Konflux also
+          # builds this image for 4 platforms; only linux/amd64 is simulated.
+          - name: odh-kserve-kueue-controller
+            dockerfile: kserve-kueue-controller.Dockerfile
+            context: .
+            build-args: '[]'
+            target: builder
+          - name: odh-kserve-llmisvc-controller
+            dockerfile: llmisvc-controller.Dockerfile
+            context: .
+            build-args: '["GOTAGS=distro"]'
+          - name: odh-kserve-localmodel-controller
+            dockerfile: localmodel.Dockerfile
+            context: .
+            build-args: '["GOTAGS=distro"]'
+          - name: odh-kserve-localmodelnode-agent
+            dockerfile: localmodel-agent.Dockerfile
+            context: .
+            build-args: '["GOTAGS=distro"]'
+          - name: odh-kserve-module-operator
+            dockerfile: kserve-module-controller.Dockerfile
+            context: .
+            build-args: '[]'
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/free-up-disk-space
+      - name: Build image
+        env:
+          NAME: ${{ matrix.name }}
+          DOCKERFILE: ${{ matrix.dockerfile }}
+          CONTEXT: ${{ matrix.context }}
+          TARGET: ${{ matrix.target }}
+          BUILD_ARGS: ${{ matrix.build-args }}
+        run: |
+          args=(-t "konflux-sim:${NAME}" -f "${DOCKERFILE}")
+          if [ -n "$TARGET" ]; then
+            args+=(--target "$TARGET")
+          fi
+          while IFS= read -r arg; do
+            [ -n "$arg" ] || continue
+            args+=(--build-arg "$arg")
+          done < <(printf '%s' "$BUILD_ARGS" | jq -r '.[]')
+          docker build "${args[@]}" "$CONTEXT"
+
+  # The module operator applies kserve-module/config and the kserve
+  # overlays together. Per-overlay kustomize builds cannot see RBAC
+  # identity drift across that union, duplicated env names, or a broken
+  # manifest path contract between image and operator.
+  rendered-manifests:
+    name: Rendered manifest checks
+    needs: gate
+    if: needs.gate.outputs.manifests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - name: Install PyYAML for the structural checks
+        run: pip install pyyaml
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Install kustomize at the pinned version
+        run: make kustomize
+      - name: RBAC identity and duplicate env checks on the rendered union
+        env:
+          KUSTOMIZE: bin/kustomize
+        run: ./hack/konflux-sim/rendered_manifest_checks.sh
+      - name: Manifest path contract
+        run: ./hack/konflux-sim/manifest_path_contract.sh
+
+  # A rendered image param pointing at a repo:tag that was never published
+  # only fails at deploy time with ImagePullBackOff. Look it up at review
+  # time instead. registry.redhat.io needs auth even for pulls, so those
+  # references are skipped with a notice, not false-failed.
+  related-images:
+    name: Rendered image availability
+    needs: gate
+    if: needs.gate.outputs.manifests == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - name: Check that rendered image references exist
+        run: ./hack/konflux-sim/related_image_availability.sh
+
+  # The only required check. Fails when any check that ran failed or was
+  # cancelled; passes when checks were skipped by the gate.
+  summary:
+    name: Konflux build simulation
+    needs: [gate, go-preflight, python-preflight, image-build, rendered-manifests, related-images]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Reads only the needs context; no permissions at all.
+    permissions: {}
+    steps:
+      - name: Assert results
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          SKIP: ${{ needs.gate.outputs.skip }}
+        run: |
+          printf '%s' "$RESULTS" | jq -r 'to_entries[] | "  \(.key): \(.value.result)"'
+          bad=$(printf '%s' "$RESULTS" | jq -r \
+            '[to_entries[] | select(.value.result == "failure" or .value.result == "cancelled")] | length')
+          if [ "$bad" -ne 0 ]; then
+            echo "FAIL: at least one konflux-sim check failed or was cancelled (see above)"
+            exit 1
+          fi
+          if [ "$SKIP" = "true" ]; then
+            echo "SKIP: konflux-sim was skipped ([skip konflux-sim] title or skip-konflux-sim label)"
+          else
+            echo "PASS: every konflux-sim check that was relevant ran clean"
+          fi
