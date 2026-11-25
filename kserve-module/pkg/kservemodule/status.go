@@ -26,7 +26,14 @@ const (
 	ConditionModelCacheReady        = "ModelCacheReady"
 	ConditionDependenciesAvailable  = "DependenciesAvailable"
 	ConditionTracingConfigAvailable = "TracingConfigAvailable"
-	ConditionAuditLoggingReady      = "AuditLoggingReady"
+	// Availability describes what can be configured. InferenceService reports
+	// actual configuration through AuditLoggingConfigured on each workload.
+	ConditionISVCAuditLoggingAvailable         = "InferenceServiceAuditLoggingAvailable"
+	ConditionLLMISVCAuditLoggingAvailable      = "LLMInferenceServiceAuditLoggingAvailable"
+	ConditionLLMISVCCustomAuditFieldsAvailable = "LLMInferenceServiceCustomAuditFieldsAvailable"
+	ConditionLLMISVCOCSFAuditLoggingAvailable  = "LLMInferenceServiceOCSFAuditLoggingAvailable"
+	ConditionLLMISVCOCSFAuditLoggingReady      = "LLMInferenceServiceOCSFAuditLoggingReady"
+	legacyConditionAuditLoggingReady           = "AuditLoggingReady"
 
 	// ReasonDeletionBlocked is the Degraded reason used when Kserve CR deletion
 	// is held back by resources that cannot yet be removed.
@@ -38,6 +45,11 @@ const (
 )
 
 func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
+	// Drop the old, unscoped condition so an upgrade cannot leave a misleading
+	// AuditLoggingReady=False next to a working InferenceService audit path.
+	kserve.SetConditions(slices.DeleteFunc(slices.Clone(kserve.GetConditions()), func(c common.Condition) bool {
+		return c.Type == legacyConditionAuditLoggingReady
+	}))
 	return conditions.NewManager(kserve,
 		string(common.ConditionTypeReady),
 		string(common.ConditionTypeProvisioningSucceeded),
@@ -51,21 +63,82 @@ func newConditionManager(kserve *platformv1alpha1.Kserve) *conditions.Manager {
 	)
 }
 
+func applyAuditLoggingCapabilityConditions(condMgr *conditions.Manager, kserve *platformv1alpha1.Kserve, capabilities auditLoggingCapabilities) {
+	if platformv1alpha1.GetManagementState(kserve) == common.Removed {
+		condMgr.MarkFalse(ConditionISVCAuditLoggingAvailable,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason("KServeRemoved"),
+			conditions.WithMessage("InferenceService audit logging is unavailable while KServe is Removed"),
+			conditions.WithObservedGeneration(kserve.Generation))
+	} else {
+		condMgr.MarkTrue(ConditionISVCAuditLoggingAvailable,
+			conditions.WithReason("BuiltInSupport"),
+			conditions.WithMessage("InferenceService audit logging is built into KServe; check each InferenceService AuditLoggingConfigured condition"),
+			conditions.WithObservedGeneration(kserve.Generation))
+	}
+
+	for _, capability := range []struct {
+		typeName string
+		err      error
+	}{
+		{ConditionLLMISVCCustomAuditFieldsAvailable, capabilities.customFieldsErr},
+		{ConditionLLMISVCOCSFAuditLoggingAvailable, capabilities.ocsfErr},
+	} {
+		if capability.err != nil {
+			condMgr.MarkFalse(capability.typeName,
+				conditions.WithSeverity(common.ConditionSeverityInfo),
+				conditions.WithReason("CRDSchemaUnavailable"),
+				conditions.WithMessage("%s", capability.err.Error()),
+				conditions.WithObservedGeneration(kserve.Generation))
+		} else {
+			condMgr.MarkTrue(capability.typeName,
+				conditions.WithReason("CRDSchemaSupported"),
+				conditions.WithObservedGeneration(kserve.Generation))
+		}
+	}
+
+	switch {
+	case capabilities.ocsfErr == nil && capabilities.customFieldsErr == nil:
+		condMgr.MarkTrue(ConditionLLMISVCAuditLoggingAvailable,
+			conditions.WithReason("OCSFAndCustomFieldsAvailable"),
+			conditions.WithMessage("TelemetryPolicy OCSF and custom audit fields are supported by the installed CRD schemas"),
+			conditions.WithObservedGeneration(kserve.Generation))
+	case capabilities.ocsfErr == nil:
+		condMgr.MarkTrue(ConditionLLMISVCAuditLoggingAvailable,
+			conditions.WithReason("OCSFOnly"),
+			conditions.WithMessage("TelemetryPolicy OCSF is supported; custom audit fields are unavailable: %s", capabilities.customFieldsErr),
+			conditions.WithObservedGeneration(kserve.Generation))
+	case capabilities.customFieldsErr == nil:
+		condMgr.MarkTrue(ConditionLLMISVCAuditLoggingAvailable,
+			conditions.WithReason("CustomFieldsOnly"),
+			conditions.WithMessage("Custom audit fields are supported; OCSF is unavailable: %s. Configure Authorino and a TelemetryPolicy to use custom fields", capabilities.ocsfErr),
+			conditions.WithObservedGeneration(kserve.Generation))
+	default:
+		condMgr.MarkFalse(ConditionLLMISVCAuditLoggingAvailable,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason("NoAuditLoggingCapability"),
+			conditions.WithMessage("OCSF unavailable: %s; custom fields unavailable: %s", capabilities.ocsfErr, capabilities.customFieldsErr),
+			conditions.WithObservedGeneration(kserve.Generation))
+	}
+}
+
 func applyOCSFAuditLoggingCondition(condMgr *conditions.Manager, kserve *platformv1alpha1.Kserve, condition *auditLoggingCondition) {
+	if condition != nil {
+		condMgr.MarkFalse(ConditionLLMISVCOCSFAuditLoggingReady,
+			conditions.WithSeverity(common.ConditionSeverityInfo),
+			conditions.WithReason(condition.reason),
+			conditions.WithMessage("%s", condition.message),
+			conditions.WithObservedGeneration(kserve.Generation))
+		return
+	}
 	if kserve.Spec.AuditLoggingProfile != platformv1alpha1.AuditProfileMetadata {
-		condMgr.MarkTrue(ConditionAuditLoggingReady,
-			conditions.WithReason(reasonAuditLoggingDisabled))
+		condMgr.MarkTrue(ConditionLLMISVCOCSFAuditLoggingReady,
+			conditions.WithReason(reasonAuditLoggingDisabled),
+			conditions.WithObservedGeneration(kserve.Generation))
 		return
 	}
-	if condition == nil {
-		condMgr.MarkTrue(ConditionAuditLoggingReady,
-			conditions.WithReason(reasonAuditLoggingConfigured))
-		return
-	}
-	condMgr.MarkFalse(ConditionAuditLoggingReady,
-		conditions.WithSeverity(common.ConditionSeverityInfo),
-		conditions.WithReason(condition.reason),
-		conditions.WithMessage("%s", condition.message),
+	condMgr.MarkTrue(ConditionLLMISVCOCSFAuditLoggingReady,
+		conditions.WithReason(reasonAuditLoggingEnforced),
 		conditions.WithObservedGeneration(kserve.Generation))
 }
 
