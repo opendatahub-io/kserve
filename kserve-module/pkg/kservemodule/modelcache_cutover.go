@@ -237,7 +237,9 @@ func (r *KserveModuleReconciler) removeOldStaticVolume(ctx context.Context, name
 	}
 	if pv.Annotations[modelCacheClaimNamespaceAnnotation] == modelCacheNamespace {
 		if pv.Spec.ClaimRef != nil {
-			if err := r.validateTargetPVC(ctx, modelCachePVCName, modelCachePVName, pv.Spec.ClaimRef); err != nil {
+			// A capacity change may have removed the target claim; the resize
+			// helper handles replacement of this already validated shared PV.
+			if err := r.validateTargetPVC(ctx, modelCachePVCName, modelCachePVName, pv.Spec.ClaimRef); err != nil && !apierrors.IsNotFound(err) {
 				return err
 			}
 		} else if err := r.validateOptionalTargetPVC(ctx, modelCachePVCName, modelCachePVName, "", "", "", true, false); err != nil {
