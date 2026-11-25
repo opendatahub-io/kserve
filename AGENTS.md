@@ -19,6 +19,7 @@ ODH midstream fork of [kserve/kserve](https://github.com/kserve/kserve). Go cont
 | Makefile / image names | `Makefile.overrides.mk` |
 | Scheme registration | `pkg/scheme/register_odh.go`, `cmd/manager/main_schemes_odh.go` |
 | Upstream sync conflict policy | `.github/upstream-sync-instructions.md` (canonical) |
+| Human-led KServe sync PRs | [sync-resolve skill](.agents/skills/sync-resolve/SKILL.md) |
 
 **Hook pairs** — upstream calls a hook; `_default.go` no-ops, `_odh.go` implements. Example: `controller_setup_{default,odh}.go` in llmisvc. Only acceptable upstream edit is adding the hook call; use reconciler receiver methods when the hook needs client access.
 
