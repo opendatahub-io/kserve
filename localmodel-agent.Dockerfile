@@ -3,6 +3,8 @@ FROM registry.access.redhat.com/ubi9/go-toolset:1.26 AS deps
 ENV GOTOOLCHAIN=auto
 # distro: UBI go-toolset does not add GOPATH/bin to PATH
 ENV PATH="$PATH:/opt/app-root/src/go/bin"
+# distro: go-toolset's HOME is /opt/app-root/src, so Go's defaults would miss the cache mounts below.
+ENV GOMODCACHE=/go/pkg/mod GOCACHE=/root/.cache/go-build
 
 # Run as root during build (final image uses nonroot)
 USER 0
