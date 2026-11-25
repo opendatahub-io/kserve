@@ -3786,7 +3786,7 @@ func TestStorageContainerCRDInjection(t *testing.T) {
 		if err := injector.InjectStorageInitializer(t.Context(), scenario.original); err != nil {
 			t.Errorf("Test %q unexpected result: %s", name, err)
 		}
-		if diff, _ := kmp.SafeDiff(scenario.expected.Spec, scenario.original.Spec); diff != "" {
+		if diff, _ := kmp.SafeDiff(withPlatformStorageInitializerDefaults(scenario.expected.Spec), scenario.original.Spec); diff != "" {
 			t.Errorf("Test %q unexpected result (-want +got): %v", name, diff)
 		}
 	}

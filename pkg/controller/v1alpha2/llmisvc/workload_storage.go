@@ -385,6 +385,7 @@ func (r *LLMISVCReconciler) attachHfModelArtifact(ctx context.Context, serviceAc
 		if addsDefaultHFEnv(currentInitContainer, initContainer.Args) {
 			utils.AddDefaultHuggingFaceEnvVars(initContainer)
 		}
+		applyPlatformStorageCABundle(llmSvc.Namespace, currentInitContainer, podSpec, initContainer, storageConfig)
 
 		if containerName == tokenizerContainerName {
 			utils.AddEnvVars(initContainer, []corev1.EnvVar{*tokenizerOnlyDownload.DeepCopy()})
@@ -600,6 +601,7 @@ func (r *LLMISVCReconciler) attachMultiStorageDownloads(
 	}
 
 	injectCaBundle(llmSvc.Namespace, podSpec, initPtr, storageConfig)
+	applyPlatformStorageCABundle(llmSvc.Namespace, currentInit, podSpec, initPtr, storageConfig)
 	return nil
 }
 

@@ -145,7 +145,7 @@ API failures retain the service finalizer for retry.
 `LLMISVC_NETWORK_POLICY_DISABLED=true` (set by the xKS overlay) skips normal policy reconciliation;
 finalization still attempts owned-policy cleanup.
 
-**ODH:** `controller_setup_odh.go`, `platform_resources_odh.go`, `monitoring{,_network_policy}_odh.go`, `workload_{tls_cert,tls_rotation,permissions,confidential,modelexpress}_odh.go`, `confidential_{config,helpers,watches}_odh.go`, `router_{preconditions,platform_networking,discovery_additional}_odh.go`, `distro/controller_rbac_odh.go`
+**ODH:** `controller_setup_odh.go`, `platform_resources_odh.go`, `monitoring{,_network_policy}_odh.go`, `workload_{tls_cert,tls_rotation,permissions,confidential,modelexpress,storage_cabundle}_odh.go`, `confidential_{config,helpers,watches}_odh.go`, `router_{preconditions,platform_networking,discovery_additional}_odh.go`, `distro/controller_rbac_odh.go`
 
 ## InferenceGraph
 
