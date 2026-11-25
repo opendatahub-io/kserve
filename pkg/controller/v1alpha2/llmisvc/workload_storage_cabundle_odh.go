@@ -28,29 +28,42 @@ import (
 	"github.com/kserve/kserve/pkg/utils"
 )
 
-// applyPlatformStorageCABundle makes the storage-initializer trust the namespace's
-// odh-kserve-custom-ca-bundle for hf:// downloads when no CA bundle is configured
-// for it. current is the live storage-initializer, or nil.
-func applyPlatformStorageCABundle(current *corev1.Container, podSpec *corev1.PodSpec, initContainer *corev1.Container, storageConfig *kserveTypes.StorageInitializerConfig) {
-	if initContainer == nil || !addsDefaultCABundle(current, initContainer.Args) {
+// applyPlatformStorageCABundle gives the storage-initializer of hf:// downloads a CA
+// bundle when it has none: the bundle configured for the storage initializer when
+// there is one, otherwise the namespace's odh-kserve-custom-ca-bundle. current is
+// the live storage-initializer, or nil.
+func applyPlatformStorageCABundle(namespace string, current *corev1.Container, podSpec *corev1.PodSpec, initContainer *corev1.Container, storageConfig *kserveTypes.StorageInitializerConfig) {
+	if initContainer == nil || !addsCABundle(current, initContainer.Args) {
+		return
+	}
+	// The caller already mounted a configured bundle.
+	if slices.ContainsFunc(podSpec.Volumes, func(v corev1.Volume) bool { return v.Name == CaBundleVolumeName }) {
+		return
+	}
+	// The user manages the bundle on the container.
+	if _, set := utils.GetEnvVarValue(initContainer.Env, constants.CaBundleConfigMapNameEnvVarKey); set {
 		return
 	}
 	mountPath := ""
 	if storageConfig != nil {
+		// A configured bundle wins over the platform default.
+		if needCaBundleMount(storageConfig.CaBundleConfigMapName, initContainer) {
+			injectCaBundle(namespace, podSpec, initContainer, storageConfig)
+			return
+		}
 		mountPath = storageConfig.CaBundleVolumeMountPath
 	}
 	utils.DefaultODHCustomCABundle(podSpec, initContainer, mountPath)
 }
 
-// addsDefaultCABundle reports whether the storage-initializer gets the default CA
-// bundle. It returns true when there is no live init container, when the live
-// container downloads a different set of arguments, or when the live container
-// already carries the default bundle. A live container that runs the same downloads
-// without it keeps its pod template, so a controller upgrade does not restart its pod.
-func addsDefaultCABundle(current *corev1.Container, args []string) bool {
+// addsCABundle reports whether the storage-initializer may get a CA bundle. It
+// returns true when there is no live init container, when the live container
+// downloads a different set of arguments, or when the live container already mounts
+// the bundle volume. A live container that runs the same downloads without that
+// mount keeps its pod template, so a controller upgrade does not restart its pod.
+func addsCABundle(current *corev1.Container, args []string) bool {
 	if current == nil || !slices.Equal(current.Args, args) {
 		return true
 	}
-	name, _ := utils.GetEnvVarValue(current.Env, constants.CaBundleConfigMapNameEnvVarKey)
-	return name == constants.ODHKServeCustomCABundleConfigMapName
+	return slices.ContainsFunc(current.VolumeMounts, func(m corev1.VolumeMount) bool { return m.Name == CaBundleVolumeName })
 }

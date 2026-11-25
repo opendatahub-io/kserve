@@ -49,7 +49,10 @@ func caBundleEnv(c *corev1.Container) string {
 	return name
 }
 
-var odhCABundleEnv = corev1.EnvVar{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: constants.ODHKServeCustomCABundleConfigMapName}
+var (
+	odhCABundleEnv = corev1.EnvVar{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: constants.ODHKServeCustomCABundleConfigMapName}
+	caBundleMount  = corev1.VolumeMount{Name: CaBundleVolumeName, MountPath: constants.DefaultCaBundleVolumeMountPath, ReadOnly: true}
+)
 
 func TestAttachHfModelArtifactDefaultCABundle(t *testing.T) {
 	t.Parallel()
@@ -69,54 +72,100 @@ func TestAttachHfModelArtifactDefaultCABundle(t *testing.T) {
 			Env:   env,
 		}}}
 	}
+	// liveInitWithBundle is a live pod the controller already gave a bundle.
+	liveInitWithBundle := func(args []string, env corev1.EnvVar) corev1.PodSpec {
+		spec := liveInit(args, env)
+		spec.InitContainers[0].VolumeMounts = []corev1.VolumeMount{caBundleMount}
+		return spec
+	}
+
+	sameArgs := []string{modelUri, constants.DefaultModelLocalMountPath}
+	configuredBundleEnv := corev1.EnvVar{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: constants.DefaultGlobalCaBundleConfigMapName}
 
 	tests := []struct {
-		name string
-		curr corev1.PodSpec
-		want bool
+		name             string
+		curr             corev1.PodSpec
+		configuredBundle string
+		// want is the ConfigMap mounted as the CA bundle, or empty for none.
+		want string
 	}{
 		{
 			name: "new service",
 			curr: corev1.PodSpec{},
-			want: true,
+			want: constants.ODHKServeCustomCABundleConfigMapName,
 		},
 		{
 			name: "model uri changed from s3 to hf",
 			curr: liveInit([]string{"s3://models/facebook/opt-125m", constants.DefaultModelLocalMountPath}),
-			want: true,
+			want: constants.ODHKServeCustomCABundleConfigMapName,
 		},
 		{
 			name: "hf repo changed",
 			curr: liveInit([]string{"hf://facebook/opt-350m", constants.DefaultModelLocalMountPath}),
-			want: true,
+			want: constants.ODHKServeCustomCABundleConfigMapName,
 		},
 		{
 			name: "same hf uri on a pod that already has the bundle",
-			curr: liveInit([]string{modelUri, constants.DefaultModelLocalMountPath}, odhCABundleEnv),
-			want: true,
+			curr: liveInitWithBundle(sameArgs, odhCABundleEnv),
+			want: constants.ODHKServeCustomCABundleConfigMapName,
 		},
 		{
 			// The upgrade case: the pod template of a running service must not change.
 			name: "same hf uri on a pod without the bundle",
-			curr: liveInit([]string{modelUri, constants.DefaultModelLocalMountPath}),
-			want: false,
+			curr: liveInit(sameArgs),
+			want: "",
+		},
+		{
+			// A bundle configured for the storage initializer wins over the default.
+			name:             "new service with a configured bundle",
+			curr:             corev1.PodSpec{},
+			configuredBundle: "my-ca-bundle",
+			want:             constants.DefaultGlobalCaBundleConfigMapName,
+		},
+		{
+			name:             "same hf uri on a pod that already has the configured bundle",
+			curr:             liveInitWithBundle(sameArgs, configuredBundleEnv),
+			configuredBundle: "my-ca-bundle",
+			want:             constants.DefaultGlobalCaBundleConfigMapName,
+		},
+		{
+			name:             "bundle configured after the pod got the default",
+			curr:             liveInitWithBundle(sameArgs, odhCABundleEnv),
+			configuredBundle: "my-ca-bundle",
+			want:             constants.DefaultGlobalCaBundleConfigMapName,
+		},
+		{
+			// A bundle the user wired by hand is not ours to change on upgrade.
+			name:             "same hf uri on a pod with a user-managed bundle, with a configured bundle",
+			curr:             liveInit(sameArgs, corev1.EnvVar{Name: constants.CaBundleConfigMapNameEnvVarKey, Value: "user-ca"}),
+			configuredBundle: "my-ca-bundle",
+			want:             "",
+		},
+		{
+			// The upgrade case with a configured bundle: still no pod template change.
+			name:             "same hf uri on a pod without the bundle, with a configured bundle",
+			curr:             liveInit(sameArgs),
+			configuredBundle: "my-ca-bundle",
+			want:             "",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
+			config := *storageConfig
+			config.CaBundleConfigMapName = tt.configuredBundle
 			podSpec := &corev1.PodSpec{Containers: []corev1.Container{{Name: "main"}}}
-			require.NoError(t, r.attachHfModelArtifact(t.Context(), sa, llmSvc, modelUri, tt.curr, podSpec, storageConfig, credentialConfig, "main", constants.DefaultModelLocalMountPath))
+			require.NoError(t, r.attachHfModelArtifact(t.Context(), sa, llmSvc, modelUri, tt.curr, podSpec, &config, credentialConfig, "main", constants.DefaultModelLocalMountPath))
 
 			initContainer := utils.GetInitContainerWithName(podSpec, constants.StorageInitializerContainerName)
 			require.NotNil(t, initContainer)
-			if !tt.want {
+			if tt.want == "" {
 				require.Empty(t, caBundleConfigMaps(podSpec))
 				require.Empty(t, caBundleEnv(initContainer))
 				return
 			}
-			require.Equal(t, []string{constants.ODHKServeCustomCABundleConfigMapName}, caBundleConfigMaps(podSpec))
-			require.Equal(t, constants.ODHKServeCustomCABundleConfigMapName, caBundleEnv(initContainer))
+			require.Equal(t, []string{tt.want}, caBundleConfigMaps(podSpec))
+			require.Equal(t, tt.want, caBundleEnv(initContainer))
 		})
 	}
 }
@@ -141,12 +190,16 @@ func TestAttachMultiStorageDownloadsDefaultCABundle(t *testing.T) {
 	}
 
 	liveInit := func(args []string, env ...corev1.EnvVar) corev1.PodSpec {
-		return corev1.PodSpec{InitContainers: []corev1.Container{{
+		spec := corev1.PodSpec{InitContainers: []corev1.Container{{
 			Name:  constants.StorageInitializerContainerName,
 			Image: baseConfig.Image,
 			Args:  args,
 			Env:   env,
 		}}}
+		if len(env) > 0 {
+			spec.InitContainers[0].VolumeMounts = []corev1.VolumeMount{caBundleMount}
+		}
+		return spec
 	}
 
 	tests := []struct {

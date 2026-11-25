@@ -117,24 +117,14 @@ func downloadsOnlyOverTLS(args []string) bool {
 }
 
 // hasExplicitCABundle reports whether the container already carries trust settings
-// that the default must not replace. S3 credentials that point at the same ConfigMap
-// are compatible: they name the bundle without mounting it for other schemes.
+// that the default must not replace.
 func hasExplicitCABundle(env []corev1.EnvVar) bool {
-	s3ConfigMap, hasS3ConfigMap := "", false
-	hasS3Bundle := false
 	for _, envVar := range env {
 		switch envVar.Name {
 		case constants.CaBundleConfigMapNameEnvVarKey, constants.CaBundleVolumeMountPathEnvVarKey,
-			requestsCABundleEnvVar, sslCertFileEnvVar:
+			awsCABundleEnvVar, awsCABundleConfigMapEnvVar, requestsCABundleEnvVar, sslCertFileEnvVar:
 			return true
-		case awsCABundleConfigMapEnvVar:
-			s3ConfigMap, hasS3ConfigMap = envVar.Value, true
-		case awsCABundleEnvVar:
-			hasS3Bundle = true
 		}
 	}
-	if hasS3ConfigMap {
-		return s3ConfigMap != constants.ODHKServeCustomCABundleConfigMapName
-	}
-	return hasS3Bundle
+	return false
 }

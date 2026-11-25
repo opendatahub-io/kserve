@@ -27,5 +27,5 @@ import (
 // applyPlatformStorageCABundle is a no-op in upstream builds. Distribution builds
 // (compiled with -tags distro) can default the storage-initializer to a platform
 // CA bundle.
-func applyPlatformStorageCABundle(_ *corev1.Container, _ *corev1.PodSpec, _ *corev1.Container, _ *kserveTypes.StorageInitializerConfig) {
+func applyPlatformStorageCABundle(_ string, _ *corev1.Container, _ *corev1.PodSpec, _ *corev1.Container, _ *kserveTypes.StorageInitializerConfig) {
 }

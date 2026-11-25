@@ -55,14 +55,6 @@ func TestDefaultODHCustomCABundle(t *testing.T) {
 			mountPath: customMountPath,
 			wantMount: customMountPath,
 		},
-		"s3 credentials naming the same bundle": {
-			args: []string{"hf://org/model", "/mnt/models"},
-			env: []corev1.EnvVar{
-				{Name: awsCABundleConfigMapEnvVar, Value: constants.ODHKServeCustomCABundleConfigMapName},
-				{Name: awsCABundleEnvVar, Value: "/etc/ssl/custom-certs/cabundle.crt"},
-			},
-			wantMount: constants.DefaultCaBundleVolumeMountPath,
-		},
 		"s3 source": {
 			args: []string{"s3://bucket/model", "/mnt/models"},
 		},
@@ -94,7 +86,7 @@ func TestDefaultODHCustomCABundle(t *testing.T) {
 			args: []string{"https://models.example.test/model.tar", "/mnt/models"},
 			env:  []corev1.EnvVar{{Name: sslCertFileEnvVar, Value: "/certs/ca.crt"}},
 		},
-		"s3 credentials naming another bundle": {
+		"s3 bundle ConfigMap already set": {
 			args: []string{"hf://org/model", "/mnt/models"},
 			env:  []corev1.EnvVar{{Name: awsCABundleConfigMapEnvVar, Value: "my-s3-ca"}},
 		},
