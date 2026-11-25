@@ -94,6 +94,19 @@ spec:
                   Enables OpenShift Developer Console dashboards for LLMInferenceService.
                   Enabled by default.
                 type: boolean
+              enableLLMInferenceServiceDisaggregatedSet:
+                description: |-
+                  EnableLLMInferenceServiceDisaggregatedSet sets the disaggregatedSet feature
+                  gate of the LLMInferenceService controller. When enabled, prefill/decode
+                  LLMInferenceServices whose merged spec.annotations set
+                  serving.kserve.io/enable-disaggregated-set to "true", as the prefill/decode
+                  presets do, run both roles as one DisaggregatedSet. Requires the
+                  DisaggregatedSet CRD from LWS v0.9.0 or later. Enabling it replaces the
+                  Deployments or LeaderWorkerSets of running prefill/decode services, and each
+                  service is unavailable until its new pods are ready; disabling it moves them
+                  back the same way. A service keeps its workloads by setting the annotation
+                  to "false" in its own spec.annotations. Disabled when unset.
+                type: boolean
               enableLLMInferenceServiceStrictNetworkPolicy:
                 description: |-
                   EnableLLMInferenceServiceStrictNetworkPolicy enables the restrictive
